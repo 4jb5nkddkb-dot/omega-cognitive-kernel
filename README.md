@@ -21,14 +21,27 @@ World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
 
 ---
 
-## Install / build
+## Install
+
+**From Git (recommended)**
 
 ```bash
-cargo build --release
-cargo test
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
+# pin a release:
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.1 --locked
 ```
 
-Binary: `omega-kernel` (v0.3.0).
+**From source**
+
+```bash
+git clone https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel
+cd omega-cognitive-kernel
+cargo test
+cargo build --release
+# binary: target/release/omega-kernel
+```
+
+Binary name: `omega-kernel` (v0.3.1).
 
 ## CLI
 
@@ -64,7 +77,7 @@ fn main() -> omega_cognitive_kernel::Result<()> {
         "err {:.3} → {:.3} (decreased={})",
         report.early_avg_err, report.final_avg_err, report.error_decreased
     );
-    let ckpt = kernel.checkpoint("stable")?;
+    let _ckpt = kernel.checkpoint("stable")?;
     kernel.save()?;
     Ok(())
 }
@@ -105,7 +118,10 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **S2** | Persist + CLI + library API + demo narrative |
 | **S3** | Audit, checkpoints/rollback, bandit task shell |
 | **Hardening** | Reward→strategy feedback, RuleEffect bounds, checkpoint FIFO, seeded bandit |
-| Next | Stronger real tasks, packaging |
+| **0.3.1** | Packaging: LICENSE, install-from-git, tagged release workflow |
+| Next | Stronger real tasks, crates.io (optional) |
+
+See [CHANGELOG.md](CHANGELOG.md) and [RELEASING.md](RELEASING.md).
 
 ---
 
