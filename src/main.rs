@@ -1,125 +1,169 @@
-use omega_cognitive_kernel::l0::{
-    decision::ConstrainedDecisionMaker,
-    executor::SandboxedExecutor,
-    observer::MultiModalObserver,
-    predictor::ModelBasedPredictor,
-    L0WorldLayer,
-};
-use omega_cognitive_kernel::l1::L1CognitiveLayer;
-use omega_cognitive_kernel::l2::L2MetaLayer;
-use omega_cognitive_kernel::memory::MemoryFacade;
-use omega_cognitive_kernel::orchestrator::OmegaOrchestrator;
-use omega_cognitive_kernel::safety;
-use std::collections::HashMap;
+use clap::{Parser, Subcommand};
+use omega_cognitive_kernel::api::Kernel;
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(
+    name = "omega-kernel",
+    version,
+    about = "Omega Cognitive Kernel — self-improving cognitive runtime (L0/L1/L2)"
+)]
+struct Cli {
+    /// Path to persisted state (default: .omega/state.json)
+    #[arg(long, global = true)]
+    state: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run N cognitive cycles (product demo / training loop)
+    Run {
+        /// High-level goal biasing the loop
+        #[arg(long, default_value = "maintain coherent self-model while acting in world")]
+        goal: String,
+        /// Number of steps
+        #[arg(long, default_value_t = 12)]
+        steps: u32,
+        /// Disable writing state after each step
+        #[arg(long)]
+        no_save: bool,
+    },
+    /// Print current kernel status (loads state if present)
+    Status,
+    /// Delete persisted state and start clean
+    Reset {
+        /// Require explicit confirmation
+        #[arg(long)]
+        yes: bool,
+    },
+    /// One-shot narrative demo (run + summary suitable for sharing)
+    Demo {
+        #[arg(long, default_value_t = 12)]
+        steps: u32,
+    },
+}
+
+fn state_path(cli: &Cli) -> Option<String> {
+    cli.state.as_ref().map(|p| p.display().to_string())
+}
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║         Omega Cognitive Kernel v0.1.0 — S1             ║");
-    println!("║   Consequence loop: memory + rules change behavior     ║");
-    println!("╚══════════════════════════════════════════════════════════╝\n");
+    let cli = Cli::parse();
 
-    let observer = MultiModalObserver::new();
-    let predictor = ModelBasedPredictor;
-    let decision = ConstrainedDecisionMaker;
-    let executor = SandboxedExecutor::new(vec![
-        "noop".into(),
-        "observe".into(),
-        "explore".into(),
-        "exploit".into(),
-        "stabilize".into(),
-    ]);
-    let memory = MemoryFacade::new();
-
-    let l0 = L0WorldLayer {
-        observer,
-        predictor,
-        decision,
-        executor,
-        memory,
-    };
-
-    let l1 = L1CognitiveLayer::new();
-    let l2 = L2MetaLayer::new();
-
-    let mut kernel = OmegaOrchestrator {
-        l0,
-        l1,
-        l2,
-        biases: HashMap::new(),
-        constraints: safety::default_constraints(),
-        total_steps: 0,
-    };
-
-    let goal = "maintain coherent self-model while acting in world";
-    let mut first_err: Option<f64> = None;
-    let mut last_err = 0.0;
-
-    for step in 1..=12 {
-        match kernel.run_once(goal) {
-            Ok(result) => {
-                let err = kernel.l0.memory.cas.avg_prediction_error;
-                if first_err.is_none() {
-                    first_err = Some(err);
-                }
-                last_err = err;
-                let action = result
+    match &cli.command {
+        Commands::Run {
+            goal,
+            steps,
+            no_save,
+        } => {
+            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            kernel.autosave = !no_save;
+            println!("goal   : {goal}");
+            println!("steps  : {steps}");
+            println!("state  : {}", kernel.state_path.display());
+            println!();
+            for i in 1..=*steps {
+                let r = kernel.step(goal)?;
+                let act = r
                     .trajectory
                     .actions
                     .first()
                     .map(|a| a.name.as_str())
                     .unwrap_or("-");
                 println!(
-                    "step {:>2} │ act={:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3} │ align={:.2}",
-                    step,
-                    action,
-                    result.l1.patched,
-                    kernel.l0.memory.cognitive_effect.error_damping,
-                    err,
-                    result.l2.alignment_score,
+                    "step {i:>2} │ act={act:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3}",
+                    r.l1.patched,
+                    kernel.inner.l0.memory.cognitive_effect.error_damping,
+                    kernel.inner.l0.memory.cas.avg_prediction_error,
                 );
-                if let Some(d) = result.l1.effect_damping {
-                    println!("         └─ rule committed: error_damping → {:.2}", d);
-                }
-                if let Some(reason) = &result.l1.reason {
-                    println!("         └─ patch rejected: {}", reason);
-                }
-                if result.l2.entered_fixed_point {
-                    println!("         └─ ★ entered omega=dayan fixed point mode");
+                if let Some(d) = r.l1.effect_damping {
+                    println!("         └─ rule committed: error_damping → {d:.2}");
                 }
             }
-            Err(e) => {
-                eprintln!("step {:>2} │ error: {}", step, e);
+            if !no_save {
+                kernel.save()?;
             }
+            let st = kernel.status();
+            println!("\n── status ──");
+            println!(
+                "steps={}  avg_err={:.3}  damp={:.3}  modules={}  strategies={}",
+                st.total_steps,
+                st.avg_prediction_error,
+                st.error_damping,
+                st.active_modules,
+                st.strategy_count
+            );
+        }
+        Commands::Status => {
+            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let st = kernel.status();
+            println!("state_path     : {}", st.state_path);
+            println!("total_steps    : {}", st.total_steps);
+            println!("avg_pred_error : {:.4}", st.avg_prediction_error);
+            println!("adaptation     : {:.4}", st.adaptation_score);
+            println!("error_damping  : {:.4}", st.error_damping);
+            println!("active_modules : {}", st.active_modules);
+            println!("strategies     : {}", st.strategy_count);
+            println!("cases          : {}", st.case_count);
+        }
+        Commands::Reset { yes } => {
+            if !yes {
+                eprintln!("Refusing to reset without --yes");
+                std::process::exit(2);
+            }
+            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let path = kernel.state_path.display().to_string();
+            kernel.reset()?;
+            println!("reset ok — removed state at {path}");
+        }
+        Commands::Demo { steps } => {
+            println!("╔══════════════════════════════════════════════════════════╗");
+            println!("║     Omega Kernel — Product Demo (S2)                     ║");
+            println!("║     Self-modification with measurable consequence        ║");
+            println!("╚══════════════════════════════════════════════════════════╝\n");
+
+            let demo_path = std::env::temp_dir().join("omega-demo-state.json");
+            let _ = std::fs::remove_file(&demo_path);
+            let mut kernel = Kernel::with_state_path(&demo_path);
+            kernel.autosave = true;
+
+            let goal = "maintain coherent self-model while acting in world";
+            println!("Narrative:");
+            println!("  1. Kernel starts with high uncertainty.");
+            println!("  2. Errors trigger L1 cognitive patches (RuleEffect).");
+            println!("  3. Damping + action preferences change L0 behavior.");
+            println!("  4. Average prediction error should fall.\n");
+
+            let report = kernel.run(goal, *steps)?;
+            println!("── results ──");
+            println!("steps            : {}", report.steps);
+            println!("patches accepted : {}", report.patches_accepted);
+            println!("early avg_err    : {:.3}", report.early_avg_err);
+            println!("final avg_err    : {:.3}", report.final_avg_err);
+            println!("final damping    : {:.3}", report.final_damping);
+            println!(
+                "error decreased  : {}",
+                if report.error_decreased {
+                    "yes ✓"
+                } else {
+                    "no"
+                }
+            );
+            if let Some(last) = report.last_actions.last() {
+                println!("last action      : {last}");
+            }
+            println!("\nState written to {}", demo_path.display());
+            println!(
+                "Re-run with: cargo run -- status --state {}",
+                demo_path.display()
+            );
         }
     }
 
-    println!("\n── S1 consequence summary ──");
-    if let Some(fe) = first_err {
-        println!("early avg_err  : {:.3}", fe);
-        println!("final avg_err  : {:.3}", last_err);
-        println!(
-            "active damping : {:.3}",
-            kernel.l0.memory.cognitive_effect.error_damping
-        );
-        if last_err < fe {
-            println!("result         : error decreased (self-modification had consequence)");
-        } else {
-            println!("result         : error did not decrease (inspect rules / thresholds)");
-        }
-    }
-
-    println!("\n── Active cognitive modules ──");
-    for (k, v) in &kernel.l1.store.active {
-        println!("• {} ({} bytes)", k, v.len());
-    }
-
-    println!("\n── Final biases ──");
-    for (k, v) in &kernel.biases {
-        println!("• {}: {:.3}", k, v);
-    }
-
-    println!("\nDemo finished.");
     Ok(())
 }
