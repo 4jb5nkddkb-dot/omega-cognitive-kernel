@@ -47,9 +47,9 @@ cargo run -- reset --yes
 
 ### What `demo` proves
 
-1. Kernel starts with relatively high uncertainty.  
-2. High error triggers L1 patches that carry a **`RuleEffect`** (not code `eval`).  
-3. Effect changes error damping and action preference (`stabilize` / `observe` / …).  
+1. Kernel starts with relatively high uncertainty.
+2. High error triggers L1 patches that carry a **`RuleEffect`** (not code `eval`).
+3. Effect changes error damping and action preference.
 4. Report shows early vs final `avg_err` and whether error decreased.
 
 ## Library API
@@ -65,45 +65,37 @@ fn main() -> omega_cognitive_kernel::Result<()> {
         report.early_avg_err, report.final_avg_err, report.error_decreased
     );
     let ckpt = kernel.checkpoint("stable")?;
-    // kernel.rollback(ckpt.id)?;
     kernel.save()?;
     Ok(())
 }
 ```
 
-Key types: `Kernel`, `RunReport`, `KernelStatus`, `KernelSnapshot`, `RuleEffect`.
-
 ## Architecture
 
 | Layer | Role |
 |-------|------|
-| **L0** | Observe → predict (memory-aware) → decide (strategy + `RuleEffect`) → sandboxed execute |
-| **L1** | Distill → reflect → validate → commit **`RuleEffect`** into cognitive memory |
-| **L2** | Metrics → optional meta-mode → modulate biases/constraints (heuristic; not a proven fixed point) |
+| **L0** | Observe → predict → decide (strategy + `RuleEffect`) → sandboxed execute |
+| **L1** | Distill → reflect → validate/sanitize → commit **`RuleEffect`** |
+| **L2** | Metrics → optional meta-mode → modulate biases/constraints (heuristic) |
 
 ### Safety posture
 
-- L0 actions: whitelist + constraints.  
-- L1: risk threshold + forbidden keywords on patch *text*; runtime applies **structured effects only**, not arbitrary code.  
-- L2 modulates biases/constraints only.  
-- Checkpoints before accepted patches; rollback restores snapshot.
+- L0: action whitelist + constraints
+- L1: risk + keywords + **`RuleEffect` bounds**; runtime applies structured effects only
+- Checkpoints (FIFO max 32) before accepted patches; rollback restores snapshot
 
 ### Persistence & audit
 
 ```
 .omega/
-  state.json          # cases, strategies, CAS, RuleEffect, modules, biases
-  audit.jsonl         # steps, patches, checkpoints, rollbacks
+  state.json
+  audit.jsonl
   checkpoints/
-    <uuid>.meta.json
-    <uuid>.state.json
 ```
 
 ## Design stance
 
-**Mature ideas, unusual packaging.** Explore/exploit, stabilize-under-error, and uncertainty reduction are standard. The distinctive choice is a **training-free patch loop**: reflection emits a small, typed effect; memory makes it durable and query-relevant to the next decision; audit + checkpoint keep the loop accountable.
-
-That is a deliberate trade: **less general learning power, more operational control and cost discipline**.
+**Mature ideas, unusual packaging.** The distinctive choice is a **training-free patch loop**: typed effect, durable memory, audit + checkpoint.
 
 ## Status
 
@@ -112,7 +104,8 @@ That is a deliberate trade: **less general learning power, more operational cont
 | **S1** | Self-modification has measurable consequence |
 | **S2** | Persist + CLI + library API + demo narrative |
 | **S3** | Audit, checkpoints/rollback, bandit task shell |
-| Next | Stronger tasks, reward→memory coupling, effect validation, reproducible benchmarks |
+| **Hardening** | Reward→strategy feedback, RuleEffect bounds, checkpoint FIFO, seeded bandit |
+| Next | Stronger real tasks, packaging |
 
 ---
 

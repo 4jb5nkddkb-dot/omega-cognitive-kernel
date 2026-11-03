@@ -1,7 +1,7 @@
 pub mod abstractor;
 pub mod learner;
-pub mod patch;
 pub mod reflector;
+pub mod patch;
 pub mod sandbox;
 pub mod store;
 
@@ -44,13 +44,12 @@ impl L1CognitiveLayer {
         memory: &mut MemoryFacade,
     ) -> Result<L1Result> {
         let abstraction = self.abstractor.distill(trajectory)?;
-        // Memory already updated in L0 — do not double-count CAS steps.
 
-        if let Some(patch) = self.reflector.reflect(trajectory, &abstraction)? {
+        if let Some(mut patch) = self.reflector.reflect(trajectory, &abstraction)? {
+            patch.effect = patch.effect.sanitize();
             let report = self.sandbox.validate(&patch)?;
             if report.accepted {
                 let damping = patch.effect.error_damping;
-                // S1: structured effect becomes active for next L0 step.
                 memory.cognitive_effect = patch.effect.clone();
                 self.store.commit(patch, &report)?;
                 return Ok(L1Result {
