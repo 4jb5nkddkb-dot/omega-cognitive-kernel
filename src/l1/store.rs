@@ -23,6 +23,14 @@ impl VersionedStore {
             .insert(patch.target_module.clone(), patch.code);
         Ok(())
     }
+
+    pub fn snapshot(&self) -> (HashMap<String, String>, Vec<(CognitivePatch, String)>) {
+        (self.active.clone(), self.history.clone())
+    }
+
+    pub fn restore(active: HashMap<String, String>, history: Vec<(CognitivePatch, String)>) -> Self {
+        Self { active, history }
+    }
 }
 
 impl Default for VersionedStore {

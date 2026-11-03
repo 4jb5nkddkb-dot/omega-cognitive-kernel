@@ -14,6 +14,9 @@ pub enum OmegaError {
     #[error("Memory error: {0}")]
     Memory(String),
 
+    #[error("Persistence error: {0}")]
+    Persist(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
