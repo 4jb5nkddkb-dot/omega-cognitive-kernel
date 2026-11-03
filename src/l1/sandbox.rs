@@ -129,7 +129,10 @@ mod tests {
     fn rejects_unknown_action_preference() {
         let sandbox = CodeSandbox::default();
         let mut patch = make_patch("fn ok() {}", 0.1);
-        patch.effect.action_preference.insert("launch_missiles".into(), 1.0);
+        patch
+            .effect
+            .action_preference
+            .insert("launch_missiles".into(), 1.0);
         assert!(!sandbox.validate(&patch).unwrap().accepted);
     }
 }

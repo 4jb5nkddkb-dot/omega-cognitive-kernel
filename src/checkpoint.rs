@@ -58,8 +58,8 @@ impl CheckpointStore {
             damping,
         };
         snapshot.save_to(&self.snap_path(meta.id))?;
-        let json = serde_json::to_string_pretty(&meta)
-            .map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(&meta).map_err(|e| OmegaError::Persist(e.to_string()))?;
         fs::write(self.meta_path(meta.id), json).map_err(|e| OmegaError::Persist(e.to_string()))?;
         self.prune()?;
         Ok(meta)

@@ -1,7 +1,7 @@
 pub mod abstractor;
 pub mod learner;
-pub mod reflector;
 pub mod patch;
+pub mod reflector;
 pub mod sandbox;
 pub mod store;
 
