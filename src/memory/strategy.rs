@@ -49,6 +49,14 @@ impl StrategyMemory {
         });
         v.into_iter().take(k).collect()
     }
+
+    pub fn snapshot(&self) -> HashMap<String, Strategy> {
+        self.strategies.clone()
+    }
+
+    pub fn restore(strategies: HashMap<String, Strategy>) -> Self {
+        Self { strategies }
+    }
 }
 
 #[cfg(test)]

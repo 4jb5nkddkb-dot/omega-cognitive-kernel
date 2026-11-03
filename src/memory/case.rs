@@ -59,6 +59,24 @@ impl CaseMemory {
     pub fn retrieve(&self, _query: &str, k: usize) -> Vec<Case> {
         self.cases.iter().rev().take(k).cloned().collect()
     }
+
+    pub fn snapshot(&self) -> (Vec<Case>, usize) {
+        (self.cases.iter().cloned().collect(), self.capacity)
+    }
+
+    pub fn restore(cases: Vec<Case>, capacity: usize) -> Self {
+        let mut dq = VecDeque::with_capacity(capacity);
+        for c in cases {
+            if dq.len() >= capacity {
+                dq.pop_front();
+            }
+            dq.push_back(c);
+        }
+        Self {
+            cases: dq,
+            capacity,
+        }
+    }
 }
 
 impl Default for CaseMemory {
@@ -93,7 +111,7 @@ mod tests {
         mem.add(&sample_traj("exploit", 0.1));
         let cases = mem.retrieve("any", 5);
         assert_eq!(cases.len(), 2);
-        assert_eq!(cases[0].goal, "exploit"); // most recent first
+        assert_eq!(cases[0].goal, "exploit");
     }
 
     #[test]
