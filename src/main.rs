@@ -16,14 +16,20 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║         Omega Cognitive Kernel v0.1.0                  ║");
-    println!("║   L0 World · L1 Cognitive · L2 Meta (omega=dayan)      ║");
+    println!("║         Omega Cognitive Kernel v0.1.0 — S1             ║");
+    println!("║   Consequence loop: memory + rules change behavior     ║");
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     let observer = MultiModalObserver::new();
     let predictor = ModelBasedPredictor;
     let decision = ConstrainedDecisionMaker;
-    let executor = SandboxedExecutor::new(vec!["noop".into(), "observe".into()]);
+    let executor = SandboxedExecutor::new(vec![
+        "noop".into(),
+        "observe".into(),
+        "explore".into(),
+        "exploit".into(),
+        "stabilize".into(),
+    ]);
     let memory = MemoryFacade::new();
 
     let l0 = L0WorldLayer {
@@ -47,19 +53,35 @@ fn main() -> anyhow::Result<()> {
     };
 
     let goal = "maintain coherent self-model while acting in world";
+    let mut first_err: Option<f64> = None;
+    let mut last_err = 0.0;
 
-    for step in 1..=10 {
+    for step in 1..=12 {
         match kernel.run_once(goal) {
             Ok(result) => {
+                let err = kernel.l0.memory.cas.avg_prediction_error;
+                if first_err.is_none() {
+                    first_err = Some(err);
+                }
+                last_err = err;
+                let action = result
+                    .trajectory
+                    .actions
+                    .first()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("-");
                 println!(
-                    "step {:>2} │ patched={:<5} │ fixed_point={:<5} │ align={:.2} │ pred_power={:.3} │ avg_err={:.3}",
+                    "step {:>2} │ act={:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3} │ align={:.2}",
                     step,
+                    action,
                     result.l1.patched,
-                    result.l2.in_fixed_point,
+                    kernel.l0.memory.cognitive_effect.error_damping,
+                    err,
                     result.l2.alignment_score,
-                    result.l2.metrics.predictive_power,
-                    kernel.l0.memory.cas.avg_prediction_error
                 );
+                if let Some(d) = result.l1.effect_damping {
+                    println!("         └─ rule committed: error_damping → {:.2}", d);
+                }
                 if let Some(reason) = &result.l1.reason {
                     println!("         └─ patch rejected: {}", reason);
                 }
@@ -70,6 +92,21 @@ fn main() -> anyhow::Result<()> {
             Err(e) => {
                 eprintln!("step {:>2} │ error: {}", step, e);
             }
+        }
+    }
+
+    println!("\n── S1 consequence summary ──");
+    if let Some(fe) = first_err {
+        println!("early avg_err  : {:.3}", fe);
+        println!("final avg_err  : {:.3}", last_err);
+        println!(
+            "active damping : {:.3}",
+            kernel.l0.memory.cognitive_effect.error_damping
+        );
+        if last_err < fe {
+            println!("result         : error decreased (self-modification had consequence)");
+        } else {
+            println!("result         : error did not decrease (inspect rules / thresholds)");
         }
     }
 
