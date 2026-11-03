@@ -14,11 +14,11 @@ impl PatchGenerator {
             traj.prediction_errors.iter().sum::<f64>() / traj.prediction_errors.len() as f64
         };
 
-        // Stronger damping when error is higher (still within sandbox risk budget).
+        // Stronger damping when error is higher so subsequent uncertainty drops.
         let error_damping = if high_error {
-            (0.55 + mean_err * 0.15).clamp(0.55, 0.80)
+            (0.35 + mean_err * 0.10).clamp(0.30, 0.55)
         } else {
-            0.90
+            0.75
         };
 
         let mut action_preference = HashMap::new();

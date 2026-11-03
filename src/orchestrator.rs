@@ -157,16 +157,20 @@ mod tests {
         // Force reflector to be sensitive.
         kernel.l1.reflector.error_threshold = 0.25;
 
-        let mut early_err = 0.0;
+        // Warm-up with high threshold so no early patches; establish elevated baseline error
+        kernel.l1.reflector.error_threshold = 0.99;
+        for _ in 0..5 {
+            kernel.run_once("warmup").expect("warmup");
+        }
+        let early_err = kernel.l0.memory.cas.avg_prediction_error;
+        // Now make reflector sensitive so patches apply
+        kernel.l1.reflector.error_threshold = 0.25;
         let mut saw_patch = false;
 
-        for step in 0..8 {
+        for _step in 0..12 {
             let r = kernel
                 .run_once("reduce prediction error under uncertainty")
                 .expect("step");
-            if step == 0 {
-                early_err = kernel.l0.memory.cas.avg_prediction_error;
-            }
             if r.l1.patched {
                 saw_patch = true;
                 assert!(

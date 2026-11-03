@@ -70,7 +70,7 @@ impl CheckpointStore {
         if list.len() <= self.max_keep {
             return Ok(());
         }
-        list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        list.sort_by_key(|a| a.created_at);
         let excess = list.len().saturating_sub(self.max_keep);
         for meta in list.into_iter().take(excess) {
             let _ = fs::remove_file(self.meta_path(meta.id));
@@ -100,7 +100,7 @@ impl CheckpointStore {
                 out.push(m);
             }
         }
-        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(out)
     }
 
