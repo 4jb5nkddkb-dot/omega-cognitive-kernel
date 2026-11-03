@@ -40,3 +40,40 @@ impl Executor for SandboxedExecutor {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Action;
+    use std::collections::HashMap;
+
+    fn action(name: &str, checked: bool) -> Action {
+        Action {
+            name: name.into(),
+            params: HashMap::new(),
+            constraints_checked: checked,
+        }
+    }
+
+    #[test]
+    fn allows_whitelisted_checked_action() {
+        let mut ex = SandboxedExecutor::new(vec!["observe".into()]);
+        let res = ex.execute(&[action("observe", true)]);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn blocks_unchecked_action() {
+        let mut ex = SandboxedExecutor::new(vec!["observe".into()]);
+        let res = ex.execute(&[action("observe", false)]);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn blocks_non_whitelisted_action() {
+        let mut ex = SandboxedExecutor::new(vec!["observe".into()]);
+        let res = ex.execute(&[action("delete_everything", true)]);
+        assert!(res.is_err());
+    }
+}
