@@ -108,7 +108,13 @@ mod tests {
             observer: MultiModalObserver::new(),
             predictor: ModelBasedPredictor,
             decision: ConstrainedDecisionMaker,
-            executor: SandboxedExecutor::new(vec!["noop".into(), "observe".into()]),
+            executor: SandboxedExecutor::new(vec![
+                "noop".into(),
+                "observe".into(),
+                "explore".into(),
+                "exploit".into(),
+                "stabilize".into(),
+            ]),
             memory: MemoryFacade::new(),
         };
         OmegaOrchestrator {
@@ -141,5 +147,64 @@ mod tests {
         }
         assert_eq!(kernel.total_steps, 3);
         assert!(kernel.l0.memory.cas.total_steps >= 3);
+    }
+
+    /// S1 gate: high error triggers a patch; subsequent steps show lower avg error
+    /// and active damping < 1.0 (structured effect changed behavior).
+    #[test]
+    fn s1_patch_reduces_prediction_error() {
+        let mut kernel = make_kernel();
+        // Force reflector to be sensitive.
+        kernel.l1.reflector.error_threshold = 0.25;
+
+        let mut early_err = 0.0;
+        let mut saw_patch = false;
+
+        for step in 0..8 {
+            let r = kernel
+                .run_once("reduce prediction error under uncertainty")
+                .expect("step");
+            if step == 0 {
+                early_err = kernel.l0.memory.cas.avg_prediction_error;
+            }
+            if r.l1.patched {
+                saw_patch = true;
+                assert!(
+                    r.l1.effect_damping.unwrap_or(1.0) < 1.0,
+                    "committed patch should lower damping"
+                );
+            }
+        }
+
+        assert!(saw_patch, "expected at least one accepted patch under high error");
+        assert!(
+            kernel.l0.memory.cognitive_effect.error_damping < 1.0,
+            "active cognitive effect must damp errors"
+        );
+        let final_err = kernel.l0.memory.cas.avg_prediction_error;
+        assert!(
+            final_err < early_err,
+            "avg error should decrease after rule commit: early={early_err:.3} final={final_err:.3}"
+        );
+    }
+
+    #[test]
+    fn s1_decision_uses_rule_preference() {
+        let mut kernel = make_kernel();
+        // Seed a strong stabilize preference as if a patch was committed.
+        kernel
+            .l0
+            .memory
+            .cognitive_effect
+            .action_preference
+            .insert("stabilize".into(), 3.0);
+        kernel.l0.memory.cognitive_effect.error_damping = 0.6;
+
+        let r = kernel.run_once("test preference").expect("step");
+        let name = &r.trajectory.actions[0].name;
+        assert_eq!(
+            name, "stabilize",
+            "decision should prefer stabilize from RuleEffect"
+        );
     }
 }
