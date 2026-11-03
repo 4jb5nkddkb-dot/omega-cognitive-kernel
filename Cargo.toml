@@ -1,6 +1,6 @@
 [package]
 name = "omega-cognitive-kernel"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Omega Cognitive Kernel — L0/L1/L2 metacognitive architecture with omega=dayan fixed point"
 license = "MIT"

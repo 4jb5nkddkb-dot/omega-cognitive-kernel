@@ -7,6 +7,9 @@ pub mod l2;
 pub mod safety;
 pub mod orchestrator;
 pub mod persist;
+pub mod audit;
+pub mod checkpoint;
+pub mod task;
 pub mod api;
 
 pub use api::{Kernel, KernelStatus, RunReport};
@@ -14,3 +17,4 @@ pub use orchestrator::{OmegaOrchestrator, StepResult};
 pub use types::*;
 pub use error::{OmegaError, Result};
 pub use persist::{KernelSnapshot, DEFAULT_STATE_PATH};
+pub use task::{run_bandit_task, BanditReport};
