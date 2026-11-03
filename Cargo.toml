@@ -2,7 +2,7 @@
 name = "omega-cognitive-kernel"
 version = "0.3.0"
 edition = "2021"
-description = "Omega Cognitive Kernel — L0/L1/L2 metacognitive architecture with omega=dayan fixed point"
+description = "Online strategy-patch runtime: training-free RuleEffect adaptation with audit and rollback"
 license = "MIT"
 authors = ["Omega Core Contributors"]
 readme = "README.md"
