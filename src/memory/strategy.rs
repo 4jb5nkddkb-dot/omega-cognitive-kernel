@@ -50,3 +50,49 @@ impl StrategyMemory {
         v.into_iter().take(k).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Action, Trajectory};
+    use std::collections::HashMap;
+
+    fn traj_with_action(name: &str, low_error: bool) -> Trajectory {
+        Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![Action {
+                name: name.into(),
+                params: HashMap::new(),
+                constraints_checked: true,
+            }],
+            outcomes: vec![],
+            prediction_errors: if low_error {
+                vec![0.1]
+            } else {
+                vec![0.8]
+            },
+            meta: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn success_increases_weight() {
+        let mut sm = StrategyMemory::default();
+        sm.absorb(&traj_with_action("observe", true));
+        sm.absorb(&traj_with_action("observe", true));
+        let strategies = sm.retrieve("any", 5);
+        assert_eq!(strategies.len(), 1);
+        assert!(strategies[0].weight > 1.0);
+        assert_eq!(strategies[0].success_count, 2);
+    }
+
+    #[test]
+    fn failure_decreases_weight() {
+        let mut sm = StrategyMemory::default();
+        sm.absorb(&traj_with_action("risky", false));
+        let strategies = sm.retrieve("any", 5);
+        assert!(strategies[0].weight < 1.0);
+        assert_eq!(strategies[0].fail_count, 1);
+    }
+}
