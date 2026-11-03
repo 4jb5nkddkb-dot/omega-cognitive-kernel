@@ -22,7 +22,11 @@ fn arm_for_action(action: &str) -> usize {
     }
 }
 
-pub fn run_bandit_task(kernel: &mut Kernel, episodes: u32, steps_per_episode: u32) -> Result<BanditReport> {
+pub fn run_bandit_task(
+    kernel: &mut Kernel,
+    episodes: u32,
+    steps_per_episode: u32,
+) -> Result<BanditReport> {
     let mut total_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;

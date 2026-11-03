@@ -20,7 +20,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Run {
-        #[arg(long, default_value = "maintain coherent self-model while acting in world")]
+        #[arg(
+            long,
+            default_value = "maintain coherent self-model while acting in world"
+        )]
         goal: String,
         #[arg(long, default_value_t = 12)]
         steps: u32,
@@ -65,7 +68,11 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Run { goal, steps, no_save } => {
+        Commands::Run {
+            goal,
+            steps,
+            no_save,
+        } => {
             let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
             kernel.autosave = !no_save;
             println!("goal   : {goal}");

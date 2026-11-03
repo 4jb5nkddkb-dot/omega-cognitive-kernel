@@ -85,7 +85,8 @@ impl AuditLog {
         if !self.path.exists() {
             return Ok(vec![]);
         }
-        let data = fs::read_to_string(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let data =
+            fs::read_to_string(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
         let mut rows: Vec<AuditRecord> = data
             .lines()
             .filter(|l| !l.trim().is_empty())

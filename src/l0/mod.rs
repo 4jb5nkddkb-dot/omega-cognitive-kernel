@@ -1,7 +1,7 @@
-pub mod observer;
-pub mod predictor;
 pub mod decision;
 pub mod executor;
+pub mod observer;
+pub mod predictor;
 
 use crate::error::Result;
 use crate::memory::MemoryFacade;
@@ -44,7 +44,10 @@ where
         let errors = self.compute_errors(&predictions, &actions);
 
         let mut meta = HashMap::new();
-        meta.insert("goal".into(), serde_json::Value::String(intent.goal.clone()));
+        meta.insert(
+            "goal".into(),
+            serde_json::Value::String(intent.goal.clone()),
+        );
         meta.insert(
             "damping".into(),
             serde_json::json!(self.memory.cognitive_effect.error_damping),

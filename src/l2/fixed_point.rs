@@ -33,9 +33,7 @@ impl OmegaDayanFixedPoint {
         if score > 0.82 {
             modulation.bias_delta.insert("self_ref".into(), 0.18);
             modulation.bias_delta.insert("coherence".into(), 0.12);
-            modulation
-                .constraint_delta
-                .insert("max_risk".into(), -0.04);
+            modulation.constraint_delta.insert("max_risk".into(), -0.04);
         } else {
             modulation
                 .bias_delta
@@ -69,10 +67,7 @@ impl OmegaDayanFixedPoint {
             }
 
             let omega_chars: std::collections::HashSet<char> = omega.chars().collect();
-            let overlap = base
-                .chars()
-                .filter(|c| omega_chars.contains(c))
-                .count() as f64;
+            let overlap = base.chars().filter(|c| omega_chars.contains(c)).count() as f64;
             let denom = omega.len().max(base.len()).max(1) as f64;
             score += (overlap / denom) * 0.25;
         }
@@ -81,7 +76,7 @@ impl OmegaDayanFixedPoint {
             score += 0.18;
         }
 
-        if active_code.len() >= 1 {
+        if !active_code.is_empty() {
             score += 0.08;
         }
 
@@ -113,7 +108,11 @@ mod tests {
     #[test]
     fn higher_score_when_aligned_keywords_present() {
         let fp = OmegaDayanFixedPoint;
-        let s1 = state("maintain coherent self-model", Some("dayan_generative_base"), true);
+        let s1 = state(
+            "maintain coherent self-model",
+            Some("dayan_generative_base"),
+            true,
+        );
         let s2 = state("random goal", None, false);
         let r1 = fp.enter(&s1).unwrap();
         let r2 = fp.enter(&s2).unwrap();
@@ -131,7 +130,11 @@ mod tests {
     #[test]
     fn score_is_clamped() {
         let fp = OmegaDayanFixedPoint;
-        let s = state("self coherent generative", Some("cognitive_rules generative"), true);
+        let s = state(
+            "self coherent generative",
+            Some("cognitive_rules generative"),
+            true,
+        );
         let r = fp.enter(&s).unwrap();
         assert!(r.score >= 0.0 && r.score <= 1.0);
     }

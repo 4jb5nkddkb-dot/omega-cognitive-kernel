@@ -1,13 +1,13 @@
+pub mod cas;
 pub mod case;
 pub mod strategy;
-pub mod cas;
 
-use crate::types::{RuleEffect, Trajectory};
 use crate::error::Result;
-use std::collections::HashMap;
-use case::CaseMemory;
-use strategy::StrategyMemory;
+use crate::types::{RuleEffect, Trajectory};
 use cas::CasState;
+use case::CaseMemory;
+use std::collections::HashMap;
+use strategy::StrategyMemory;
 
 #[derive(Debug, Default)]
 pub struct MemoryFacade {
@@ -27,9 +27,18 @@ impl MemoryFacade {
         let mut ctx = HashMap::new();
         let cases = self.case.retrieve(query, k);
         let strategies = self.strategy.retrieve(query, k);
-        ctx.insert("cases".into(), serde_json::to_value(cases).unwrap_or_default());
-        ctx.insert("strategies".into(), serde_json::to_value(strategies).unwrap_or_default());
-        ctx.insert("cas".into(), serde_json::to_value(&self.cas).unwrap_or_default());
+        ctx.insert(
+            "cases".into(),
+            serde_json::to_value(cases).unwrap_or_default(),
+        );
+        ctx.insert(
+            "strategies".into(),
+            serde_json::to_value(strategies).unwrap_or_default(),
+        );
+        ctx.insert(
+            "cas".into(),
+            serde_json::to_value(&self.cas).unwrap_or_default(),
+        );
         ctx.insert(
             "cognitive_effect".into(),
             serde_json::to_value(&self.cognitive_effect).unwrap_or_default(),

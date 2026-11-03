@@ -83,13 +83,13 @@ impl DecisionMaker for ConstrainedDecisionMaker {
         }
 
         let mut params = HashMap::new();
-        params.insert("goal".into(), serde_json::Value::String(intent.goal.clone()));
+        params.insert(
+            "goal".into(),
+            serde_json::Value::String(intent.goal.clone()),
+        );
         params.insert("uncertainty".into(), serde_json::json!(uncertainty));
         params.insert("score".into(), serde_json::json!(best_score));
-        params.insert(
-            "damping".into(),
-            serde_json::json!(effect.error_damping),
-        );
+        params.insert("damping".into(), serde_json::json!(effect.error_damping));
 
         Ok(vec![Action {
             name: best_name.into(),

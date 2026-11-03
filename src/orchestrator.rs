@@ -71,9 +71,9 @@ where
         };
 
         // L2
-        let l2_result =
-            self.l2
-                .step(&state, self.biases.clone(), self.constraints.clone())?;
+        let l2_result = self
+            .l2
+            .step(&state, self.biases.clone(), self.constraints.clone())?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
 
@@ -176,7 +176,10 @@ mod tests {
             }
         }
 
-        assert!(saw_patch, "expected at least one accepted patch under high error");
+        assert!(
+            saw_patch,
+            "expected at least one accepted patch under high error"
+        );
         assert!(
             kernel.l0.memory.cognitive_effect.error_damping < 1.0,
             "active cognitive effect must damp errors"

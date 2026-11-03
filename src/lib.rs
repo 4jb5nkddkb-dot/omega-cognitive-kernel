@@ -1,20 +1,20 @@
-pub mod types;
+pub mod api;
+pub mod audit;
+pub mod checkpoint;
 pub mod error;
-pub mod memory;
 pub mod l0;
 pub mod l1;
 pub mod l2;
-pub mod safety;
+pub mod memory;
 pub mod orchestrator;
 pub mod persist;
-pub mod audit;
-pub mod checkpoint;
+pub mod safety;
 pub mod task;
-pub mod api;
+pub mod types;
 
 pub use api::{Kernel, KernelStatus, RunReport};
-pub use orchestrator::{OmegaOrchestrator, StepResult};
-pub use types::*;
 pub use error::{OmegaError, Result};
+pub use orchestrator::{OmegaOrchestrator, StepResult};
 pub use persist::{KernelSnapshot, DEFAULT_STATE_PATH};
 pub use task::{run_bandit_task, BanditReport};
+pub use types::*;

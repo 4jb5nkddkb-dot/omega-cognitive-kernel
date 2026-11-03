@@ -1,7 +1,7 @@
-pub mod monitor;
 pub mod emergence;
 pub mod fixed_point;
 pub mod modulator;
+pub mod monitor;
 
 use crate::error::Result;
 use crate::types::{MetaMetrics, SystemState};

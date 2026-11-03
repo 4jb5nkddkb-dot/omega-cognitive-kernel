@@ -18,8 +18,7 @@ impl CasState {
         };
 
         let alpha = 0.1;
-        self.avg_prediction_error =
-            (1.0 - alpha) * self.avg_prediction_error + alpha * mean_err;
+        self.avg_prediction_error = (1.0 - alpha) * self.avg_prediction_error + alpha * mean_err;
         self.adaptation_score = (1.0 - self.avg_prediction_error).clamp(0.0, 1.0);
     }
 }

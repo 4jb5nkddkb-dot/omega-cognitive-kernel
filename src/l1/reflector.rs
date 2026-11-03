@@ -16,11 +16,7 @@ impl Default for Reflector {
 }
 
 impl Reflector {
-    pub fn reflect(
-        &self,
-        traj: &Trajectory,
-        abs: &Abstraction,
-    ) -> Result<Option<CognitivePatch>> {
+    pub fn reflect(&self, traj: &Trajectory, abs: &Abstraction) -> Result<Option<CognitivePatch>> {
         if abs.mean_error < self.error_threshold && abs.action_count > 0 {
             return Ok(None);
         }

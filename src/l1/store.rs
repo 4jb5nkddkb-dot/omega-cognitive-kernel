@@ -17,10 +17,8 @@ impl VersionedStore {
     }
 
     pub fn commit(&mut self, patch: CognitivePatch, report: &ValidationReport) -> Result<()> {
-        self.history
-            .push((patch.clone(), report.message.clone()));
-        self.active
-            .insert(patch.target_module.clone(), patch.code);
+        self.history.push((patch.clone(), report.message.clone()));
+        self.active.insert(patch.target_module.clone(), patch.code);
         Ok(())
     }
 
@@ -28,7 +26,10 @@ impl VersionedStore {
         (self.active.clone(), self.history.clone())
     }
 
-    pub fn restore(active: HashMap<String, String>, history: Vec<(CognitivePatch, String)>) -> Self {
+    pub fn restore(
+        active: HashMap<String, String>,
+        history: Vec<(CognitivePatch, String)>,
+    ) -> Self {
         Self { active, history }
     }
 }

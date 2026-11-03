@@ -75,11 +75,7 @@ mod tests {
                 constraints_checked: true,
             }],
             outcomes: vec![],
-            prediction_errors: if low_error {
-                vec![0.1]
-            } else {
-                vec![0.8]
-            },
+            prediction_errors: if low_error { vec![0.1] } else { vec![0.8] },
             meta: HashMap::new(),
         }
     }
