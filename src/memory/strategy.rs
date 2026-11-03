@@ -23,14 +23,29 @@ impl StrategyMemory {
         } else {
             traj.actions[0].name.clone()
         };
+        self.bump(&key, success);
+    }
 
-        let entry = self.strategies.entry(key.clone()).or_insert(Strategy {
-            name: key,
+    pub fn absorb_reward(&mut self, action: &str, reward: f64) {
+        let success = reward >= 0.5;
+        self.bump(action, success);
+        let entry = self.strategies.entry(action.to_string()).or_insert(Strategy {
+            name: action.to_string(),
             weight: 1.0,
             success_count: 0,
             fail_count: 0,
         });
+        let delta = (reward - 0.5) * 0.2;
+        entry.weight = (entry.weight + delta).clamp(0.1, 10.0);
+    }
 
+    fn bump(&mut self, key: &str, success: bool) {
+        let entry = self.strategies.entry(key.to_string()).or_insert(Strategy {
+            name: key.to_string(),
+            weight: 1.0,
+            success_count: 0,
+            fail_count: 0,
+        });
         if success {
             entry.success_count += 1;
             entry.weight = (entry.weight * 1.05).min(10.0);
