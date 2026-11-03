@@ -84,3 +84,62 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::l0::decision::ConstrainedDecisionMaker;
+    use crate::l0::executor::SandboxedExecutor;
+    use crate::l0::observer::MultiModalObserver;
+    use crate::l0::predictor::ModelBasedPredictor;
+    use crate::l0::L0WorldLayer;
+    use crate::l1::L1CognitiveLayer;
+    use crate::l2::L2MetaLayer;
+    use crate::memory::MemoryFacade;
+    use crate::safety;
+
+    fn make_kernel() -> OmegaOrchestrator<
+        MultiModalObserver,
+        ModelBasedPredictor,
+        ConstrainedDecisionMaker,
+        SandboxedExecutor,
+    > {
+        let l0 = L0WorldLayer {
+            observer: MultiModalObserver::new(),
+            predictor: ModelBasedPredictor,
+            decision: ConstrainedDecisionMaker,
+            executor: SandboxedExecutor::new(vec!["noop".into(), "observe".into()]),
+            memory: MemoryFacade::new(),
+        };
+        OmegaOrchestrator {
+            l0,
+            l1: L1CognitiveLayer::new(),
+            l2: L2MetaLayer::new(),
+            biases: HashMap::new(),
+            constraints: safety::default_constraints(),
+            total_steps: 0,
+        }
+    }
+
+    #[test]
+    fn run_once_increments_steps() {
+        let mut kernel = make_kernel();
+        let r = kernel
+            .run_once("maintain coherent self-model")
+            .expect("run_once should succeed");
+        assert_eq!(kernel.total_steps, 1);
+        assert!(!r.trajectory.observations.is_empty());
+    }
+
+    #[test]
+    fn multiple_steps_accumulate_memory() {
+        let mut kernel = make_kernel();
+        for _ in 0..3 {
+            kernel
+                .run_once("maintain coherent self-model")
+                .expect("step ok");
+        }
+        assert_eq!(kernel.total_steps, 3);
+        assert!(kernel.l0.memory.cas.total_steps >= 3);
+    }
+}
