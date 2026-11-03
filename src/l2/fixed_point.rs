@@ -88,3 +88,51 @@ impl OmegaDayanFixedPoint {
         score.clamp(0.0, 1.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::SystemState;
+    use std::collections::HashMap;
+
+    fn state(omega: &str, dayan: Option<&str>, has_rules: bool) -> SystemState {
+        let mut active = HashMap::new();
+        if has_rules {
+            active.insert("cognitive_rules".into(), "fn x() {}".into());
+        }
+        SystemState {
+            active_code: active,
+            highest_attractor: omega.into(),
+            generative_base: dayan.map(|s| s.into()),
+            last_trajectory_summary: None,
+            avg_prediction_error: 0.3,
+            total_steps: 10,
+        }
+    }
+
+    #[test]
+    fn higher_score_when_aligned_keywords_present() {
+        let fp = OmegaDayanFixedPoint;
+        let s1 = state("maintain coherent self-model", Some("dayan_generative_base"), true);
+        let s2 = state("random goal", None, false);
+        let r1 = fp.enter(&s1).unwrap();
+        let r2 = fp.enter(&s2).unwrap();
+        assert!(r1.score > r2.score);
+    }
+
+    #[test]
+    fn produces_modulation() {
+        let fp = OmegaDayanFixedPoint;
+        let s = state("coherent self", Some("cognitive_rules"), true);
+        let r = fp.enter(&s).unwrap();
+        assert!(!r.modulation.bias_delta.is_empty() || !r.modulation.constraint_delta.is_empty());
+    }
+
+    #[test]
+    fn score_is_clamped() {
+        let fp = OmegaDayanFixedPoint;
+        let s = state("self coherent generative", Some("cognitive_rules generative"), true);
+        let r = fp.enter(&s).unwrap();
+        assert!(r.score >= 0.0 && r.score <= 1.0);
+    }
+}
