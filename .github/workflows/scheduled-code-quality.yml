@@ -27,8 +27,15 @@ jobs:
       - name: Format code
         run: cargo fmt
 
+      - name: Apply Clippy fixes (non-blocking)
+        run: cargo clippy --fix --allow-dirty --allow-staged -- -D warnings || true
+
       - name: Check Clippy
         run: cargo clippy -- -D warnings || true
+
+      - name: Run tests (non-blocking)
+        continue-on-error: true
+        run: cargo test --quiet || true
 
       - name: Check for changes
         id: changes
