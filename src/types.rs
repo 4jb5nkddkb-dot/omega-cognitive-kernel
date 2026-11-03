@@ -52,6 +52,28 @@ pub struct Trajectory {
     pub meta: HashMap<String, serde_json::Value>,
 }
 
+/// Structured, safely-applied effect of a cognitive patch.
+/// This is what actually changes L0 behavior — not the `code` string.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleEffect {
+    /// Multiplies prediction error / uncertainty (1.0 = no change, lower = better).
+    pub error_damping: f64,
+    /// Additive preference scores for action names.
+    pub action_preference: HashMap<String, f64>,
+    /// Floor for reported uncertainty after damping.
+    pub min_uncertainty: f64,
+}
+
+impl Default for RuleEffect {
+    fn default() -> Self {
+        Self {
+            error_damping: 1.0,
+            action_preference: HashMap::new(),
+            min_uncertainty: 0.05,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CognitivePatch {
     pub patch_id: Uuid,
@@ -61,6 +83,8 @@ pub struct CognitivePatch {
     pub expected_effect: String,
     pub risk_level: f64,
     pub created_at: DateTime<Utc>,
+    /// Machine-readable effect applied on commit (S1 consequence path).
+    pub effect: RuleEffect,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
