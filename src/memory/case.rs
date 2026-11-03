@@ -66,3 +66,45 @@ impl Default for CaseMemory {
         Self::new(256)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Trajectory;
+    use std::collections::HashMap;
+
+    fn sample_traj(goal: &str, err: f64) -> Trajectory {
+        let mut meta = HashMap::new();
+        meta.insert("goal".into(), serde_json::Value::String(goal.into()));
+        Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![],
+            outcomes: vec![],
+            prediction_errors: vec![err],
+            meta,
+        }
+    }
+
+    #[test]
+    fn adds_and_retrieves_cases() {
+        let mut mem = CaseMemory::new(10);
+        mem.add(&sample_traj("explore", 0.3));
+        mem.add(&sample_traj("exploit", 0.1));
+        let cases = mem.retrieve("any", 5);
+        assert_eq!(cases.len(), 2);
+        assert_eq!(cases[0].goal, "exploit"); // most recent first
+    }
+
+    #[test]
+    fn respects_capacity() {
+        let mut mem = CaseMemory::new(2);
+        mem.add(&sample_traj("a", 0.1));
+        mem.add(&sample_traj("b", 0.2));
+        mem.add(&sample_traj("c", 0.3));
+        let cases = mem.retrieve("any", 10);
+        assert_eq!(cases.len(), 2);
+        assert_eq!(cases[0].goal, "c");
+        assert_eq!(cases[1].goal, "b");
+    }
+}
