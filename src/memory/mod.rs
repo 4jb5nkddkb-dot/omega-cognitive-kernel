@@ -2,7 +2,7 @@ pub mod case;
 pub mod strategy;
 pub mod cas;
 
-use crate::types::Trajectory;
+use crate::types::{RuleEffect, Trajectory};
 use crate::error::Result;
 use std::collections::HashMap;
 use case::CaseMemory;
@@ -14,6 +14,8 @@ pub struct MemoryFacade {
     pub case: CaseMemory,
     pub strategy: StrategyMemory,
     pub cas: CasState,
+    /// Active structured cognitive effect (updated when L1 commits a patch).
+    pub cognitive_effect: RuleEffect,
 }
 
 impl MemoryFacade {
@@ -28,6 +30,10 @@ impl MemoryFacade {
         ctx.insert("cases".into(), serde_json::to_value(cases).unwrap_or_default());
         ctx.insert("strategies".into(), serde_json::to_value(strategies).unwrap_or_default());
         ctx.insert("cas".into(), serde_json::to_value(&self.cas).unwrap_or_default());
+        ctx.insert(
+            "cognitive_effect".into(),
+            serde_json::to_value(&self.cognitive_effect).unwrap_or_default(),
+        );
         Ok(ctx)
     }
 
