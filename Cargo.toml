@@ -1,11 +1,24 @@
 [package]
 name = "omega-cognitive-kernel"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
+rust-version = "1.74"
 description = "Online strategy-patch runtime: training-free RuleEffect adaptation with audit and rollback"
 license = "MIT"
 authors = ["Omega Core Contributors"]
 readme = "README.md"
+repository = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel"
+homepage = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel"
+documentation = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel#readme"
+keywords = ["cognitive", "agent", "runtime", "patch", "adaptive"]
+categories = ["algorithms", "command-line-utilities"]
+include = [
+  "src/**/*",
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
