@@ -67,3 +67,60 @@ impl CodeSandbox {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::CognitivePatch;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn make_patch(code: &str, risk: f64) -> CognitivePatch {
+        CognitivePatch {
+            patch_id: Uuid::new_v4(),
+            description: "test".into(),
+            code: code.into(),
+            target_module: "cognitive_rules".into(),
+            expected_effect: "test".into(),
+            risk_level: risk,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn accepts_safe_low_risk_patch() {
+        let sandbox = CodeSandbox::default();
+        let patch = make_patch("fn adjust_bias(err: f64) -> f64 { err * 0.9 }", 0.2);
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(report.accepted);
+        assert_eq!(report.message, "accepted");
+    }
+
+    #[test]
+    fn rejects_high_risk_patch() {
+        let sandbox = CodeSandbox::default();
+        let patch = make_patch("fn dangerous() {}", 0.9);
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(!report.accepted);
+        assert!(report.message.contains("risk"));
+    }
+
+    #[test]
+    fn rejects_forbidden_keyword() {
+        let sandbox = CodeSandbox::default();
+        let patch = make_patch("use std::process::Command;", 0.1);
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(!report.accepted);
+        assert!(report.message.contains("forbidden keyword"));
+    }
+
+    #[test]
+    fn rejects_oversized_code() {
+        let sandbox = CodeSandbox::default();
+        let huge = "a".repeat(13_000);
+        let patch = make_patch(&huge, 0.1);
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(!report.accepted);
+        assert_eq!(report.message, "code too long");
+    }
+}
