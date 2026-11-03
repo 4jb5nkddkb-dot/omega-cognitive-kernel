@@ -84,6 +84,7 @@ mod tests {
             expected_effect: "test".into(),
             risk_level: risk,
             created_at: Utc::now(),
+            effect: crate::types::RuleEffect::default(),
         }
     }
 
