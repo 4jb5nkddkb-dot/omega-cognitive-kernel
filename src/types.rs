@@ -74,6 +74,48 @@ impl Default for RuleEffect {
     }
 }
 
+impl RuleEffect {
+    pub const ALLOWED_ACTIONS: &'static [&'static str] =
+        &["noop", "observe", "explore", "exploit", "stabilize"];
+
+    pub fn sanitize(mut self) -> Self {
+        self.error_damping = self.error_damping.clamp(0.2, 1.5);
+        self.min_uncertainty = self.min_uncertainty.clamp(0.01, 0.5);
+        self.action_preference.retain(|k, v| {
+            if !Self::ALLOWED_ACTIONS.contains(&k.as_str()) {
+                return false;
+            }
+            *v = v.clamp(-5.0, 5.0);
+            true
+        });
+        self
+    }
+
+    pub fn validate_bounds(&self) -> Option<String> {
+        if !(0.15..=2.0).contains(&self.error_damping) {
+            return Some(format!(
+                "error_damping {:.3} outside [0.15, 2.0]",
+                self.error_damping
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.min_uncertainty) {
+            return Some(format!(
+                "min_uncertainty {:.3} outside [0.0, 1.0]",
+                self.min_uncertainty
+            ));
+        }
+        for (k, v) in &self.action_preference {
+            if !Self::ALLOWED_ACTIONS.contains(&k.as_str()) {
+                return Some(format!("unknown action preference key: {k}"));
+            }
+            if !(-10.0..=10.0).contains(v) {
+                return Some(format!("action preference {k}={v} outside [-10, 10]"));
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CognitivePatch {
     pub patch_id: Uuid,
@@ -83,7 +125,6 @@ pub struct CognitivePatch {
     pub expected_effect: String,
     pub risk_level: f64,
     pub created_at: DateTime<Utc>,
-    /// Machine-readable effect applied on commit (S1 consequence path).
     pub effect: RuleEffect,
 }
 
