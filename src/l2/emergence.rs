@@ -40,3 +40,55 @@ impl EmergenceDetector {
             && metrics.predictive_power >= avg_pred * 0.98
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::MetaMetrics;
+    use chrono::Utc;
+
+    fn metrics(pred: f64, self_ref: f64) -> MetaMetrics {
+        MetaMetrics {
+            complexity: 1.0,
+            consistency: 0.7,
+            predictive_power: pred,
+            self_ref_stability: self_ref,
+            timestamp: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn does_not_trigger_with_insufficient_history() {
+        let mut det = EmergenceDetector::default();
+        assert!(!det.should_trigger(&metrics(0.9, 0.9)));
+        assert!(!det.should_trigger(&metrics(0.9, 0.9)));
+    }
+
+    #[test]
+    fn triggers_when_thresholds_met() {
+        let mut det = EmergenceDetector {
+            history: Vec::new(),
+            window: 3,
+            pred_threshold: 0.5,
+            self_ref_threshold: 0.5,
+        };
+        for _ in 0..3 {
+            let _ = det.should_trigger(&metrics(0.8, 0.8));
+        }
+        let triggered = det.should_trigger(&metrics(0.85, 0.85));
+        assert!(triggered);
+    }
+
+    #[test]
+    fn does_not_trigger_below_threshold() {
+        let mut det = EmergenceDetector {
+            history: Vec::new(),
+            window: 3,
+            pred_threshold: 0.7,
+            self_ref_threshold: 0.7,
+        };
+        for _ in 0..5 {
+            assert!(!det.should_trigger(&metrics(0.4, 0.4)));
+        }
+    }
+}
