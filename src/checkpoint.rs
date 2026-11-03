@@ -20,6 +20,7 @@ pub struct CheckpointMeta {
 
 pub struct CheckpointStore {
     pub dir: PathBuf,
+    pub max_keep: usize,
 }
 
 impl CheckpointStore {
@@ -28,7 +29,7 @@ impl CheckpointStore {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("checkpoints");
-        Self { dir }
+        Self { dir, max_keep: 32 }
     }
 
     fn meta_path(&self, id: Uuid) -> PathBuf {
@@ -57,10 +58,25 @@ impl CheckpointStore {
             damping,
         };
         snapshot.save_to(&self.snap_path(meta.id))?;
-        let json =
-            serde_json::to_string_pretty(&meta).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let json = serde_json::to_string_pretty(&meta)
+            .map_err(|e| OmegaError::Persist(e.to_string()))?;
         fs::write(self.meta_path(meta.id), json).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        self.prune()?;
         Ok(meta)
+    }
+
+    fn prune(&self) -> Result<()> {
+        let mut list = self.list()?;
+        if list.len() <= self.max_keep {
+            return Ok(());
+        }
+        list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        let excess = list.len().saturating_sub(self.max_keep);
+        for meta in list.into_iter().take(excess) {
+            let _ = fs::remove_file(self.meta_path(meta.id));
+            let _ = fs::remove_file(self.snap_path(meta.id));
+        }
+        Ok(())
     }
 
     pub fn list(&self) -> Result<Vec<CheckpointMeta>> {
@@ -71,9 +87,6 @@ impl CheckpointStore {
         for entry in fs::read_dir(&self.dir).map_err(|e| OmegaError::Persist(e.to_string()))? {
             let entry = entry.map_err(|e| OmegaError::Persist(e.to_string()))?;
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
             if !path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -87,7 +100,7 @@ impl CheckpointStore {
                 out.push(m);
             }
         }
-        out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(out)
     }
 
@@ -106,7 +119,10 @@ mod tests {
     #[test]
     fn save_list_load() {
         let dir = temp_dir().join(format!("omega-ckpt-{}", Uuid::new_v4()));
-        let store = CheckpointStore { dir: dir.clone() };
+        let store = CheckpointStore {
+            dir: dir.clone(),
+            max_keep: 32,
+        };
         let snap = KernelSnapshot {
             version: 1,
             total_steps: 3,
@@ -123,10 +139,8 @@ mod tests {
             patch_history: vec![],
         };
         let meta = store.save("before-patch", 3, 0.4, 1.0, &snap).unwrap();
-        let list = store.list().unwrap();
-        assert_eq!(list.len(), 1);
-        let loaded = store.load_snapshot(meta.id).unwrap();
-        assert_eq!(loaded.total_steps, 3);
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert_eq!(store.load_snapshot(meta.id).unwrap().total_steps, 3);
         let _ = fs::remove_dir_all(&dir);
     }
 }

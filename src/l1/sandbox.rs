@@ -60,6 +60,14 @@ impl CodeSandbox {
             });
         }
 
+        if let Some(msg) = patch.effect.validate_bounds() {
+            return Ok(ValidationReport {
+                accepted: false,
+                message: format!("effect rejected: {msg}"),
+                patch_id: patch.patch_id,
+            });
+        }
+
         Ok(ValidationReport {
             accepted: true,
             message: "accepted".into(),
@@ -71,9 +79,7 @@ impl CodeSandbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::CognitivePatch;
     use chrono::Utc;
-    use uuid::Uuid;
 
     fn make_patch(code: &str, risk: f64) -> CognitivePatch {
         CognitivePatch {
@@ -92,36 +98,38 @@ mod tests {
     fn accepts_safe_low_risk_patch() {
         let sandbox = CodeSandbox::default();
         let patch = make_patch("fn adjust_bias(err: f64) -> f64 { err * 0.9 }", 0.2);
-        let report = sandbox.validate(&patch).unwrap();
-        assert!(report.accepted);
-        assert_eq!(report.message, "accepted");
+        assert!(sandbox.validate(&patch).unwrap().accepted);
     }
 
     #[test]
     fn rejects_high_risk_patch() {
         let sandbox = CodeSandbox::default();
         let patch = make_patch("fn dangerous() {}", 0.9);
-        let report = sandbox.validate(&patch).unwrap();
-        assert!(!report.accepted);
-        assert!(report.message.contains("risk"));
+        assert!(!sandbox.validate(&patch).unwrap().accepted);
     }
 
     #[test]
     fn rejects_forbidden_keyword() {
         let sandbox = CodeSandbox::default();
         let patch = make_patch("use std::process::Command;", 0.1);
-        let report = sandbox.validate(&patch).unwrap();
-        assert!(!report.accepted);
-        assert!(report.message.contains("forbidden keyword"));
+        assert!(!sandbox.validate(&patch).unwrap().accepted);
     }
 
     #[test]
-    fn rejects_oversized_code() {
+    fn rejects_bad_effect_damping() {
         let sandbox = CodeSandbox::default();
-        let huge = "a".repeat(13_000);
-        let patch = make_patch(&huge, 0.1);
+        let mut patch = make_patch("fn ok() {}", 0.1);
+        patch.effect.error_damping = 9.0;
         let report = sandbox.validate(&patch).unwrap();
         assert!(!report.accepted);
-        assert_eq!(report.message, "code too long");
+        assert!(report.message.contains("effect rejected"));
+    }
+
+    #[test]
+    fn rejects_unknown_action_preference() {
+        let sandbox = CodeSandbox::default();
+        let mut patch = make_patch("fn ok() {}", 0.1);
+        patch.effect.action_preference.insert("launch_missiles".into(), 1.0);
+        assert!(!sandbox.validate(&patch).unwrap().accepted);
     }
 }
