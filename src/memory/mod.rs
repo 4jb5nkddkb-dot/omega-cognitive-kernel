@@ -38,3 +38,38 @@ impl MemoryFacade {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Action, Trajectory};
+    use std::collections::HashMap;
+
+    fn sample_traj() -> Trajectory {
+        let mut meta = HashMap::new();
+        meta.insert("goal".into(), serde_json::json!("test"));
+        Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![Action {
+                name: "observe".into(),
+                params: HashMap::new(),
+                constraints_checked: true,
+            }],
+            outcomes: vec![],
+            prediction_errors: vec![0.15],
+            meta,
+        }
+    }
+
+    #[test]
+    fn update_and_retrieve_roundtrip() {
+        let mut mem = MemoryFacade::new();
+        mem.update(&sample_traj()).unwrap();
+        let ctx = mem.retrieve("test", 3).unwrap();
+        assert!(ctx.contains_key("cases"));
+        assert!(ctx.contains_key("strategies"));
+        assert!(ctx.contains_key("cas"));
+        assert_eq!(mem.cas.total_steps, 1);
+    }
+}
