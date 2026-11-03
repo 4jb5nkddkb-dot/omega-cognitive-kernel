@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(
@@ -9,39 +11,47 @@ use std::path::PathBuf;
     about = "Omega Cognitive Kernel — self-improving cognitive runtime (L0/L1/L2)"
 )]
 struct Cli {
-    /// Path to persisted state (default: .omega/state.json)
     #[arg(long, global = true)]
     state: Option<PathBuf>,
-
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run N cognitive cycles (product demo / training loop)
     Run {
-        /// High-level goal biasing the loop
         #[arg(long, default_value = "maintain coherent self-model while acting in world")]
         goal: String,
-        /// Number of steps
         #[arg(long, default_value_t = 12)]
         steps: u32,
-        /// Disable writing state after each step
         #[arg(long)]
         no_save: bool,
     },
-    /// Print current kernel status (loads state if present)
     Status,
-    /// Delete persisted state and start clean
     Reset {
-        /// Require explicit confirmation
         #[arg(long)]
         yes: bool,
     },
-    /// One-shot narrative demo (run + summary suitable for sharing)
     Demo {
         #[arg(long, default_value_t = 12)]
+        steps: u32,
+    },
+    Audit {
+        #[arg(long, default_value_t = 20)]
+        tail: usize,
+    },
+    Checkpoints,
+    Checkpoint {
+        #[arg(long, default_value = "manual")]
+        label: String,
+    },
+    Rollback {
+        id: String,
+    },
+    Task {
+        #[arg(long, default_value_t = 6)]
+        episodes: u32,
+        #[arg(long, default_value_t = 4)]
         steps: u32,
     },
 }
@@ -52,15 +62,10 @@ fn state_path(cli: &Cli) -> Option<String> {
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Run {
-            goal,
-            steps,
-            no_save,
-        } => {
+        Commands::Run { goal, steps, no_save } => {
             let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
             kernel.autosave = !no_save;
             println!("goal   : {goal}");
@@ -91,12 +96,12 @@ fn main() -> anyhow::Result<()> {
             let st = kernel.status();
             println!("\n── status ──");
             println!(
-                "steps={}  avg_err={:.3}  damp={:.3}  modules={}  strategies={}",
+                "steps={}  avg_err={:.3}  damp={:.3}  modules={}  ckpts={}",
                 st.total_steps,
                 st.avg_prediction_error,
                 st.error_damping,
                 st.active_modules,
-                st.strategy_count
+                st.checkpoint_count
             );
         }
         Commands::Status => {
@@ -110,6 +115,7 @@ fn main() -> anyhow::Result<()> {
             println!("active_modules : {}", st.active_modules);
             println!("strategies     : {}", st.strategy_count);
             println!("cases          : {}", st.case_count);
+            println!("checkpoints    : {}", st.checkpoint_count);
         }
         Commands::Reset { yes } => {
             if !yes {
@@ -122,25 +128,13 @@ fn main() -> anyhow::Result<()> {
             println!("reset ok — removed state at {path}");
         }
         Commands::Demo { steps } => {
-            println!("╔══════════════════════════════════════════════════════════╗");
-            println!("║     Omega Kernel — Product Demo (S2)                     ║");
-            println!("║     Self-modification with measurable consequence        ║");
-            println!("╚══════════════════════════════════════════════════════════╝\n");
-
+            println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
             let demo_path = std::env::temp_dir().join("omega-demo-state.json");
             let _ = std::fs::remove_file(&demo_path);
             let mut kernel = Kernel::with_state_path(&demo_path);
             kernel.autosave = true;
-
             let goal = "maintain coherent self-model while acting in world";
-            println!("Narrative:");
-            println!("  1. Kernel starts with high uncertainty.");
-            println!("  2. Errors trigger L1 cognitive patches (RuleEffect).");
-            println!("  3. Damping + action preferences change L0 behavior.");
-            println!("  4. Average prediction error should fall.\n");
-
             let report = kernel.run(goal, *steps)?;
-            println!("── results ──");
             println!("steps            : {}", report.steps);
             println!("patches accepted : {}", report.patches_accepted);
             println!("early avg_err    : {:.3}", report.early_avg_err);
@@ -148,22 +142,56 @@ fn main() -> anyhow::Result<()> {
             println!("final damping    : {:.3}", report.final_damping);
             println!(
                 "error decreased  : {}",
-                if report.error_decreased {
-                    "yes ✓"
-                } else {
-                    "no"
-                }
+                if report.error_decreased { "yes" } else { "no" }
             );
-            if let Some(last) = report.last_actions.last() {
-                println!("last action      : {last}");
+            println!("checkpoints      : {}", kernel.status().checkpoint_count);
+            println!("state: {}", demo_path.display());
+        }
+        Commands::Audit { tail } => {
+            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let rows = kernel.audit_tail(*tail)?;
+            if rows.is_empty() {
+                println!("(empty audit log)");
             }
-            println!("\nState written to {}", demo_path.display());
-            println!(
-                "Re-run with: cargo run -- status --state {}",
-                demo_path.display()
-            );
+            for r in rows {
+                println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+            }
+        }
+        Commands::Checkpoints => {
+            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let list = kernel.list_checkpoints()?;
+            if list.is_empty() {
+                println!("(no checkpoints)");
+            }
+            for m in list {
+                println!(
+                    "{}  step={}  damp={:.2}  err={:.3}  label={}",
+                    m.id, m.step, m.damping, m.avg_err, m.label
+                );
+            }
+        }
+        Commands::Checkpoint { label } => {
+            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let meta = kernel.checkpoint(label)?;
+            println!("checkpoint created: {} (step={})", meta.id, meta.step);
+        }
+        Commands::Rollback { id } => {
+            let id = Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("invalid uuid: {e}"))?;
+            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            kernel.rollback(id)?;
+            println!("rolled back to {id}");
+            println!("now at step {}", kernel.inner.total_steps);
+        }
+        Commands::Task { episodes, steps } => {
+            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            println!("bandit task  episodes={episodes} steps/ep={steps}");
+            let report = run_bandit_task(&mut kernel, *episodes, *steps)?;
+            kernel.save()?;
+            println!("mean_reward    : {:.3}", report.mean_reward);
+            println!("best_arm_rate  : {:.3}", report.best_arm_rate);
+            println!("final_damping  : {:.3}", report.final_damping);
+            println!("error_decreased: {}", report.error_decreased);
         }
     }
-
     Ok(())
 }
