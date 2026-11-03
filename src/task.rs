@@ -1,4 +1,5 @@
-//! Minimal real-ish task environment: nonstationary 2-armed bandit (S3).
+//! Minimal task environment: nonstationary 2-armed bandit.
+//! External reward is written back into strategy memory so the task loop is closed.
 
 use crate::api::Kernel;
 use crate::error::Result;
@@ -12,6 +13,22 @@ pub struct BanditReport {
     pub best_arm_rate: f64,
     pub final_damping: f64,
     pub error_decreased: bool,
+    pub seed: u64,
+}
+
+struct Rng {
+    state: u64,
+}
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed | 1 }
+    }
+
+    fn next_f64(&mut self) -> f64 {
+        self.state = self.state.wrapping_mul(1664525).wrapping_add(1013904223);
+        (self.state >> 8) as f64 / (1u64 << 56) as f64
+    }
 }
 
 fn arm_for_action(action: &str) -> usize {
@@ -27,6 +44,16 @@ pub fn run_bandit_task(
     episodes: u32,
     steps_per_episode: u32,
 ) -> Result<BanditReport> {
+    run_bandit_task_seeded(kernel, episodes, steps_per_episode, 405123076)
+}
+
+pub fn run_bandit_task_seeded(
+    kernel: &mut Kernel,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+) -> Result<BanditReport> {
+    let mut rng = Rng::new(seed);
     let mut total_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;
@@ -42,15 +69,14 @@ pub fn run_bandit_task(
                 .trajectory
                 .actions
                 .first()
-                .map(|a| a.name.as_str())
-                .unwrap_or("observe");
-            let arm = arm_for_action(action);
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| "observe".into());
+            let arm = arm_for_action(&action);
             let p = if arm == best { 0.85 } else { 0.25 };
-            let reward = if (kernel.inner.total_steps as f64 * 0.17).sin().abs() < p {
-                1.0
-            } else {
-                0.0
-            };
+            let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
+
+            kernel.inner.l0.memory.record_reward(&action, reward);
+
             ep_reward += reward;
             total_reward += reward;
             total_choices += 1;
@@ -78,6 +104,7 @@ pub fn run_bandit_task(
         },
         final_damping: kernel.inner.l0.memory.cognitive_effect.error_damping,
         error_decreased: final_err < early_err || early_err == 0.0,
+        seed,
     })
 }
 
@@ -92,9 +119,41 @@ mod tests {
         let path = temp_dir().join(format!("omega-bandit-{}.json", Uuid::new_v4()));
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
-        let report = run_bandit_task(&mut k, 4, 3).unwrap();
+        let report = run_bandit_task_seeded(&mut k, 4, 3, 42).unwrap();
         assert_eq!(report.episodes, 4);
         assert!(report.mean_reward >= 0.0);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn reward_feeds_strategy_memory() {
+        let path = temp_dir().join(format!("omega-rw-{}.json", Uuid::new_v4()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.auto_checkpoint_on_patch = false;
+        let before = k.inner.l0.memory.strategy.retrieve("", 20).len();
+        let _ = run_bandit_task_seeded(&mut k, 3, 4, 7).unwrap();
+        let after = k.inner.l0.memory.strategy.retrieve("", 20);
+        assert!(after.len() >= before);
+        assert!(after.iter().any(|s| s.success_count + s.fail_count > 0));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn seeded_bandit_is_deterministic() {
+        let p1 = temp_dir().join(format!("omega-d1-{}.json", Uuid::new_v4()));
+        let p2 = temp_dir().join(format!("omega-d2-{}.json", Uuid::new_v4()));
+        let mut k1 = Kernel::with_state_path(&p1);
+        let mut k2 = Kernel::with_state_path(&p2);
+        k1.autosave = false;
+        k2.autosave = false;
+        k1.auto_checkpoint_on_patch = false;
+        k2.auto_checkpoint_on_patch = false;
+        let r1 = run_bandit_task_seeded(&mut k1, 5, 3, 12345).unwrap();
+        let r2 = run_bandit_task_seeded(&mut k2, 5, 3, 12345).unwrap();
+        assert_eq!(r1.mean_reward, r2.mean_reward);
+        assert_eq!(r1.best_arm_rate, r2.best_arm_rate);
+        let _ = std::fs::remove_file(&p1);
+        let _ = std::fs::remove_file(&p2);
     }
 }
