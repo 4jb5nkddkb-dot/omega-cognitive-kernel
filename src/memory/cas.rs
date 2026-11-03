@@ -23,3 +23,40 @@ impl CasState {
         self.adaptation_score = (1.0 - self.avg_prediction_error).clamp(0.0, 1.0);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Trajectory;
+    use std::collections::HashMap;
+
+    fn traj_with_errors(errors: Vec<f64>) -> Trajectory {
+        Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![],
+            outcomes: vec![],
+            prediction_errors: errors,
+            meta: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn updates_step_count() {
+        let mut cas = CasState::default();
+        cas.update(&traj_with_errors(vec![0.2]));
+        assert_eq!(cas.total_steps, 1);
+        cas.update(&traj_with_errors(vec![0.1]));
+        assert_eq!(cas.total_steps, 2);
+    }
+
+    #[test]
+    fn adaptation_score_rises_with_low_error() {
+        let mut cas = CasState::default();
+        for _ in 0..20 {
+            cas.update(&traj_with_errors(vec![0.05]));
+        }
+        assert!(cas.adaptation_score > 0.8);
+        assert!(cas.avg_prediction_error < 0.2);
+    }
+}
