@@ -1,59 +1,102 @@
 # Omega Cognitive Kernel
 
-**L0 / L1 / L2 metacognitive architecture with `omega = dayan` fixed point**
+**Self-improving cognitive runtime** with a three-layer loop and measurable consequence.
 
-This repository implements the core closed-loop cognitive architecture discussed in the Omega Core project:
+Product thesis: the system does not only *store* self-modifications — committed rules change the next cycle’s predictions and actions, and average prediction error can be shown to fall.
 
 ```
-观察世界 → 记忆偏置意图 → 预测后决策 → 受限执行 → 结果回写 CAS/策略记忆 → 元评估影响下一轮
+World (L0) → Cognitive upgrade (L1) → Metacognition (L2) → bias next L0
 ```
+
+## Install / build
+
+```bash
+cargo build --release
+cargo test
+```
+
+Binary name: `omega-kernel`.
+
+## CLI (product surface)
+
+```bash
+# Narrative demo (isolated temp state)
+cargo run -- demo
+
+# Continue training against persistent state (.omega/state.json)
+cargo run -- run --steps 20
+cargo run -- status
+cargo run -- run --goal "stabilize under uncertainty" --steps 5
+
+# Custom state file
+cargo run -- --state ./my-agent.json run --steps 10
+cargo run -- --state ./my-agent.json status
+cargo run -- --state ./my-agent.json reset --yes
+```
+
+### What `demo` proves
+
+1. Kernel starts with relatively high uncertainty.
+2. High error triggers L1 patches that carry a structured **`RuleEffect`** (not blind code eval).
+3. Effect lowers error damping and reshapes action preference (`stabilize` / `observe` / …).
+4. Report shows early vs final `avg_err` and whether error decreased.
+
+## Library API
+
+```rust
+use omega_cognitive_kernel::Kernel;
+
+fn main() -> omega_cognitive_kernel::Result<()> {
+    let mut kernel = Kernel::open(None)?; // loads .omega/state.json if present
+    let report = kernel.run("maintain coherent self-model", 10)?;
+    println!(
+        "err {:.3} → {:.3} (decreased={})",
+        report.early_avg_err, report.final_avg_err, report.error_decreased
+    );
+    kernel.save()?;
+    Ok(())
+}
+```
+
+Key types: `Kernel`, `RunReport`, `KernelStatus`, `KernelSnapshot`.
 
 ## Architecture
 
-| Layer | Name | Responsibility |
-|-------|------|----------------|
-| **L0** | World Interaction | Observe → Predict → Decide → Constrained Execute |
-| **L1** | Cognitive Upgrade | Distill → Learn → Reflect → Generate & safely commit cognitive patches |
-| **L2** | Metacognition | Monitor metrics → Detect emergence → Enter `observation = observed` mode → Align omega ↔ dayan → Modulate biases & constraints |
+| Layer | Role |
+|-------|------|
+| **L0** | Observe → predict (memory-aware) → decide (strategy + RuleEffect) → sandboxed execute |
+| **L1** | Distill → reflect → sandbox → commit **RuleEffect** into memory |
+| **L2** | Metrics → emergence → `omega=dayan` alignment → modulate biases/constraints |
 
-### Meta Fixed Point (`omega = dayan`)
+### Safety
 
-When emergence criteria are met, L2 enters self-referential mode. It checks whether the highest attractor (`omega`) and the lowest generative base (`dayan`) converge to the same structure. Successful alignment produces modulation signals that affect the next cycle’s intent bias and safety constraints.
+- L0 actions are whitelist + constraint checked.
+- L1 patches: risk threshold + forbidden keywords; runtime applies **structured effects**, not arbitrary `eval`.
+- L2 modulates biases only.
 
-## Quick Start
+### Persistence
 
-```bash
-cargo run
-```
+Default path: `.omega/state.json` (cases, strategies, CAS, active modules, patch history, biases).
 
-The demo runs several cognitive cycles and prints whether a patch was accepted and whether the system entered the fixed-point mode.
-
-## Project Layout
+## Project layout
 
 ```
 src/
-├── main.rs              # Demo entry point
-├── lib.rs
-├── types.rs             # Core data types
-├── error.rs
-├── memory/              # Case / Strategy / CAS
-├── l0/                  # World interaction layer
-├── l1/                  # Cognitive upgrade + sandbox
-├── l2/                  # Metacognition + omega=dayan
-└── safety/
+├── api.rs           # Kernel product API
+├── persist.rs       # Snapshot load/save
+├── main.rs          # CLI
+├── orchestrator.rs
+├── memory/  l0/  l1/  l2/  safety/
 ```
-
-## Safety Notes
-
-- L0 execution is whitelist + constraint checked.
-- L1 code patches pass through a sandbox (risk threshold + forbidden keywords).
-- Only validated patches are committed to the versioned store.
-- L2 never directly mutates code; it only modulates biases and constraints.
 
 ## Status
 
-This is a working skeleton focused on clear layering and the metacognitive fixed-point mechanism. Real sensors, world models, and LLM-based patch generation can be plugged in via the existing traits.
+| Stage | Meaning |
+|-------|---------|
+| **S1** | Self-modification has measurable consequence |
+| **S2** | Persist + CLI + library API + shareable demo narrative |
+| Next | Hardening (audit log, rollback UX, one real task environment) |
 
 ---
 
-*Omega Cognitive Kernel — from observation to self-referential coherence.*
+*Omega Cognitive Kernel — from observation to accountable self-improvement.*
