@@ -135,4 +135,38 @@ mod tests {
             .insert("launch_missiles".into(), 1.0);
         assert!(!sandbox.validate(&patch).unwrap().accepted);
     }
+
+    #[test]
+    fn rejects_out_of_bounds_explore_bonus() {
+        let sandbox = CodeSandbox::default();
+        let mut patch = make_patch("fn ok() {}", 0.1);
+        patch.effect.explore_bonus = 5.0;
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(!report.accepted);
+        assert!(report.message.contains("explore_bonus"));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_risk_tolerance() {
+        let sandbox = CodeSandbox::default();
+        let mut patch = make_patch("fn ok() {}", 0.1);
+        patch.effect.risk_tolerance = 0.01;
+        let report = sandbox.validate(&patch).unwrap();
+        assert!(!report.accepted);
+        assert!(report.message.contains("risk_tolerance"));
+    }
+
+    #[test]
+    fn sanitize_clamps_new_fields() {
+        let mut effect = crate::types::RuleEffect {
+            error_damping: 0.5,
+            action_preference: Default::default(),
+            min_uncertainty: 0.1,
+            explore_bonus: 3.0,
+            risk_tolerance: 0.05,
+        };
+        effect = effect.sanitize();
+        assert!(effect.explore_bonus <= 1.5);
+        assert!(effect.risk_tolerance >= 0.15);
+    }
 }
