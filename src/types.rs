@@ -63,9 +63,15 @@ pub struct RuleEffect {
     /// Floor for reported uncertainty after damping.
     pub min_uncertainty: f64,
     /// Additive score bias toward "explore" (negative favors exploit/stabilize).
+    #[serde(default)]
     pub explore_bonus: f64,
     /// Soft threshold for treating uncertainty as "high" (higher = more tolerant).
+    #[serde(default = "default_risk_tolerance")]
     pub risk_tolerance: f64,
+}
+
+fn default_risk_tolerance() -> f64 {
+    0.45
 }
 
 impl Default for RuleEffect {
