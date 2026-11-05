@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and attach binary to (e.g. v0.3.7)"
+        description: "Existing tag to attach binary to (e.g. v0.3.7)"
         required: true
         default: "v0.3.7"
 
@@ -24,8 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # On tag push, GITHUB_REF is the tag; on dispatch, check out the requested tag
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          # Tag push: build that tag. Manual dispatch: build latest main (fixes),
+          # still publish assets onto the requested release tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
