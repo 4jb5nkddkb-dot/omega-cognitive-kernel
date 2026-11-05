@@ -14,7 +14,7 @@ World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
 
 | Is | Is not |
 |----|--------|
-| Structured online patches (`RuleEffect`: damping, action preference) | Hot-loading or executing arbitrary new source code |
+| Structured online patches (`RuleEffect`: damping, action preference, explore/risk) | Hot-loading or executing arbitrary new source code |
 | Durable cognitive state in memory + `state.json` | Full Bayesian filter / industrial PID / AGI |
 | Auditable, checkpointable, reversible adaptation | “Emergence” as a proven fixed point |
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
@@ -28,7 +28,7 @@ World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
 # pin a release:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.1 --locked
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.2 --locked
 ```
 
 **From source**
@@ -41,7 +41,7 @@ cargo build --release
 # binary: target/release/omega-kernel
 ```
 
-Binary name: `omega-kernel` (v0.3.1).
+Binary name: `omega-kernel` (v0.3.2).
 
 ## CLI
 
@@ -62,7 +62,7 @@ cargo run -- reset --yes
 
 1. Kernel starts with relatively high uncertainty.
 2. High error triggers L1 patches that carry a **`RuleEffect`** (not code `eval`).
-3. Effect changes error damping and action preference.
+3. Effect changes error damping, action preference, explore_bonus, and risk_tolerance.
 4. Report shows early vs final `avg_err` and whether error decreased.
 
 ## Library API
@@ -88,8 +88,10 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | Layer | Role |
 |-------|------|
 | **L0** | Observe → predict → decide (strategy + `RuleEffect`) → sandboxed execute |
-| **L1** | Distill → reflect → validate/sanitize → commit **`RuleEffect`** |
+| **L1** | Distill → reflect (strategy/error context) → validate/sanitize → commit **`RuleEffect`** |
 | **L2** | Metrics → optional meta-mode → modulate biases/constraints (heuristic) |
+
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for data flow, `RuleEffect` contract, and safety table.
 
 ### Safety posture
 
@@ -119,6 +121,7 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **S3** | Audit, checkpoints/rollback, bandit task shell |
 | **Hardening** | Reward→strategy feedback, RuleEffect bounds, checkpoint FIFO, seeded bandit |
 | **0.3.1** | Packaging: LICENSE, install-from-git, tagged release workflow |
+| **0.3.2** | RuleEffect expansion (`explore_bonus`, `risk_tolerance`), strategy-aware patches, ARCHITECTURE.md |
 | Next | Stronger real tasks, crates.io (optional) |
 
 See [CHANGELOG.md](CHANGELOG.md) and [RELEASING.md](RELEASING.md).
