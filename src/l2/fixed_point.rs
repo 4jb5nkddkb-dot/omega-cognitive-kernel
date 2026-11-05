@@ -15,13 +15,15 @@ pub struct FixedPointResult {
 pub struct Modulation {
     pub bias_delta: HashMap<String, f64>,
     pub constraint_delta: HashMap<String, f64>,
+    /// Soft nudge to RuleEffect.explore_bonus (will be sanitized after merge).
+    pub explore_bonus_delta: f64,
+    /// Soft nudge to RuleEffect.risk_tolerance (will be sanitized after merge).
+    pub risk_tolerance_delta: f64,
 }
 
 pub struct OmegaDayanFixedPoint;
 
 impl OmegaDayanFixedPoint {
-    /// Enter "observation = observed" mode and test whether
-    /// omega (highest attractor) and dayan (generative base) converge.
     pub fn enter(&self, state: &SystemState) -> Result<FixedPointResult> {
         let score = self.align(
             &state.highest_attractor,
@@ -36,14 +38,17 @@ impl OmegaDayanFixedPoint {
             modulation.bias_delta.insert("self_ref".into(), 0.18);
             modulation.bias_delta.insert("coherence".into(), 0.12);
             modulation.constraint_delta.insert("max_risk".into(), -0.04);
-            // Soft nudge toward lower exploration when highly aligned
             modulation.bias_delta.insert("explore_preference".into(), -0.08);
+            modulation.explore_bonus_delta = -0.06;
+            modulation.risk_tolerance_delta = -0.03;
         } else {
             modulation
                 .bias_delta
                 .insert("observation_depth".into(), 0.14);
             modulation.constraint_delta.insert("max_risk".into(), 0.03);
             modulation.bias_delta.insert("explore_preference".into(), 0.06);
+            modulation.explore_bonus_delta = 0.05;
+            modulation.risk_tolerance_delta = 0.02;
         }
 
         Ok(FixedPointResult {
@@ -64,7 +69,6 @@ impl OmegaDayanFixedPoint {
     ) -> f64 {
         let mut score = 0.30;
 
-        // Keyword / self-reference signals
         let omega_l = omega.to_lowercase();
         if omega_l.contains("self")
             || omega_l.contains("coherent")
@@ -83,7 +87,6 @@ impl OmegaDayanFixedPoint {
                 score += 0.14;
             }
 
-            // Character overlap (cheap structural similarity)
             let omega_chars: std::collections::HashSet<char> = omega.chars().collect();
             let overlap = base.chars().filter(|c| omega_chars.contains(c)).count() as f64;
             let denom = omega.len().max(base.len()).max(1) as f64;
@@ -92,7 +95,6 @@ impl OmegaDayanFixedPoint {
 
         if active_code.contains_key("cognitive_rules") {
             score += 0.14;
-            // Bonus if the code itself mentions self-ref concepts
             if let Some(code) = active_code.get("cognitive_rules") {
                 let cl = code.to_lowercase();
                 if cl.contains("self") || cl.contains("bias") || cl.contains("damp") {
@@ -105,7 +107,6 @@ impl OmegaDayanFixedPoint {
             score += 0.05;
         }
 
-        // Reward sustained low error (maturity signal)
         if total_steps > 8 && avg_error < 0.35 {
             score += 0.08;
         } else if avg_error > 0.6 {
@@ -154,6 +155,16 @@ mod tests {
         let r1 = fp.enter(&s1).unwrap();
         let r2 = fp.enter(&s2).unwrap();
         assert!(r1.score > r2.score);
+    }
+
+    #[test]
+    fn aligned_produces_negative_explore_nudge() {
+        let fp = OmegaDayanFixedPoint;
+        let s = state("coherent self omega", Some("dayan generative"), true, 0.2, 20);
+        let r = fp.enter(&s).unwrap();
+        if r.aligned {
+            assert!(r.modulation.explore_bonus_delta <= 0.0);
+        }
     }
 
     #[test]
