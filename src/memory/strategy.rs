@@ -13,6 +13,18 @@ pub struct Strategy {
     pub idle_steps: u32,
 }
 
+/// Snapshot of strategy-decay observability for tasks / status.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StrategyStats {
+    pub strategy_count: usize,
+    pub idle_count: usize,
+    pub mean_weight: f64,
+    pub mean_idle_steps: f64,
+    pub max_idle_steps: u32,
+    pub mean_idle_weight: f64,
+    pub mean_active_weight: f64,
+}
+
 #[derive(Debug, Default)]
 pub struct StrategyMemory {
     strategies: HashMap<String, Strategy>,
@@ -76,6 +88,51 @@ impl StrategyMemory {
             if s.idle_steps >= idle_threshold {
                 s.weight = (s.weight * factor).max(0.1);
             }
+        }
+    }
+
+    pub fn stats(&self, idle_threshold: u32) -> StrategyStats {
+        let n = self.strategies.len();
+        if n == 0 {
+            return StrategyStats::default();
+        }
+        let mut sum_w = 0.0;
+        let mut sum_idle = 0u64;
+        let mut max_idle = 0u32;
+        let mut idle_count = 0usize;
+        let mut sum_idle_w = 0.0;
+        let mut sum_active_w = 0.0;
+        let mut active_count = 0usize;
+
+        for s in self.strategies.values() {
+            sum_w += s.weight;
+            sum_idle += s.idle_steps as u64;
+            max_idle = max_idle.max(s.idle_steps);
+            if s.idle_steps >= idle_threshold {
+                idle_count += 1;
+                sum_idle_w += s.weight;
+            } else {
+                active_count += 1;
+                sum_active_w += s.weight;
+            }
+        }
+
+        StrategyStats {
+            strategy_count: n,
+            idle_count,
+            mean_weight: sum_w / n as f64,
+            mean_idle_steps: sum_idle as f64 / n as f64,
+            max_idle_steps: max_idle,
+            mean_idle_weight: if idle_count == 0 {
+                0.0
+            } else {
+                sum_idle_w / idle_count as f64
+            },
+            mean_active_weight: if active_count == 0 {
+                0.0
+            } else {
+                sum_active_w / active_count as f64
+            },
         }
     }
 
@@ -154,5 +211,18 @@ mod tests {
             .find(|s| s.name == "explore")
             .unwrap();
         assert!(explore.weight < before);
+    }
+
+    #[test]
+    fn stats_reports_idle() {
+        let mut sm = StrategyMemory::default();
+        sm.absorb(&traj_with_action("explore", true));
+        for _ in 0..6 {
+            sm.absorb(&traj_with_action("observe", true));
+        }
+        let st = sm.stats(3);
+        assert!(st.strategy_count >= 2);
+        assert!(st.idle_count >= 1);
+        assert!(st.max_idle_steps >= 3);
     }
 }

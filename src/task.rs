@@ -17,6 +17,14 @@ pub struct BanditReport {
     pub error_decreased: bool,
     pub patches_accepted: u64,
     pub seed: u64,
+    // Strategy-decay observability
+    pub strategy_count: usize,
+    pub idle_strategy_count: usize,
+    pub mean_strategy_weight: f64,
+    pub mean_idle_steps: f64,
+    pub max_idle_steps: u32,
+    pub mean_idle_weight: f64,
+    pub mean_active_weight: f64,
 }
 
 struct Rng {
@@ -104,6 +112,9 @@ pub fn run_bandit_task_seeded(
 
     let final_err = kernel.inner.l0.memory.cas.avg_prediction_error;
     let effect = &kernel.inner.l0.memory.cognitive_effect;
+    let idle_threshold = kernel.inner.l0.learner.decay_idle_threshold;
+    let st = kernel.inner.l0.memory.strategy.stats(idle_threshold);
+
     Ok(BanditReport {
         episodes,
         steps_per_episode,
@@ -123,6 +134,13 @@ pub fn run_bandit_task_seeded(
         error_decreased: final_err < early_err || early_err == 0.0,
         patches_accepted: patches,
         seed,
+        strategy_count: st.strategy_count,
+        idle_strategy_count: st.idle_count,
+        mean_strategy_weight: st.mean_weight,
+        mean_idle_steps: st.mean_idle_steps,
+        max_idle_steps: st.max_idle_steps,
+        mean_idle_weight: st.mean_idle_weight,
+        mean_active_weight: st.mean_active_weight,
     })
 }
 
@@ -140,6 +158,7 @@ mod tests {
         let report = run_bandit_task_seeded(&mut k, 4, 3, 42).unwrap();
         assert_eq!(report.episodes, 4);
         assert!(report.mean_reward >= 0.0);
+        assert!(report.strategy_count >= 1);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -150,10 +169,11 @@ mod tests {
         k.autosave = false;
         k.auto_checkpoint_on_patch = false;
         let before = k.inner.l0.memory.strategy.retrieve("", 20).len();
-        let _ = run_bandit_task_seeded(&mut k, 3, 4, 7).unwrap();
+        let report = run_bandit_task_seeded(&mut k, 3, 4, 7).unwrap();
         let after = k.inner.l0.memory.strategy.retrieve("", 20);
         assert!(after.len() >= before);
         assert!(after.iter().any(|s| s.success_count + s.fail_count > 0));
+        assert_eq!(report.strategy_count, after.len());
         let _ = std::fs::remove_file(&path);
     }
 
@@ -171,7 +191,23 @@ mod tests {
         let r2 = run_bandit_task_seeded(&mut k2, 5, 3, 12345).unwrap();
         assert_eq!(r1.mean_reward, r2.mean_reward);
         assert_eq!(r1.best_arm_rate, r2.best_arm_rate);
+        assert_eq!(r1.strategy_count, r2.strategy_count);
         let _ = std::fs::remove_file(&p1);
         let _ = std::fs::remove_file(&p2);
+    }
+
+    #[test]
+    fn bandit_reports_strategy_decay_metrics() {
+        let path = temp_dir().join(format!("omega-decay-{}.json", Uuid::new_v4()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.auto_checkpoint_on_patch = false;
+        // Longer run so some strategies go idle
+        let report = run_bandit_task_seeded(&mut k, 6, 5, 99).unwrap();
+        assert!(report.strategy_count >= 1);
+        assert!(report.mean_strategy_weight > 0.0);
+        // max_idle_steps should be tracked (may be 0 if all actions stay hot)
+        let _ = report.max_idle_steps;
+        let _ = std::fs::remove_file(&path);
     }
 }

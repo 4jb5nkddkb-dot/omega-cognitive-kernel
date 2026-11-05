@@ -36,6 +36,32 @@ impl ConstrainedDecisionMaker {
         }
         out
     }
+
+    /// Map L2 meta-biases (self_ref, coherence, explore_preference, …)
+    /// onto concrete action score deltas.
+    fn l2_action_deltas(biases: &HashMap<String, f64>) -> HashMap<&'static str, f64> {
+        let mut d = HashMap::new();
+        let explore_pref = biases.get("explore_preference").copied().unwrap_or(0.0);
+        let self_ref = biases.get("self_ref").copied().unwrap_or(0.0);
+        let coherence = biases.get("coherence").copied().unwrap_or(0.0);
+        let obs_depth = biases.get("observation_depth").copied().unwrap_or(0.0);
+
+        // explore_preference: direct drive for explore vs exploit/stabilize
+        *d.entry("explore").or_insert(0.0) += explore_pref * 1.4;
+        *d.entry("exploit").or_insert(0.0) -= explore_pref * 0.4;
+        *d.entry("stabilize").or_insert(0.0) -= explore_pref * 0.3;
+
+        // self_ref / coherence → prefer stabilize + mild observe
+        let meta_stable = (self_ref + coherence) * 0.7;
+        *d.entry("stabilize").or_insert(0.0) += meta_stable;
+        *d.entry("observe").or_insert(0.0) += meta_stable * 0.35;
+        *d.entry("explore").or_insert(0.0) -= meta_stable * 0.25;
+
+        // observation_depth → observe
+        *d.entry("observe").or_insert(0.0) += obs_depth * 1.1;
+
+        d
+    }
 }
 
 impl DecisionMaker for ConstrainedDecisionMaker {
@@ -49,8 +75,8 @@ impl DecisionMaker for ConstrainedDecisionMaker {
         let effect = Self::effect_from_ctx(memory_ctx);
         let strat = Self::strategy_weights(memory_ctx);
         let uncertainty = predictions.first().map(|p| p.uncertainty).unwrap_or(0.5);
+        let l2_deltas = Self::l2_action_deltas(&intent.bias_from_memory);
 
-        // Constraints: max_risk tightens explore, favors stabilize.
         let max_risk = constraints.get("max_risk").copied().unwrap_or(0.65);
         let risk_pressure = (1.0 - max_risk).clamp(0.0, 0.9);
 
@@ -61,14 +87,17 @@ impl DecisionMaker for ConstrainedDecisionMaker {
 
         for name in candidates {
             let mut score = *strat.get(name).unwrap_or(&1.0);
+            // L1 RuleEffect preferences
             score += effect.action_preference.get(name).copied().unwrap_or(0.0);
+            // Direct action-named biases from memory (if any)
             score += intent.bias_from_memory.get(name).copied().unwrap_or(0.0);
+            // L2 meta-bias mapping (self_ref / coherence / explore_preference / …)
+            score += l2_deltas.get(name).copied().unwrap_or(0.0);
 
             if name == "explore" {
                 score += effect.explore_bonus;
                 score -= risk_pressure * 1.2;
             }
-
             if name == "stabilize" {
                 score += risk_pressure * 0.9;
             }
@@ -114,6 +143,16 @@ impl DecisionMaker for ConstrainedDecisionMaker {
             serde_json::json!(effect.risk_tolerance),
         );
         params.insert("max_risk".into(), serde_json::json!(max_risk));
+        params.insert(
+            "l2_explore_pref".into(),
+            serde_json::json!(
+                intent
+                    .bias_from_memory
+                    .get("explore_preference")
+                    .copied()
+                    .unwrap_or(0.0)
+            ),
+        );
 
         Ok(vec![Action {
             name: best_name.into(),
@@ -136,6 +175,15 @@ mod tests {
         }
     }
 
+    fn ctx_default() -> HashMap<String, serde_json::Value> {
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "cognitive_effect".into(),
+            serde_json::to_value(RuleEffect::default()).unwrap(),
+        );
+        ctx
+    }
+
     #[test]
     fn tight_max_risk_prefers_stabilize_over_explore() {
         let dm = ConstrainedDecisionMaker;
@@ -146,14 +194,44 @@ mod tests {
         };
         let mut constraints = HashMap::new();
         constraints.insert("max_risk".into(), 0.25);
-        let mut ctx = HashMap::new();
-        ctx.insert(
-            "cognitive_effect".into(),
-            serde_json::to_value(RuleEffect::default()).unwrap(),
-        );
         let actions = dm
-            .decide(&intent, &[pred(0.4)], &constraints, &ctx)
+            .decide(&intent, &[pred(0.4)], &constraints, &ctx_default())
             .unwrap();
         assert_ne!(actions[0].name, "explore");
+    }
+
+    #[test]
+    fn l2_explore_preference_bias_boosts_explore() {
+        let dm = ConstrainedDecisionMaker;
+        let mut biases = HashMap::new();
+        biases.insert("explore_preference".into(), 1.5);
+        let intent = Intent {
+            goal: "t".into(),
+            priority: 1.0,
+            bias_from_memory: biases,
+        };
+        let constraints = HashMap::new();
+        let actions = dm
+            .decide(&intent, &[pred(0.3)], &constraints, &ctx_default())
+            .unwrap();
+        assert_eq!(actions[0].name, "explore");
+    }
+
+    #[test]
+    fn l2_self_ref_bias_boosts_stabilize() {
+        let dm = ConstrainedDecisionMaker;
+        let mut biases = HashMap::new();
+        biases.insert("self_ref".into(), 2.0);
+        biases.insert("coherence".into(), 1.5);
+        let intent = Intent {
+            goal: "t".into(),
+            priority: 1.0,
+            bias_from_memory: biases,
+        };
+        let constraints = HashMap::new();
+        let actions = dm
+            .decide(&intent, &[pred(0.3)], &constraints, &ctx_default())
+            .unwrap();
+        assert_eq!(actions[0].name, "stabilize");
     }
 }
