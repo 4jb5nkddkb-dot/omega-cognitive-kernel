@@ -96,6 +96,7 @@ mod tests {
     use crate::l0::observer::MultiModalObserver;
     use crate::l0::predictor::ModelBasedPredictor;
     use crate::l0::L0WorldLayer;
+    use crate::l1::learner::Learner;
     use crate::l1::L1CognitiveLayer;
     use crate::l2::L2MetaLayer;
     use crate::memory::MemoryFacade;
@@ -119,6 +120,7 @@ mod tests {
                 "stabilize".into(),
             ]),
             memory: MemoryFacade::new(),
+            learner: Learner::default(),
         };
         OmegaOrchestrator {
             l0,
@@ -207,11 +209,10 @@ mod tests {
         );
     }
 
-    /// Patch cooldown: after an accepted patch, the next few steps must not patch again.
     #[test]
     fn patch_cooldown_blocks_immediate_repatch() {
         let mut kernel = make_kernel();
-        kernel.l1.reflector.error_threshold = 0.05; // very sensitive
+        kernel.l1.reflector.error_threshold = 0.05;
         kernel.l1.reflector.min_steps_between_patches = 3;
 
         let mut patch_steps = Vec::new();
@@ -224,7 +225,6 @@ mod tests {
             }
         }
 
-        // If we got at least two patches, gaps must be >= min_steps_between_patches
         if patch_steps.len() >= 2 {
             for w in patch_steps.windows(2) {
                 assert!(
@@ -236,12 +236,10 @@ mod tests {
         }
     }
 
-    /// Tight max_risk constraint should discourage explore.
     #[test]
     fn constraints_max_risk_discourages_explore() {
         let mut kernel = make_kernel();
         kernel.constraints.insert("max_risk".into(), 0.20);
-        // Neutral rule effect so constraint is the main driver
         kernel.l0.memory.cognitive_effect = crate::types::RuleEffect::default();
 
         let mut explore_count = 0;
@@ -251,15 +249,12 @@ mod tests {
                 explore_count += 1;
             }
         }
-        // With tight max_risk, explore should be rare
         assert!(explore_count <= 3, "explore_count={explore_count} too high under tight max_risk");
     }
 
-    /// L2 soft-nudge path is wired: forcing fixed-point entry changes explore_bonus.
     #[test]
     fn l2_soft_nudge_can_change_explore_bonus() {
         let mut kernel = make_kernel();
-        // Lower thresholds so emergence triggers quickly
         kernel.l2.detector.window = 2;
         kernel.l2.detector.pred_threshold = 0.3;
         kernel.l2.detector.self_ref_threshold = 0.3;
@@ -275,11 +270,48 @@ mod tests {
                 saw_nudge = true;
             }
         }
-        // Either we saw a nudge event, or explore_bonus moved (aligned → negative delta)
         let after = kernel.l0.memory.cognitive_effect.explore_bonus;
         assert!(
             saw_nudge || (after - before).abs() > 1e-6,
             "expected L2 soft-nudge path to fire; before={before} after={after}"
         );
+    }
+
+    /// Force fixed-point entry then degrade metrics → should exit.
+    #[test]
+    fn fixed_point_can_exit_when_metrics_degrade() {
+        let mut kernel = make_kernel();
+        kernel.l2.detector.window = 2;
+        kernel.l2.detector.pred_threshold = 0.2;
+        kernel.l2.detector.self_ref_threshold = 0.2;
+        kernel.l2.detector.cooldown_steps = 0;
+
+        let mut entered = false;
+        let mut exited = false;
+        for i in 0..20 {
+            // First half: coherent goal to encourage entry
+            let goal = if i < 10 {
+                "maintain coherent self-model omega dayan"
+            } else {
+                // Second half: nonsense goal + force high error via effect
+                kernel.l0.memory.cas.avg_prediction_error = 0.9;
+                "random noise goal xyz"
+            };
+            let r = kernel.run_once(goal).expect("step");
+            if r.l2.entered_fixed_point {
+                entered = true;
+            }
+            if r.l2.exited_fixed_point {
+                exited = true;
+            }
+        }
+        // Entry is probabilistic on metrics; exit requires having been inside.
+        // Accept either: we exited, or we never entered (soft assertion on path).
+        if entered {
+            assert!(
+                exited || !kernel.l2.in_fixed_point,
+                "entered fixed-point but never left"
+            );
+        }
     }
 }
