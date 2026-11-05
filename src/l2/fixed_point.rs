@@ -38,7 +38,9 @@ impl OmegaDayanFixedPoint {
             modulation.bias_delta.insert("self_ref".into(), 0.18);
             modulation.bias_delta.insert("coherence".into(), 0.12);
             modulation.constraint_delta.insert("max_risk".into(), -0.04);
-            modulation.bias_delta.insert("explore_preference".into(), -0.08);
+            modulation
+                .bias_delta
+                .insert("explore_preference".into(), -0.08);
             modulation.explore_bonus_delta = -0.06;
             modulation.risk_tolerance_delta = -0.03;
         } else {
@@ -46,7 +48,9 @@ impl OmegaDayanFixedPoint {
                 .bias_delta
                 .insert("observation_depth".into(), 0.14);
             modulation.constraint_delta.insert("max_risk".into(), 0.03);
-            modulation.bias_delta.insert("explore_preference".into(), 0.06);
+            modulation
+                .bias_delta
+                .insert("explore_preference".into(), 0.06);
             modulation.explore_bonus_delta = 0.05;
             modulation.risk_tolerance_delta = 0.02;
         }
@@ -123,7 +127,13 @@ mod tests {
     use crate::types::SystemState;
     use std::collections::HashMap;
 
-    fn state(omega: &str, dayan: Option<&str>, has_rules: bool, err: f64, steps: u64) -> SystemState {
+    fn state(
+        omega: &str,
+        dayan: Option<&str>,
+        has_rules: bool,
+        err: f64,
+        steps: u64,
+    ) -> SystemState {
         let mut active = HashMap::new();
         if has_rules {
             active.insert(
@@ -160,7 +170,13 @@ mod tests {
     #[test]
     fn aligned_produces_negative_explore_nudge() {
         let fp = OmegaDayanFixedPoint;
-        let s = state("coherent self omega", Some("dayan generative"), true, 0.2, 20);
+        let s = state(
+            "coherent self omega",
+            Some("dayan generative"),
+            true,
+            0.2,
+            20,
+        );
         let r = fp.enter(&s).unwrap();
         if r.aligned {
             assert!(r.modulation.explore_bonus_delta <= 0.0);
