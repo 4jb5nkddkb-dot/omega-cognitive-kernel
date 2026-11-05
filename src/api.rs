@@ -39,11 +39,17 @@ pub struct KernelStatus {
     pub avg_prediction_error: f64,
     pub adaptation_score: f64,
     pub error_damping: f64,
+    pub explore_bonus: f64,
+    pub risk_tolerance: f64,
     pub active_modules: usize,
     pub strategy_count: usize,
     pub case_count: usize,
     pub state_path: String,
     pub checkpoint_count: usize,
+    pub in_fixed_point: bool,
+    pub dwell_steps: u64,
+    pub last_alignment_score: f64,
+    pub max_risk: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -197,16 +203,29 @@ impl Kernel {
         let cases = self.inner.l0.memory.case.retrieve("", 10_000).len();
         let strategies = self.inner.l0.memory.strategy.retrieve("", 10_000).len();
         let checkpoint_count = self.checkpoints().list().map(|v| v.len()).unwrap_or(0);
+        let effect = &self.inner.l0.memory.cognitive_effect;
+        let max_risk = self
+            .inner
+            .constraints
+            .get("max_risk")
+            .copied()
+            .unwrap_or(0.65);
         KernelStatus {
             total_steps: self.inner.total_steps,
             avg_prediction_error: self.inner.l0.memory.cas.avg_prediction_error,
             adaptation_score: self.inner.l0.memory.cas.adaptation_score,
-            error_damping: self.inner.l0.memory.cognitive_effect.error_damping,
+            error_damping: effect.error_damping,
+            explore_bonus: effect.explore_bonus,
+            risk_tolerance: effect.risk_tolerance,
             active_modules: self.inner.l1.store.active.len(),
             strategy_count: strategies,
             case_count: cases,
             state_path: self.state_path.display().to_string(),
             checkpoint_count,
+            in_fixed_point: self.inner.l2.in_fixed_point,
+            dwell_steps: self.inner.l2.dwell_steps,
+            last_alignment_score: self.inner.l2.last_alignment_score,
+            max_risk,
         }
     }
 
