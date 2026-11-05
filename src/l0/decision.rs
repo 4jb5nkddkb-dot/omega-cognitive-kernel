@@ -145,13 +145,11 @@ impl DecisionMaker for ConstrainedDecisionMaker {
         params.insert("max_risk".into(), serde_json::json!(max_risk));
         params.insert(
             "l2_explore_pref".into(),
-            serde_json::json!(
-                intent
-                    .bias_from_memory
-                    .get("explore_preference")
-                    .copied()
-                    .unwrap_or(0.0)
-            ),
+            serde_json::json!(intent
+                .bias_from_memory
+                .get("explore_preference")
+                .copied()
+                .unwrap_or(0.0)),
         );
 
         Ok(vec![Action {
