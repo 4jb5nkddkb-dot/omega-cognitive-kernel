@@ -13,9 +13,9 @@ cargo fmt --all -- --check
 ```bash
 git checkout main
 git pull
-git tag -a v0.3.1 -m "v0.3.1 packaging release"
+git tag -a v0.3.2 -m "v0.3.2 RuleEffect expansion + strategy-aware patches"
 git push origin main
-git push origin v0.3.1
+git push origin v0.3.2
 ```
 
 Pushing `v*` runs `.github/workflows/release.yml`.
@@ -23,6 +23,6 @@ Pushing `v*` runs `.github/workflows/release.yml`.
 ## Install a release
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.1 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.2 --locked
 omega-kernel demo
 ```
