@@ -4,6 +4,7 @@ pub mod observer;
 pub mod predictor;
 
 use crate::error::Result;
+use crate::l1::learner::Learner;
 use crate::memory::MemoryFacade;
 use crate::types::*;
 use std::collections::HashMap;
@@ -20,6 +21,8 @@ where
     pub decision: D,
     pub executor: E,
     pub memory: MemoryFacade,
+    /// Post-step learning (case/strategy/CAS + idle decay).
+    pub learner: Learner,
 }
 
 impl<O, P, D, E> L0WorldLayer<O, P, D, E>
@@ -65,7 +68,8 @@ where
             meta,
         };
 
-        self.memory.update(&traj)?;
+        // Learning path owned by Learner (update + idle strategy decay).
+        self.learner.update(&mut self.memory, &traj)?;
         Ok(traj)
     }
 

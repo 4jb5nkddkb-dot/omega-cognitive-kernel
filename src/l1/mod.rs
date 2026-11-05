@@ -9,6 +9,7 @@ use crate::error::Result;
 use crate::memory::MemoryFacade;
 use crate::types::Trajectory;
 use abstractor::Abstractor;
+use learner::Learner;
 use reflector::{build_patch_context, Reflector};
 use sandbox::CodeSandbox;
 use std::collections::HashMap;
@@ -27,6 +28,8 @@ pub struct L1CognitiveLayer {
     pub reflector: Reflector,
     pub sandbox: CodeSandbox,
     pub store: VersionedStore,
+    /// Available for post-patch learning hooks; primary update lives in L0.
+    pub learner: Learner,
     /// Steps since the last accepted patch (for cooldown).
     pub steps_since_last_patch: u64,
 }
@@ -38,6 +41,7 @@ impl L1CognitiveLayer {
             reflector: Reflector::default(),
             sandbox: CodeSandbox::default(),
             store: VersionedStore::new(),
+            learner: Learner::default(),
             steps_since_last_patch: 100, // allow first patch immediately
         }
     }
@@ -51,7 +55,6 @@ impl L1CognitiveLayer {
 
         let abstraction = self.abstractor.distill(trajectory)?;
 
-        // Build context from current memory so patches are strategy-aware.
         let mut strategy_weights = HashMap::new();
         for s in memory.strategy.retrieve("", 16) {
             strategy_weights.insert(s.name, s.weight);
