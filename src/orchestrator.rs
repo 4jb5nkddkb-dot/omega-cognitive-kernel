@@ -43,13 +43,9 @@ where
             bias_from_memory: self.biases.clone(),
         };
 
-        // L0
         let trajectory = self.l0.step(&intent, &self.constraints)?;
-
-        // L1
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
 
-        // Build system state for L2
         let avg_err = self.l0.memory.cas.avg_prediction_error;
         let state = SystemState {
             active_code: self.l1.store.active.clone(),
@@ -70,7 +66,6 @@ where
             total_steps: self.total_steps,
         };
 
-        // L2 — pass current RuleEffect so soft nudges can be applied
         let current_effect = self.l0.memory.cognitive_effect.clone();
         let l2_result = self.l2.step(
             &state,
@@ -81,7 +76,6 @@ where
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
 
-        // Soft-merge L2 RuleEffect nudge (sanitized) into active cognitive_effect
         if let Some(nudged) = &l2_result.effect_nudge {
             self.l0.memory.cognitive_effect = nudged.clone();
         }
@@ -161,8 +155,6 @@ mod tests {
     #[test]
     fn s1_patch_reduces_prediction_error() {
         let mut kernel = make_kernel();
-        kernel.l1.reflector.error_threshold = 0.25;
-
         kernel.l1.reflector.error_threshold = 0.99;
         for _ in 0..5 {
             kernel.run_once("warmup").expect("warmup");
@@ -184,10 +176,7 @@ mod tests {
             }
         }
 
-        assert!(
-            saw_patch,
-            "expected at least one accepted patch under high error"
-        );
+        assert!(saw_patch, "expected at least one accepted patch under high error");
         assert!(
             kernel.l0.memory.cognitive_effect.error_damping < 1.0,
             "active cognitive effect must damp errors"
@@ -215,6 +204,82 @@ mod tests {
         assert_eq!(
             name, "stabilize",
             "decision should prefer stabilize from RuleEffect"
+        );
+    }
+
+    /// Patch cooldown: after an accepted patch, the next few steps must not patch again.
+    #[test]
+    fn patch_cooldown_blocks_immediate_repatch() {
+        let mut kernel = make_kernel();
+        kernel.l1.reflector.error_threshold = 0.05; // very sensitive
+        kernel.l1.reflector.min_steps_between_patches = 3;
+
+        let mut patch_steps = Vec::new();
+        for step in 0..10 {
+            let r = kernel
+                .run_once("high error force patch")
+                .expect("step");
+            if r.l1.patched {
+                patch_steps.push(step);
+            }
+        }
+
+        // If we got at least two patches, gaps must be >= min_steps_between_patches
+        if patch_steps.len() >= 2 {
+            for w in patch_steps.windows(2) {
+                assert!(
+                    w[1] - w[0] >= 3,
+                    "patches too close: {:?} (cooldown violated)",
+                    patch_steps
+                );
+            }
+        }
+    }
+
+    /// Tight max_risk constraint should discourage explore.
+    #[test]
+    fn constraints_max_risk_discourages_explore() {
+        let mut kernel = make_kernel();
+        kernel.constraints.insert("max_risk".into(), 0.20);
+        // Neutral rule effect so constraint is the main driver
+        kernel.l0.memory.cognitive_effect = crate::types::RuleEffect::default();
+
+        let mut explore_count = 0;
+        for _ in 0..8 {
+            let r = kernel.run_once("constrained").expect("step");
+            if r.trajectory.actions.first().map(|a| a.name.as_str()) == Some("explore") {
+                explore_count += 1;
+            }
+        }
+        // With tight max_risk, explore should be rare
+        assert!(explore_count <= 3, "explore_count={explore_count} too high under tight max_risk");
+    }
+
+    /// L2 soft-nudge path is wired: forcing fixed-point entry changes explore_bonus.
+    #[test]
+    fn l2_soft_nudge_can_change_explore_bonus() {
+        let mut kernel = make_kernel();
+        // Lower thresholds so emergence triggers quickly
+        kernel.l2.detector.window = 2;
+        kernel.l2.detector.pred_threshold = 0.3;
+        kernel.l2.detector.self_ref_threshold = 0.3;
+        kernel.l2.detector.cooldown_steps = 0;
+
+        let before = kernel.l0.memory.cognitive_effect.explore_bonus;
+        let mut saw_nudge = false;
+        for _ in 0..12 {
+            let r = kernel
+                .run_once("maintain coherent self-model omega dayan")
+                .expect("step");
+            if r.l2.effect_nudge.is_some() {
+                saw_nudge = true;
+            }
+        }
+        // Either we saw a nudge event, or explore_bonus moved (aligned → negative delta)
+        let after = kernel.l0.memory.cognitive_effect.explore_bonus;
+        assert!(
+            saw_nudge || (after - before).abs() > 1e-6,
+            "expected L2 soft-nudge path to fire; before={before} after={after}"
         );
     }
 }
