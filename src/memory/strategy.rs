@@ -8,6 +8,9 @@ pub struct Strategy {
     pub weight: f64,
     pub success_count: u32,
     pub fail_count: u32,
+    /// Steps since this strategy was last selected / bumped.
+    #[serde(default)]
+    pub idle_steps: u32,
 }
 
 #[derive(Debug, Default)]
@@ -17,6 +20,10 @@ pub struct StrategyMemory {
 
 impl StrategyMemory {
     pub fn absorb(&mut self, traj: &Trajectory) {
+        for s in self.strategies.values_mut() {
+            s.idle_steps = s.idle_steps.saturating_add(1);
+        }
+
         let success = traj.prediction_errors.iter().all(|&e| e < 0.4);
         let key = if traj.actions.is_empty() {
             "noop".to_string()
@@ -37,9 +44,11 @@ impl StrategyMemory {
                 weight: 1.0,
                 success_count: 0,
                 fail_count: 0,
+                idle_steps: 0,
             });
         let delta = (reward - 0.5) * 0.2;
         entry.weight = (entry.weight + delta).clamp(0.1, 10.0);
+        entry.idle_steps = 0;
     }
 
     fn bump(&mut self, key: &str, success: bool) {
@@ -48,13 +57,25 @@ impl StrategyMemory {
             weight: 1.0,
             success_count: 0,
             fail_count: 0,
+            idle_steps: 0,
         });
+        entry.idle_steps = 0;
         if success {
             entry.success_count += 1;
             entry.weight = (entry.weight * 1.05).min(10.0);
         } else {
             entry.fail_count += 1;
             entry.weight = (entry.weight * 0.95).max(0.1);
+        }
+    }
+
+    /// Slowly decay weights of strategies that have been idle for a while.
+    pub fn decay_idle(&mut self, idle_threshold: u32, factor: f64) {
+        let factor = factor.clamp(0.5, 0.99);
+        for s in self.strategies.values_mut() {
+            if s.idle_steps >= idle_threshold {
+                s.weight = (s.weight * factor).max(0.1);
+            }
         }
     }
 
@@ -116,5 +137,22 @@ mod tests {
         let strategies = sm.retrieve("any", 5);
         assert!(strategies[0].weight < 1.0);
         assert_eq!(strategies[0].fail_count, 1);
+    }
+
+    #[test]
+    fn idle_decay_lowers_unused_strategy() {
+        let mut sm = StrategyMemory::default();
+        sm.absorb(&traj_with_action("explore", true));
+        let before = sm.retrieve("any", 1)[0].weight;
+        for _ in 0..6 {
+            sm.absorb(&traj_with_action("observe", true));
+        }
+        sm.decay_idle(3, 0.9);
+        let explore = sm
+            .retrieve("any", 10)
+            .into_iter()
+            .find(|s| s.name == "explore")
+            .unwrap();
+        assert!(explore.weight < before);
     }
 }

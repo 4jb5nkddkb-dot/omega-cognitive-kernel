@@ -49,6 +49,8 @@ impl MemoryFacade {
     pub fn update(&mut self, traj: &Trajectory) -> Result<()> {
         self.case.add(traj);
         self.strategy.absorb(traj);
+        // Idle strategy decay so early lucky weights cannot lock the policy forever.
+        self.strategy.decay_idle(5, 0.92);
         self.cas.update(traj);
         Ok(())
     }
