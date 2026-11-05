@@ -241,6 +241,14 @@ fn main() -> anyhow::Result<()> {
             println!("risk_tolerance    : {:.3}", report.final_risk_tolerance);
             println!("patches_accepted  : {}", report.patches_accepted);
             println!("error_decreased   : {}", report.error_decreased);
+            println!("── strategy decay ──");
+            println!("strategies        : {}", report.strategy_count);
+            println!("idle_strategies   : {}", report.idle_strategy_count);
+            println!("mean_weight       : {:.3}", report.mean_strategy_weight);
+            println!("mean_idle_steps   : {:.2}", report.mean_idle_steps);
+            println!("max_idle_steps    : {}", report.max_idle_steps);
+            println!("mean_idle_weight  : {:.3}", report.mean_idle_weight);
+            println!("mean_active_weight: {:.3}", report.mean_active_weight);
         }
     }
     Ok(())
