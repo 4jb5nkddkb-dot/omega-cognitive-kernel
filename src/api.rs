@@ -8,6 +8,7 @@ use crate::l0::executor::SandboxedExecutor;
 use crate::l0::observer::MultiModalObserver;
 use crate::l0::predictor::ModelBasedPredictor;
 use crate::l0::L0WorldLayer;
+use crate::l1::learner::Learner;
 use crate::l1::L1CognitiveLayer;
 use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
@@ -81,6 +82,7 @@ impl Kernel {
                 "stabilize".into(),
             ]),
             memory: MemoryFacade::new(),
+            learner: Learner::default(),
         };
         Self {
             inner: OmegaOrchestrator {
