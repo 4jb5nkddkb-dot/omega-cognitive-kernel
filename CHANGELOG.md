@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.4] — 2026-11-05
+
+### L2 soft RuleEffect modulation
+
+- Fixed-point `Modulation` now carries `explore_bonus_delta` / `risk_tolerance_delta`
+- `MetaModulator::apply_to_effect` merges deltas into current `RuleEffect` then sanitizes
+- Orchestrator applies the nudge to `memory.cognitive_effect` so L0 sees it next step
+
+### Constraints in DecisionMaker
+
+- `max_risk` from constraints now influences scoring: tight risk penalizes explore, boosts stabilize/observe
+- Action params include `max_risk` for observability
+
+### CLI / status L2 surface
+
+- `KernelStatus` exposes `in_fixed_point`, `dwell_steps`, `last_alignment_score`, `max_risk`, `explore_bonus`, `risk_tolerance`
+- `run` / `status` / `demo` print fixed-point state and soft-nudge events
+
 ## [0.3.3] — 2026-11-05
 
 ### L1 hardening
