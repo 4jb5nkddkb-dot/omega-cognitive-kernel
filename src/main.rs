@@ -88,15 +88,32 @@ fn main() -> anyhow::Result<()> {
                     .map(|a| a.name.as_str())
                     .unwrap_or("-");
                 let effect = &kernel.inner.l0.memory.cognitive_effect;
+                let fp = if r.l2.in_fixed_point { "FP" } else { "  " };
                 println!(
-                    "step {i:>2} │ act={act:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3}",
+                    "step {i:>2} │ act={act:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3} │ {fp} align={:.2}",
                     r.l1.patched,
                     effect.error_damping,
                     kernel.inner.l0.memory.cas.avg_prediction_error,
+                    r.l2.alignment_score,
                 );
                 if let Some(d) = r.l1.effect_damping {
                     println!(
                         "         └─ rule committed: damp→{d:.2}  explore_bonus={:.2}  risk_tol={:.2}",
+                        effect.explore_bonus, effect.risk_tolerance
+                    );
+                }
+                if r.l2.entered_fixed_point {
+                    println!(
+                        "         └─ entered fixed-point (align={:.2})",
+                        r.l2.alignment_score
+                    );
+                }
+                if r.l2.exited_fixed_point {
+                    println!("         └─ exited fixed-point");
+                }
+                if r.l2.effect_nudge.is_some() {
+                    println!(
+                        "         └─ L2 soft-nudge: explore_bonus={:.2} risk_tol={:.2}",
                         effect.explore_bonus, effect.risk_tolerance
                     );
                 }
@@ -114,22 +131,30 @@ fn main() -> anyhow::Result<()> {
                 st.active_modules,
                 st.checkpoint_count
             );
+            println!(
+                "L2: in_fp={} dwell={} align={:.3}  max_risk={:.2}",
+                st.in_fixed_point, st.dwell_steps, st.last_alignment_score, st.max_risk
+            );
         }
         Commands::Status => {
             let kernel = Kernel::open(state_path(&cli).as_deref())?;
             let st = kernel.status();
-            let effect = &kernel.inner.l0.memory.cognitive_effect;
             println!("state_path     : {}", st.state_path);
             println!("total_steps    : {}", st.total_steps);
             println!("avg_pred_error : {:.4}", st.avg_prediction_error);
             println!("adaptation     : {:.4}", st.adaptation_score);
             println!("error_damping  : {:.4}", st.error_damping);
-            println!("explore_bonus  : {:.4}", effect.explore_bonus);
-            println!("risk_tolerance : {:.4}", effect.risk_tolerance);
+            println!("explore_bonus  : {:.4}", st.explore_bonus);
+            println!("risk_tolerance : {:.4}", st.risk_tolerance);
+            println!("max_risk       : {:.4}", st.max_risk);
             println!("active_modules : {}", st.active_modules);
             println!("strategies     : {}", st.strategy_count);
             println!("cases          : {}", st.case_count);
             println!("checkpoints    : {}", st.checkpoint_count);
+            println!("── L2 ──");
+            println!("in_fixed_point : {}", st.in_fixed_point);
+            println!("dwell_steps    : {}", st.dwell_steps);
+            println!("alignment_score: {:.4}", st.last_alignment_score);
         }
         Commands::Reset { yes } => {
             if !yes {
@@ -150,6 +175,7 @@ fn main() -> anyhow::Result<()> {
             let goal = "maintain coherent self-model while acting in world";
             let report = kernel.run(goal, *steps)?;
             let effect = &kernel.inner.l0.memory.cognitive_effect;
+            let st = kernel.status();
             println!("steps            : {}", report.steps);
             println!("patches accepted : {}", report.patches_accepted);
             println!("early avg_err    : {:.3}", report.early_avg_err);
@@ -161,7 +187,11 @@ fn main() -> anyhow::Result<()> {
                 "error decreased  : {}",
                 if report.error_decreased { "yes" } else { "no" }
             );
-            println!("checkpoints      : {}", kernel.status().checkpoint_count);
+            println!("checkpoints      : {}", st.checkpoint_count);
+            println!(
+                "L2 in_fp={} dwell={} align={:.3}",
+                st.in_fixed_point, st.dwell_steps, st.last_alignment_score
+            );
             println!("state: {}", demo_path.display());
         }
         Commands::Audit { tail } => {
