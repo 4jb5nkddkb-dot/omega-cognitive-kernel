@@ -9,8 +9,9 @@ use crate::error::Result;
 use crate::memory::MemoryFacade;
 use crate::types::Trajectory;
 use abstractor::Abstractor;
-use reflector::Reflector;
+use reflector::{build_patch_context, Reflector};
 use sandbox::CodeSandbox;
+use std::collections::HashMap;
 use store::VersionedStore;
 
 #[derive(Debug)]
@@ -45,7 +46,24 @@ impl L1CognitiveLayer {
     ) -> Result<L1Result> {
         let abstraction = self.abstractor.distill(trajectory)?;
 
-        if let Some(mut patch) = self.reflector.reflect(trajectory, &abstraction)? {
+        // Build context from current memory so patches are strategy-aware.
+        let mut strategy_weights = HashMap::new();
+        for s in memory.strategy.retrieve("", 16) {
+            strategy_weights.insert(s.name, s.weight);
+        }
+        let recent_errors: Vec<f64> = memory
+            .case
+            .retrieve("", 8)
+            .iter()
+            .map(|c| c.error_mean)
+            .collect();
+        let ctx = build_patch_context(
+            memory.cas.avg_prediction_error,
+            strategy_weights,
+            &recent_errors,
+        );
+
+        if let Some(mut patch) = self.reflector.reflect(trajectory, &abstraction, &ctx)? {
             patch.effect = patch.effect.sanitize();
             let report = self.sandbox.validate(&patch)?;
             if report.accepted {
