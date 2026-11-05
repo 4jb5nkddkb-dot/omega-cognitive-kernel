@@ -70,12 +70,21 @@ where
             total_steps: self.total_steps,
         };
 
-        // L2
-        let l2_result = self
-            .l2
-            .step(&state, self.biases.clone(), self.constraints.clone())?;
+        // L2 — pass current RuleEffect so soft nudges can be applied
+        let current_effect = self.l0.memory.cognitive_effect.clone();
+        let l2_result = self.l2.step(
+            &state,
+            self.biases.clone(),
+            self.constraints.clone(),
+            &current_effect,
+        )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
+
+        // Soft-merge L2 RuleEffect nudge (sanitized) into active cognitive_effect
+        if let Some(nudged) = &l2_result.effect_nudge {
+            self.l0.memory.cognitive_effect = nudged.clone();
+        }
 
         Ok(StepResult {
             trajectory,
@@ -149,21 +158,16 @@ mod tests {
         assert!(kernel.l0.memory.cas.total_steps >= 3);
     }
 
-    /// S1 gate: high error triggers a patch; subsequent steps show lower avg error
-    /// and active damping < 1.0 (structured effect changed behavior).
     #[test]
     fn s1_patch_reduces_prediction_error() {
         let mut kernel = make_kernel();
-        // Force reflector to be sensitive.
         kernel.l1.reflector.error_threshold = 0.25;
 
-        // Warm-up with high threshold so no early patches; establish elevated baseline error
         kernel.l1.reflector.error_threshold = 0.99;
         for _ in 0..5 {
             kernel.run_once("warmup").expect("warmup");
         }
         let early_err = kernel.l0.memory.cas.avg_prediction_error;
-        // Now make reflector sensitive so patches apply
         kernel.l1.reflector.error_threshold = 0.25;
         let mut saw_patch = false;
 
@@ -198,7 +202,6 @@ mod tests {
     #[test]
     fn s1_decision_uses_rule_preference() {
         let mut kernel = make_kernel();
-        // Seed a strong stabilize preference as if a patch was committed.
         kernel
             .l0
             .memory
