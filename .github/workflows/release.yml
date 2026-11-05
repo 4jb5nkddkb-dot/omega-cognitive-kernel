@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach binary to (e.g. v0.3.7)"
+        required: true
+        default: "v0.3.7"
 
 permissions:
   contents: write
@@ -17,6 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On tag push, GITHUB_REF is the tag; on dispatch, check out the requested tag
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -30,12 +39,22 @@ jobs:
       - name: Build release binary
         run: cargo build --release --bin omega-kernel
 
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Package artifact
         run: |
+          TAG="${{ steps.tag.outputs.name }}"
           mkdir -p dist
           cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
-          cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/
-          NOTES="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/ 2>/dev/null || true
+          NOTES="RELEASE_NOTES_${TAG}.md"
           if [ -f "$NOTES" ]; then cp "$NOTES" dist/; fi
           tar -czf omega-kernel-linux-x86_64.tar.gz -C dist .
 
@@ -48,7 +67,8 @@ jobs:
       - name: Load release notes body
         id: notes
         run: |
-          NOTES="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          TAG="${{ steps.tag.outputs.name }}"
+          NOTES="RELEASE_NOTES_${TAG}.md"
           if [ -f "$NOTES" ]; then
             {
               echo "body<<OMEGA_RELEASE_EOF"
@@ -60,23 +80,19 @@ jobs:
           else
             {
               echo "body<<OMEGA_RELEASE_EOF"
-              echo "## Omega Cognitive Kernel ${GITHUB_REF_NAME}"
+              echo "## Omega Cognitive Kernel ${TAG}"
               echo ""
               echo "Training-free online strategy-patch runtime (RuleEffect)."
               echo "See CHANGELOG.md on this tag for details."
-              echo ""
-              echo "### Install"
-              echo '```bash'
-              echo "cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag ${GITHUB_REF_NAME} --locked"
-              echo '```'
               echo "OMEGA_RELEASE_EOF"
             } >> "$GITHUB_OUTPUT"
             echo "No $NOTES; using fallback body"
           fi
 
-      - name: Create GitHub Release
+      - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           generate_release_notes: false
           files: omega-kernel-linux-x86_64.tar.gz
           body: ${{ steps.notes.outputs.body }}
