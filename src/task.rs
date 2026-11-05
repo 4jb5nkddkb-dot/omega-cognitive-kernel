@@ -12,7 +12,10 @@ pub struct BanditReport {
     pub mean_reward: f64,
     pub best_arm_rate: f64,
     pub final_damping: f64,
+    pub final_explore_bonus: f64,
+    pub final_risk_tolerance: f64,
     pub error_decreased: bool,
+    pub patches_accepted: u64,
     pub seed: u64,
 }
 
@@ -57,14 +60,25 @@ pub fn run_bandit_task_seeded(
     let mut total_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;
+    let mut patches = 0u64;
     let early_err = kernel.inner.l0.memory.cas.avg_prediction_error;
 
     for ep in 0..episodes {
-        let best = if ep < episodes / 2 { 0 } else { 1 };
+        // Non-stationary: best arm flips halfway (and once more late if many episodes).
+        let best = if episodes >= 4 && ep >= (episodes * 3) / 4 {
+            0
+        } else if ep < episodes / 2 {
+            0
+        } else {
+            1
+        };
         let mut ep_reward = 0.0;
 
         for _ in 0..steps_per_episode {
             let r = kernel.step("maximize bandit reward under uncertainty")?;
+            if r.l1.patched {
+                patches += 1;
+            }
             let action = r
                 .trajectory
                 .actions
@@ -89,6 +103,7 @@ pub fn run_bandit_task_seeded(
     }
 
     let final_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+    let effect = &kernel.inner.l0.memory.cognitive_effect;
     Ok(BanditReport {
         episodes,
         steps_per_episode,
@@ -102,8 +117,11 @@ pub fn run_bandit_task_seeded(
         } else {
             best_hits as f64 / total_choices as f64
         },
-        final_damping: kernel.inner.l0.memory.cognitive_effect.error_damping,
+        final_damping: effect.error_damping,
+        final_explore_bonus: effect.explore_bonus,
+        final_risk_tolerance: effect.risk_tolerance,
         error_decreased: final_err < early_err || early_err == 0.0,
+        patches_accepted: patches,
         seed,
     })
 }
