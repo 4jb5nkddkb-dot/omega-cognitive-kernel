@@ -62,6 +62,10 @@ pub struct RuleEffect {
     pub action_preference: HashMap<String, f64>,
     /// Floor for reported uncertainty after damping.
     pub min_uncertainty: f64,
+    /// Additive score bias toward "explore" (negative favors exploit/stabilize).
+    pub explore_bonus: f64,
+    /// Soft threshold for treating uncertainty as "high" (higher = more tolerant).
+    pub risk_tolerance: f64,
 }
 
 impl Default for RuleEffect {
@@ -70,6 +74,8 @@ impl Default for RuleEffect {
             error_damping: 1.0,
             action_preference: HashMap::new(),
             min_uncertainty: 0.05,
+            explore_bonus: 0.0,
+            risk_tolerance: 0.45,
         }
     }
 }
@@ -81,6 +87,8 @@ impl RuleEffect {
     pub fn sanitize(mut self) -> Self {
         self.error_damping = self.error_damping.clamp(0.2, 1.5);
         self.min_uncertainty = self.min_uncertainty.clamp(0.01, 0.5);
+        self.explore_bonus = self.explore_bonus.clamp(-1.5, 1.5);
+        self.risk_tolerance = self.risk_tolerance.clamp(0.15, 0.85);
         self.action_preference.retain(|k, v| {
             if !Self::ALLOWED_ACTIONS.contains(&k.as_str()) {
                 return false;
@@ -102,6 +110,18 @@ impl RuleEffect {
             return Some(format!(
                 "min_uncertainty {:.3} outside [0.0, 1.0]",
                 self.min_uncertainty
+            ));
+        }
+        if !(-2.0..=2.0).contains(&self.explore_bonus) {
+            return Some(format!(
+                "explore_bonus {:.3} outside [-2.0, 2.0]",
+                self.explore_bonus
+            ));
+        }
+        if !(0.1..=0.9).contains(&self.risk_tolerance) {
+            return Some(format!(
+                "risk_tolerance {:.3} outside [0.1, 0.9]",
+                self.risk_tolerance
             ));
         }
         for (k, v) in &self.action_preference {
