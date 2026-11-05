@@ -41,16 +41,13 @@ impl PatchGenerator {
         };
 
         let mut action_preference = HashMap::new();
-        let mut explore_bonus = 0.0;
-        let mut risk_tolerance = 0.45;
 
-        if high_error {
+        let (explore_bonus, risk_tolerance) = if high_error {
             // Prefer stabilize / observe; discourage pure explore.
             action_preference.insert("stabilize".into(), 1.6);
             action_preference.insert("observe".into(), 0.6);
             action_preference.insert("explore".into(), -0.4);
-            explore_bonus = -0.35;
-            risk_tolerance = 0.38; // treat uncertainty as high more readily
+            (-0.35, 0.38) // treat uncertainty as high more readily
         } else {
             // Low error: lean exploit, mild explore if strategies are weak.
             action_preference.insert("exploit".into(), 0.9);
@@ -63,14 +60,12 @@ impl PatchGenerator {
                 .fold(1.0_f64, f64::max);
             if best_strat < 1.8 {
                 // Strategies not yet confident → allow a little exploration.
-                explore_bonus = 0.25;
                 action_preference.insert("explore".into(), 0.4);
-                risk_tolerance = 0.52;
+                (0.25, 0.52)
             } else {
-                explore_bonus = -0.1;
-                risk_tolerance = 0.48;
+                (-0.1, 0.48)
             }
-        }
+        };
 
         // If a strategy already has high weight, reinforce it slightly.
         if let Some((name, w)) = ctx

@@ -125,11 +125,12 @@ mod tests {
             cooldown_steps: 3,
             cooldown_remaining: 0,
         };
-        // Fill history
-        let _ = det.should_trigger(&metrics(0.9, 0.9));
-        let _ = det.should_trigger(&metrics(0.9, 0.9));
-        assert!(det.should_trigger(&metrics(0.9, 0.9))); // first trigger
-        // Next calls should be blocked by cooldown
+        // First call: history < window → no trigger
+        assert!(!det.should_trigger(&metrics(0.9, 0.9)));
+        // Second call: window full → first trigger, starts cooldown
+        assert!(det.should_trigger(&metrics(0.9, 0.9)));
+        // Subsequent calls blocked by cooldown
+        assert!(!det.should_trigger(&metrics(0.9, 0.9)));
         assert!(!det.should_trigger(&metrics(0.9, 0.9)));
         assert!(!det.should_trigger(&metrics(0.9, 0.9)));
     }
