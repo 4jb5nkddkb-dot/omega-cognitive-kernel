@@ -35,6 +35,8 @@ jobs:
           mkdir -p dist
           cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
           cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/
+          NOTES="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then cp "$NOTES" dist/; fi
           tar -czf omega-kernel-linux-x86_64.tar.gz -C dist .
 
       - name: Upload artifact
@@ -43,39 +45,40 @@ jobs:
           name: omega-kernel-linux-x86_64
           path: omega-kernel-linux-x86_64.tar.gz
 
+      - name: Load release notes body
+        id: notes
+        run: |
+          NOTES="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then
+            {
+              echo "body<<OMEGA_RELEASE_EOF"
+              cat "$NOTES"
+              echo ""
+              echo "OMEGA_RELEASE_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "Using $NOTES as release body"
+          else
+            {
+              echo "body<<OMEGA_RELEASE_EOF"
+              echo "## Omega Cognitive Kernel ${GITHUB_REF_NAME}"
+              echo ""
+              echo "Training-free online strategy-patch runtime (RuleEffect)."
+              echo "See CHANGELOG.md on this tag for details."
+              echo ""
+              echo "### Install"
+              echo '```bash'
+              echo "cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag ${GITHUB_REF_NAME} --locked"
+              echo '```'
+              echo "OMEGA_RELEASE_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "No $NOTES; using fallback body"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          generate_release_notes: false
           files: omega-kernel-linux-x86_64.tar.gz
-          body: |
-            ## Omega Cognitive Kernel ${{ github.ref_name }}
-
-            Training-free online strategy-patch runtime (`RuleEffect`).
-            Research prototype — not AGI; L2 fixed-point language is heuristic.
-
-            ### Install
-            ```bash
-            cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag ${{ github.ref_name }} --locked
-            ```
-
-            ### Binary
-            Attached: `omega-kernel-linux-x86_64.tar.gz` (includes LICENSE, README, CHANGELOG, ARCHITECTURE).
-
-            ### Quick check
-            ```bash
-            omega-kernel demo
-            omega-kernel task --episodes 4 --steps 3
-            omega-kernel --help
-            ```
-
-            ### Notes for v0.3.7+
-            - L2 meta-biases mapped into DecisionMaker
-            - Strategy idle-decay metrics on bandit `task`
-            - L0 Learner owns update + decay
-            - See `RELEASE_NOTES_v0.3.7.md` / `CHANGELOG.md` on the tag
-
-            ### Safety
-            Whitelist executor · bounded RuleEffect · checkpoint/rollback · audit log · no arbitrary code exec
+          body: ${{ steps.notes.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
