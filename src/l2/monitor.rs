@@ -51,11 +51,7 @@ mod tests {
         SystemState {
             active_code: active,
             highest_attractor: "test".into(),
-            generative_base: if has_base {
-                Some("dayan".into())
-            } else {
-                None
-            },
+            generative_base: if has_base { Some("dayan".into()) } else { None },
             last_trajectory_summary: None,
             avg_prediction_error: err,
             total_steps: 5,
