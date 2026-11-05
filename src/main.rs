@@ -87,14 +87,18 @@ fn main() -> anyhow::Result<()> {
                     .first()
                     .map(|a| a.name.as_str())
                     .unwrap_or("-");
+                let effect = &kernel.inner.l0.memory.cognitive_effect;
                 println!(
                     "step {i:>2} │ act={act:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3}",
                     r.l1.patched,
-                    kernel.inner.l0.memory.cognitive_effect.error_damping,
+                    effect.error_damping,
                     kernel.inner.l0.memory.cas.avg_prediction_error,
                 );
                 if let Some(d) = r.l1.effect_damping {
-                    println!("         └─ rule committed: error_damping → {d:.2}");
+                    println!(
+                        "         └─ rule committed: damp→{d:.2}  explore_bonus={:.2}  risk_tol={:.2}",
+                        effect.explore_bonus, effect.risk_tolerance
+                    );
                 }
             }
             if !no_save {
@@ -114,11 +118,14 @@ fn main() -> anyhow::Result<()> {
         Commands::Status => {
             let kernel = Kernel::open(state_path(&cli).as_deref())?;
             let st = kernel.status();
+            let effect = &kernel.inner.l0.memory.cognitive_effect;
             println!("state_path     : {}", st.state_path);
             println!("total_steps    : {}", st.total_steps);
             println!("avg_pred_error : {:.4}", st.avg_prediction_error);
             println!("adaptation     : {:.4}", st.adaptation_score);
             println!("error_damping  : {:.4}", st.error_damping);
+            println!("explore_bonus  : {:.4}", effect.explore_bonus);
+            println!("risk_tolerance : {:.4}", effect.risk_tolerance);
             println!("active_modules : {}", st.active_modules);
             println!("strategies     : {}", st.strategy_count);
             println!("cases          : {}", st.case_count);
@@ -142,11 +149,14 @@ fn main() -> anyhow::Result<()> {
             kernel.autosave = true;
             let goal = "maintain coherent self-model while acting in world";
             let report = kernel.run(goal, *steps)?;
+            let effect = &kernel.inner.l0.memory.cognitive_effect;
             println!("steps            : {}", report.steps);
             println!("patches accepted : {}", report.patches_accepted);
             println!("early avg_err    : {:.3}", report.early_avg_err);
             println!("final avg_err    : {:.3}", report.final_avg_err);
             println!("final damping    : {:.3}", report.final_damping);
+            println!("explore_bonus    : {:.3}", effect.explore_bonus);
+            println!("risk_tolerance   : {:.3}", effect.risk_tolerance);
             println!(
                 "error decreased  : {}",
                 if report.error_decreased { "yes" } else { "no" }
@@ -194,10 +204,13 @@ fn main() -> anyhow::Result<()> {
             println!("bandit task  episodes={episodes} steps/ep={steps}");
             let report = run_bandit_task(&mut kernel, *episodes, *steps)?;
             kernel.save()?;
-            println!("mean_reward    : {:.3}", report.mean_reward);
-            println!("best_arm_rate  : {:.3}", report.best_arm_rate);
-            println!("final_damping  : {:.3}", report.final_damping);
-            println!("error_decreased: {}", report.error_decreased);
+            println!("mean_reward       : {:.3}", report.mean_reward);
+            println!("best_arm_rate     : {:.3}", report.best_arm_rate);
+            println!("final_damping     : {:.3}", report.final_damping);
+            println!("explore_bonus     : {:.3}", report.final_explore_bonus);
+            println!("risk_tolerance    : {:.3}", report.final_risk_tolerance);
+            println!("patches_accepted  : {}", report.patches_accepted);
+            println!("error_decreased   : {}", report.error_decreased);
         }
     }
     Ok(())
