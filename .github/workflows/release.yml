@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build-linux:
     name: Build Linux binary
@@ -31,7 +34,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
-          cp LICENSE README.md CHANGELOG.md dist/
+          cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/
           tar -czf omega-kernel-linux-x86_64.tar.gz -C dist .
 
       - name: Upload artifact
@@ -46,22 +49,33 @@ jobs:
           generate_release_notes: true
           files: omega-kernel-linux-x86_64.tar.gz
           body: |
-            ## Omega Kernel ${{ github.ref_name }}
+            ## Omega Cognitive Kernel ${{ github.ref_name }}
 
             Training-free online strategy-patch runtime (`RuleEffect`).
+            Research prototype — not AGI; L2 fixed-point language is heuristic.
 
-            ### Install from source
+            ### Install
             ```bash
             cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag ${{ github.ref_name }} --locked
             ```
 
             ### Binary
-            See attached `omega-kernel-linux-x86_64.tar.gz`.
+            Attached: `omega-kernel-linux-x86_64.tar.gz` (includes LICENSE, README, CHANGELOG, ARCHITECTURE).
 
             ### Quick check
             ```bash
             omega-kernel demo
+            omega-kernel task --episodes 4 --steps 3
             omega-kernel --help
             ```
+
+            ### Notes for v0.3.7+
+            - L2 meta-biases mapped into DecisionMaker
+            - Strategy idle-decay metrics on bandit `task`
+            - L0 Learner owns update + decay
+            - See `RELEASE_NOTES_v0.3.7.md` / `CHANGELOG.md` on the tag
+
+            ### Safety
+            Whitelist executor · bounded RuleEffect · checkpoint/rollback · audit log · no arbitrary code exec
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
