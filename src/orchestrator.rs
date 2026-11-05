@@ -178,7 +178,10 @@ mod tests {
             }
         }
 
-        assert!(saw_patch, "expected at least one accepted patch under high error");
+        assert!(
+            saw_patch,
+            "expected at least one accepted patch under high error"
+        );
         assert!(
             kernel.l0.memory.cognitive_effect.error_damping < 1.0,
             "active cognitive effect must damp errors"
@@ -217,9 +220,7 @@ mod tests {
 
         let mut patch_steps = Vec::new();
         for step in 0..10 {
-            let r = kernel
-                .run_once("high error force patch")
-                .expect("step");
+            let r = kernel.run_once("high error force patch").expect("step");
             if r.l1.patched {
                 patch_steps.push(step);
             }
@@ -249,7 +250,10 @@ mod tests {
                 explore_count += 1;
             }
         }
-        assert!(explore_count <= 3, "explore_count={explore_count} too high under tight max_risk");
+        assert!(
+            explore_count <= 3,
+            "explore_count={explore_count} too high under tight max_risk"
+        );
     }
 
     #[test]
