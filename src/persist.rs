@@ -73,6 +73,8 @@ mod tests {
                 error_damping: 0.7,
                 action_preference: HashMap::from([("stabilize".into(), 1.5)]),
                 min_uncertainty: 0.08,
+                explore_bonus: -0.2,
+                risk_tolerance: 0.4,
             },
             cases: vec![],
             case_capacity: 256,
@@ -84,6 +86,8 @@ mod tests {
         let loaded = KernelSnapshot::load_from(&path).unwrap();
         assert_eq!(loaded.total_steps, 7);
         assert!((loaded.cognitive_effect.error_damping - 0.7).abs() < 1e-9);
+        assert!((loaded.cognitive_effect.explore_bonus + 0.2).abs() < 1e-9);
+        assert!((loaded.cognitive_effect.risk_tolerance - 0.4).abs() < 1e-9);
         let _ = fs::remove_file(&path);
     }
 }
