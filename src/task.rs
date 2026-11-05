@@ -73,12 +73,10 @@ pub fn run_bandit_task_seeded(
 
     for ep in 0..episodes {
         // Non-stationary: best arm flips halfway (and once more late if many episodes).
-        let best = if episodes >= 4 && ep >= (episodes * 3) / 4 {
-            0
-        } else if ep < episodes / 2 {
-            0
-        } else {
+        let best = if ep >= episodes / 2 && !(episodes >= 4 && ep >= (episodes * 3) / 4) {
             1
+        } else {
+            0
         };
         let mut ep_reward = 0.0;
 
