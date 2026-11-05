@@ -62,8 +62,16 @@ impl DecisionMaker for ConstrainedDecisionMaker {
             score += effect.action_preference.get(name).copied().unwrap_or(0.0);
             // Intent / L2 biases.
             score += intent.bias_from_memory.get(name).copied().unwrap_or(0.0);
-            // Heuristic: high uncertainty → prefer stabilize/observe.
-            if uncertainty > 0.45 {
+
+            // Explore bonus from RuleEffect.
+            if name == "explore" {
+                score += effect.explore_bonus;
+            }
+
+            // Heuristic modulated by risk_tolerance: high uncertainty relative to
+            // tolerance → prefer stabilize/observe; low uncertainty → exploit.
+            let high_unc_threshold = effect.risk_tolerance;
+            if uncertainty > high_unc_threshold {
                 if name == "stabilize" {
                     score += 0.8;
                 }
@@ -76,6 +84,7 @@ impl DecisionMaker for ConstrainedDecisionMaker {
             } else if name == "exploit" {
                 score += 0.5;
             }
+
             if score > best_score {
                 best_score = score;
                 best_name = name;
@@ -90,6 +99,14 @@ impl DecisionMaker for ConstrainedDecisionMaker {
         params.insert("uncertainty".into(), serde_json::json!(uncertainty));
         params.insert("score".into(), serde_json::json!(best_score));
         params.insert("damping".into(), serde_json::json!(effect.error_damping));
+        params.insert(
+            "explore_bonus".into(),
+            serde_json::json!(effect.explore_bonus),
+        );
+        params.insert(
+            "risk_tolerance".into(),
+            serde_json::json!(effect.risk_tolerance),
+        );
 
         Ok(vec![Action {
             name: best_name.into(),
