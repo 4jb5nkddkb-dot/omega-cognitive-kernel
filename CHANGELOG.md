@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.3] — 2026-11-05
+
+### L1 hardening
+
+- **Abstractor** now extracts error variance, action distribution, and a heuristic success rate (in addition to mean error).
+- **Reflector** uses the richer features and enforces a **cooldown** (`min_steps_between_patches`, default 3) so patches cannot thrash on noisy trajectories.
+- **VersionedStore** history is FIFO-capped at 64 entries.
+- Unit tests added for Abstractor, Reflector, and store bounds.
+
+### L2 fixed-point lifecycle
+
+- **MetaMonitor.consistency** is data-driven (inverse of prediction error + generative/code presence) instead of a constant.
+- **EmergenceDetector** adds hysteresis/cooldown and a soft **exit** signal when metrics degrade.
+- **L2MetaLayer** tracks dwell steps, supports entry → dwell → exit, and periodically re-applies mild modulation while inside the fixed point.
+- **OmegaDayanFixedPoint** alignment score enriched with keyword signals, code self-ref tokens, and sustained low-error maturity.
+
+### Docs
+
+- ARCHITECTURE.md updated for cooldown, store bound, and fixed-point lifecycle.
+
 ## [0.3.2] — 2026-11-05
 
 ### RuleEffect expansion

@@ -27,6 +27,8 @@ pub struct L1CognitiveLayer {
     pub reflector: Reflector,
     pub sandbox: CodeSandbox,
     pub store: VersionedStore,
+    /// Steps since the last accepted patch (for cooldown).
+    pub steps_since_last_patch: u64,
 }
 
 impl L1CognitiveLayer {
@@ -36,6 +38,7 @@ impl L1CognitiveLayer {
             reflector: Reflector::default(),
             sandbox: CodeSandbox::default(),
             store: VersionedStore::new(),
+            steps_since_last_patch: 100, // allow first patch immediately
         }
     }
 
@@ -44,6 +47,8 @@ impl L1CognitiveLayer {
         trajectory: &Trajectory,
         memory: &mut MemoryFacade,
     ) -> Result<L1Result> {
+        self.steps_since_last_patch = self.steps_since_last_patch.saturating_add(1);
+
         let abstraction = self.abstractor.distill(trajectory)?;
 
         // Build context from current memory so patches are strategy-aware.
@@ -63,13 +68,17 @@ impl L1CognitiveLayer {
             &recent_errors,
         );
 
-        if let Some(mut patch) = self.reflector.reflect(trajectory, &abstraction, &ctx)? {
+        if let Some(mut patch) =
+            self.reflector
+                .reflect(trajectory, &abstraction, &ctx, self.steps_since_last_patch)?
+        {
             patch.effect = patch.effect.sanitize();
             let report = self.sandbox.validate(&patch)?;
             if report.accepted {
                 let damping = patch.effect.error_damping;
                 memory.cognitive_effect = patch.effect.clone();
                 self.store.commit(patch, &report)?;
+                self.steps_since_last_patch = 0;
                 return Ok(L1Result {
                     patched: true,
                     patch_id: Some(report.patch_id),
