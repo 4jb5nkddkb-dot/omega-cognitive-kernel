@@ -3,6 +3,7 @@
 use crate::error::{OmegaError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
 use std::time::Instant;
 
@@ -93,15 +94,12 @@ impl HttpToolAdapter {
                 "host `{host}` not in allowed_hosts"
             )));
         }
-        // Wildcard host is a foot-gun; still require explicit action entries.
         if hosts.iter().any(|h| h == "*") {
             tracing::warn!("http adapter: allowed_hosts contains wildcard `*`");
         }
         Ok(())
     }
 
-    /// Execute a named allowlisted action. Never follows redirects to off-list hosts
-    /// (ureq default redirect policy still re-checks via final URL host when possible).
     pub fn execute_named(&mut self, action: &str) -> Result<serde_json::Value> {
         let spec = self
             .config
@@ -121,7 +119,6 @@ impl HttpToolAdapter {
                 let status = resp.status();
                 let mut body = String::new();
                 let limit = self.config.max_body_bytes;
-                // Read at most max_body_bytes
                 let mut buf = vec![0u8; limit.saturating_add(1)];
                 match resp.into_reader().read(&mut buf) {
                     Ok(n) => {
