@@ -87,8 +87,17 @@ impl Default for RuleEffect {
 }
 
 impl RuleEffect {
-    pub const ALLOWED_ACTIONS: &'static [&'static str] =
-        &["noop", "observe", "explore", "exploit", "stabilize"];
+    pub const ALLOWED_ACTIONS: &'static [&'static str] = &[
+        "noop",
+        "observe",
+        "explore",
+        "exploit",
+        "stabilize",
+        "probe_ok",
+        "probe_fail",
+        "probe_slow",
+        "fetch_metric",
+    ];
 
     pub fn sanitize(mut self) -> Self {
         self.error_damping = self.error_damping.clamp(0.2, 1.5);

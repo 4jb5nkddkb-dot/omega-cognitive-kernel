@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use omega_cognitive_kernel::adapters::HttpToolAdapter;
 use omega_cognitive_kernel::api::Kernel;
 use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
@@ -29,6 +30,11 @@ enum Commands {
         steps: u32,
         #[arg(long)]
         no_save: bool,
+        /// Optional external adapter: `http` (whitelist JSON required).
+        #[arg(long)]
+        adapter: Option<String>,
+        #[arg(long, default_value = "adapters/http.json")]
+        adapter_config: PathBuf,
     },
     Status,
     Reset {
@@ -57,6 +63,13 @@ enum Commands {
         #[arg(long, default_value_t = 4)]
         steps: u32,
     },
+    /// Fire one allowlisted HTTP action (does not run the full L0 loop).
+    HttpProbe {
+        #[arg(long, default_value = "adapters/http.json")]
+        config: PathBuf,
+        #[arg(long, default_value = "probe_ok")]
+        action: String,
+    },
 }
 
 fn state_path(cli: &Cli) -> Option<String> {
@@ -72,8 +85,21 @@ fn main() -> anyhow::Result<()> {
             goal,
             steps,
             no_save,
+            adapter,
+            adapter_config,
         } => {
             let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            if let Some(name) = adapter {
+                match name.as_str() {
+                    "http" => {
+                        kernel.attach_http_adapter(adapter_config)?;
+                        println!("adapter: http ({})", adapter_config.display());
+                    }
+                    other => {
+                        anyhow::bail!("unknown adapter `{other}` (supported: http)");
+                    }
+                }
+            }
             kernel.autosave = !no_save;
             println!("goal   : {goal}");
             println!("steps  : {steps}");
@@ -249,6 +275,14 @@ fn main() -> anyhow::Result<()> {
             println!("max_idle_steps    : {}", report.max_idle_steps);
             println!("mean_idle_weight  : {:.3}", report.mean_idle_weight);
             println!("mean_active_weight: {:.3}", report.mean_active_weight);
+        }
+        Commands::HttpProbe { config, action } => {
+            let mut adapter = HttpToolAdapter::from_path(config)?;
+            println!("config : {}", config.display());
+            println!("action : {action}");
+            println!("allowed: {:?}", adapter.action_names());
+            let result = adapter.execute_named(action)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
     }
     Ok(())

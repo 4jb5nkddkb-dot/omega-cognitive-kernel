@@ -1,10 +1,11 @@
 //! Public product API (S2 + S3 hardening).
 
+use crate::adapters::world::WorldExecutor;
+use crate::adapters::HttpToolAdapter;
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::error::Result;
 use crate::l0::decision::ConstrainedDecisionMaker;
-use crate::l0::executor::SandboxedExecutor;
 use crate::l0::observer::MultiModalObserver;
 use crate::l0::predictor::ModelBasedPredictor;
 use crate::l0::L0WorldLayer;
@@ -17,17 +18,27 @@ use crate::persist::{resolve_state_path, KernelSnapshot, DEFAULT_STATE_PATH};
 use crate::safety;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub type DefaultKernel = Kernel;
+
+fn classic_actions() -> Vec<String> {
+    vec![
+        "noop".into(),
+        "observe".into(),
+        "explore".into(),
+        "exploit".into(),
+        "stabilize".into(),
+    ]
+}
 
 pub struct Kernel {
     pub inner: OmegaOrchestrator<
         MultiModalObserver,
         ModelBasedPredictor,
         ConstrainedDecisionMaker,
-        SandboxedExecutor,
+        WorldExecutor,
     >,
     pub state_path: PathBuf,
     pub autosave: bool,
@@ -74,13 +85,7 @@ impl Kernel {
             observer: MultiModalObserver::new(),
             predictor: ModelBasedPredictor,
             decision: ConstrainedDecisionMaker,
-            executor: SandboxedExecutor::new(vec![
-                "noop".into(),
-                "observe".into(),
-                "explore".into(),
-                "exploit".into(),
-                "stabilize".into(),
-            ]),
+            executor: WorldExecutor::simulated(classic_actions()),
             memory: MemoryFacade::new(),
             learner: Learner::default(),
         };
@@ -99,6 +104,13 @@ impl Kernel {
         }
     }
 
+    /// Attach an HTTP allowlist adapter (replaces executor; keeps loaded memory/state).
+    pub fn attach_http_adapter(&mut self, config_path: impl AsRef<Path>) -> Result<()> {
+        let http = HttpToolAdapter::from_path(config_path)?;
+        self.inner.l0.executor = WorldExecutor::with_http(classic_actions(), http);
+        Ok(())
+    }
+
     pub fn open(path: Option<&str>) -> Result<Self> {
         let path = resolve_state_path(path);
         if path.exists() {
@@ -108,6 +120,15 @@ impl Kernel {
         } else {
             Ok(Self::with_state_path(path))
         }
+    }
+
+    pub fn open_with_http_adapter(
+        state: Option<&str>,
+        adapter_config: impl AsRef<Path>,
+    ) -> Result<Self> {
+        let mut k = Self::open(state)?;
+        k.attach_http_adapter(adapter_config)?;
+        Ok(k)
     }
 
     fn audit(&self) -> AuditLog {
