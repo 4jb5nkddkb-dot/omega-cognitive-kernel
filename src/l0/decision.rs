@@ -37,6 +37,18 @@ impl ConstrainedDecisionMaker {
         out
     }
 
+    fn extra_actions(memory_ctx: &HashMap<String, serde_json::Value>) -> Vec<String> {
+        memory_ctx
+            .get("available_actions")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Map L2 meta-biases (self_ref, coherence, explore_preference, …)
     /// onto concrete action score deltas.
     fn l2_action_deltas(biases: &HashMap<String, f64>) -> HashMap<&'static str, f64> {
@@ -46,21 +58,33 @@ impl ConstrainedDecisionMaker {
         let coherence = biases.get("coherence").copied().unwrap_or(0.0);
         let obs_depth = biases.get("observation_depth").copied().unwrap_or(0.0);
 
-        // explore_preference: direct drive for explore vs exploit/stabilize
         *d.entry("explore").or_insert(0.0) += explore_pref * 1.4;
         *d.entry("exploit").or_insert(0.0) -= explore_pref * 0.4;
         *d.entry("stabilize").or_insert(0.0) -= explore_pref * 0.3;
 
-        // self_ref / coherence → prefer stabilize + mild observe
         let meta_stable = (self_ref + coherence) * 0.7;
         *d.entry("stabilize").or_insert(0.0) += meta_stable;
         *d.entry("observe").or_insert(0.0) += meta_stable * 0.35;
         *d.entry("explore").or_insert(0.0) -= meta_stable * 0.25;
 
-        // observation_depth → observe
         *d.entry("observe").or_insert(0.0) += obs_depth * 1.1;
 
         d
+    }
+
+    /// Light priors for HTTP probe-style actions (only used if in candidate set).
+    fn http_action_prior(name: &str, uncertainty: f64, explore_bonus: f64) -> f64 {
+        match name {
+            // Healthy probe: useful when we want external signal / mild explore
+            "probe_ok" => 0.35 + explore_bonus * 0.25 + uncertainty * 0.15,
+            // Failure probe: rare, only if strongly preferred via RuleEffect
+            "probe_fail" => -0.2 + uncertainty * 0.05,
+            // Slow probe: costly; discourage under high risk pressure (handled elsewhere)
+            "probe_slow" => 0.05 + explore_bonus * 0.15,
+            // Fetch structured metric: like observe+exploit hybrid
+            "fetch_metric" => 0.4 + uncertainty * 0.1,
+            _ => 0.2,
+        }
     }
 }
 
@@ -76,23 +100,32 @@ impl DecisionMaker for ConstrainedDecisionMaker {
         let strat = Self::strategy_weights(memory_ctx);
         let uncertainty = predictions.first().map(|p| p.uncertainty).unwrap_or(0.5);
         let l2_deltas = Self::l2_action_deltas(&intent.bias_from_memory);
+        let extras = Self::extra_actions(memory_ctx);
 
         let max_risk = constraints.get("max_risk").copied().unwrap_or(0.65);
         let risk_pressure = (1.0 - max_risk).clamp(0.0, 0.9);
 
-        let candidates = ["observe", "explore", "exploit", "stabilize"];
+        let mut candidates: Vec<String> = ["observe", "explore", "exploit", "stabilize"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        for a in &extras {
+            if !candidates.iter().any(|c| c == a) {
+                candidates.push(a.clone());
+            }
+        }
 
-        let mut best_name = "observe";
+        let mut best_name = candidates
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("observe");
         let mut best_score = f64::MIN;
 
-        for name in candidates {
+        for name in &candidates {
             let mut score = *strat.get(name).unwrap_or(&1.0);
-            // L1 RuleEffect preferences
             score += effect.action_preference.get(name).copied().unwrap_or(0.0);
-            // Direct action-named biases from memory (if any)
             score += intent.bias_from_memory.get(name).copied().unwrap_or(0.0);
-            // L2 meta-bias mapping (self_ref / coherence / explore_preference / …)
-            score += l2_deltas.get(name).copied().unwrap_or(0.0);
+            score += l2_deltas.get(name.as_str()).copied().unwrap_or(0.0);
 
             if name == "explore" {
                 score += effect.explore_bonus;
@@ -103,6 +136,16 @@ impl DecisionMaker for ConstrainedDecisionMaker {
             }
             if name == "observe" {
                 score += risk_pressure * 0.25;
+            }
+
+            // External / HTTP-style actions
+            if extras.iter().any(|e| e == name) {
+                score += Self::http_action_prior(name, uncertainty, effect.explore_bonus);
+                // Under tight max_risk, prefer not to hit the network
+                score -= risk_pressure * 0.6;
+                if name == "probe_slow" {
+                    score -= risk_pressure * 0.5;
+                }
             }
 
             let high_unc_threshold = effect.risk_tolerance;
@@ -116,13 +159,17 @@ impl DecisionMaker for ConstrainedDecisionMaker {
                 if name == "explore" {
                     score -= 0.2;
                 }
+                // When uncertain and network is available, mild boost to healthy probes
+                if name == "probe_ok" || name == "fetch_metric" {
+                    score += 0.35;
+                }
             } else if name == "exploit" {
                 score += 0.5;
             }
 
             if score > best_score {
                 best_score = score;
-                best_name = name;
+                best_name = name.as_str();
             }
         }
 
@@ -151,6 +198,10 @@ impl DecisionMaker for ConstrainedDecisionMaker {
                 .copied()
                 .unwrap_or(0.0)),
         );
+        params.insert(
+            "extra_actions".into(),
+            serde_json::json!(extras),
+        );
 
         Ok(vec![Action {
             name: best_name.into(),
@@ -178,6 +229,15 @@ mod tests {
         ctx.insert(
             "cognitive_effect".into(),
             serde_json::to_value(RuleEffect::default()).unwrap(),
+        );
+        ctx
+    }
+
+    fn ctx_with_http() -> HashMap<String, serde_json::Value> {
+        let mut ctx = ctx_default();
+        ctx.insert(
+            "available_actions".into(),
+            serde_json::json!(["probe_ok", "probe_fail", "fetch_metric"]),
         );
         ctx
     }
@@ -231,5 +291,54 @@ mod tests {
             .decide(&intent, &[pred(0.3)], &constraints, &ctx_default())
             .unwrap();
         assert_eq!(actions[0].name, "stabilize");
+    }
+
+    #[test]
+    fn strong_preference_can_select_probe_ok() {
+        let dm = ConstrainedDecisionMaker;
+        let intent = Intent {
+            goal: "t".into(),
+            priority: 1.0,
+            bias_from_memory: HashMap::new(),
+        };
+        let mut effect = RuleEffect::default();
+        effect
+            .action_preference
+            .insert("probe_ok".into(), 5.0);
+        let mut ctx = ctx_with_http();
+        ctx.insert(
+            "cognitive_effect".into(),
+            serde_json::to_value(effect).unwrap(),
+        );
+        let constraints = HashMap::new();
+        let actions = dm
+            .decide(&intent, &[pred(0.5)], &constraints, &ctx)
+            .unwrap();
+        assert_eq!(actions[0].name, "probe_ok");
+    }
+
+    #[test]
+    fn without_available_actions_probe_not_chosen() {
+        let dm = ConstrainedDecisionMaker;
+        let intent = Intent {
+            goal: "t".into(),
+            priority: 1.0,
+            bias_from_memory: HashMap::new(),
+        };
+        let mut effect = RuleEffect::default();
+        // Preference alone is not enough if action is not in candidate set
+        effect
+            .action_preference
+            .insert("probe_ok".into(), 5.0);
+        let mut ctx = ctx_default();
+        ctx.insert(
+            "cognitive_effect".into(),
+            serde_json::to_value(effect).unwrap(),
+        );
+        let constraints = HashMap::new();
+        let actions = dm
+            .decide(&intent, &[pred(0.5)], &constraints, &ctx)
+            .unwrap();
+        assert_ne!(actions[0].name, "probe_ok");
     }
 }

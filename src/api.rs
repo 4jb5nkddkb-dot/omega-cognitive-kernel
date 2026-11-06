@@ -104,10 +104,12 @@ impl Kernel {
         }
     }
 
-    /// Attach an HTTP allowlist adapter (replaces executor; keeps loaded memory/state).
+    /// Attach an HTTP allowlist adapter (replaces executor; registers actions for decision).
     pub fn attach_http_adapter(&mut self, config_path: impl AsRef<Path>) -> Result<()> {
         let http = HttpToolAdapter::from_path(config_path)?;
+        let names = http.action_names();
         self.inner.l0.executor = WorldExecutor::with_http(classic_actions(), http);
+        self.inner.l0.memory.set_extra_actions(names);
         Ok(())
     }
 

@@ -16,11 +16,25 @@ pub struct MemoryFacade {
     pub cas: CasState,
     /// Active structured cognitive effect (updated when L1 commits a patch).
     pub cognitive_effect: RuleEffect,
+    /// Extra action names offered by an external adapter (e.g. HTTP probes).
+    /// Empty when running pure simulation.
+    pub extra_actions: Vec<String>,
 }
 
 impl MemoryFacade {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_extra_actions(&mut self, actions: impl IntoIterator<Item = String>) {
+        let mut v: Vec<String> = actions.into_iter().collect();
+        v.sort();
+        v.dedup();
+        self.extra_actions = v;
+    }
+
+    pub fn clear_extra_actions(&mut self) {
+        self.extra_actions.clear();
     }
 
     pub fn retrieve(&self, query: &str, k: usize) -> Result<HashMap<String, serde_json::Value>> {
@@ -43,6 +57,12 @@ impl MemoryFacade {
             "cognitive_effect".into(),
             serde_json::to_value(&self.cognitive_effect).unwrap_or_default(),
         );
+        if !self.extra_actions.is_empty() {
+            ctx.insert(
+                "available_actions".into(),
+                serde_json::to_value(&self.extra_actions).unwrap_or_default(),
+            );
+        }
         Ok(ctx)
     }
 
@@ -94,5 +114,14 @@ mod tests {
         assert!(ctx.contains_key("strategies"));
         assert!(ctx.contains_key("cas"));
         assert_eq!(mem.cas.total_steps, 1);
+    }
+
+    #[test]
+    fn extra_actions_appear_in_context() {
+        let mut mem = MemoryFacade::new();
+        mem.set_extra_actions(["probe_ok".into(), "fetch_metric".into()]);
+        let ctx = mem.retrieve("", 1).unwrap();
+        let arr = ctx.get("available_actions").unwrap().as_array().unwrap();
+        assert_eq!(arr.len(), 2);
     }
 }
