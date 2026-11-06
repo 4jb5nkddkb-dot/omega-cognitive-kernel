@@ -1,0 +1,25 @@
+{
+  "timeout_ms": 3000,
+  "max_body_bytes": 4096,
+  "allowed_hosts": [
+    "httpbin.org"
+  ],
+  "actions": {
+    "probe_ok": {
+      "method": "GET",
+      "url": "https://httpbin.org/status/200"
+    },
+    "probe_fail": {
+      "method": "GET",
+      "url": "https://httpbin.org/status/500"
+    },
+    "probe_slow": {
+      "method": "GET",
+      "url": "https://httpbin.org/delay/1"
+    },
+    "fetch_metric": {
+      "method": "GET",
+      "url": "https://httpbin.org/json"
+    }
+  }
+}
