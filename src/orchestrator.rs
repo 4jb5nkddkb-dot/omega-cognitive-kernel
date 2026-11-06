@@ -91,8 +91,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::world::WorldExecutor;
     use crate::l0::decision::ConstrainedDecisionMaker;
-    use crate::l0::executor::SandboxedExecutor;
     use crate::l0::observer::MultiModalObserver;
     use crate::l0::predictor::ModelBasedPredictor;
     use crate::l0::L0WorldLayer;
@@ -106,13 +106,13 @@ mod tests {
         MultiModalObserver,
         ModelBasedPredictor,
         ConstrainedDecisionMaker,
-        SandboxedExecutor,
+        WorldExecutor,
     > {
         let l0 = L0WorldLayer {
             observer: MultiModalObserver::new(),
             predictor: ModelBasedPredictor,
             decision: ConstrainedDecisionMaker,
-            executor: SandboxedExecutor::new(vec![
+            executor: WorldExecutor::simulated(vec![
                 "noop".into(),
                 "observe".into(),
                 "explore".into(),
@@ -293,11 +293,9 @@ mod tests {
         let mut entered = false;
         let mut exited = false;
         for i in 0..20 {
-            // First half: coherent goal to encourage entry
             let goal = if i < 10 {
                 "maintain coherent self-model omega dayan"
             } else {
-                // Second half: nonsense goal + force high error via effect
                 kernel.l0.memory.cas.avg_prediction_error = 0.9;
                 "random noise goal xyz"
             };
@@ -309,8 +307,6 @@ mod tests {
                 exited = true;
             }
         }
-        // Entry is probabilistic on metrics; exit requires having been inside.
-        // Accept either: we exited, or we never entered (soft assertion on path).
         if entered {
             assert!(
                 exited || !kernel.l2.in_fixed_point,

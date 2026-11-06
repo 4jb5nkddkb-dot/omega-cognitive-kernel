@@ -1,50 +1,14 @@
 # Changelog
 
-## [0.3.7] — 2026-11-05
+## 0.3.8 — HTTP whitelist adapter (branch feat/http-adapter)
 
-### L2 biases → DecisionMaker
+- **New** `src/adapters/`: `HttpToolAdapter` (GET-only, host allowlist, action map) + `WorldExecutor`.
+- **Config** `adapters/http.json` targeting httpbin.org probe actions.
+- **CLI** `http-probe` subcommand; `run --adapter http --adapter-config …`.
+- **API** `Kernel::attach_http_adapter` / `open_with_http_adapter`.
+- Default simulated path unchanged when no adapter is attached.
+- Decision loop still selects classic actions (`observe`/`explore`/…); HTTP actions are executable when chosen or via `http-probe`.
 
-- Meta biases mapped onto action scores:
-  - `explore_preference` → boost explore / mild penalize exploit+stabilize
-  - `self_ref` + `coherence` → boost stabilize (+ mild observe)
-  - `observation_depth` → boost observe
-- Action params expose `l2_explore_pref`
-- Unit tests: explore_preference selects explore; self_ref+coherence selects stabilize
+## 0.3.7
 
-### Bandit strategy-decay metrics
-
-- `StrategyMemory::stats` reports idle/active counts and weight means
-- `BanditReport` adds: `strategy_count`, `idle_strategy_count`, `mean_strategy_weight`, `mean_idle_steps`, `max_idle_steps`, `mean_idle_weight`, `mean_active_weight`
-- CLI `task` prints a strategy-decay block
-
-## [0.3.6] — 2026-11-05
-
-- L0 owns Learner path; single decay ownership; fixed-point exit e2e test
-
-## [0.3.5] — 2026-11-05
-
-- Strategy idle decay; Learner ownership; integration tests (cooldown, max_risk, L2 nudge)
-
-## [0.3.4] — 2026-11-05
-
-- L2 soft RuleEffect modulation; constraints in DecisionMaker; L2 status surface
-
-## [0.3.3] — 2026-11-05
-
-- L1 Abstractor/cooldown/store bound; L2 lifecycle
-
-## [0.3.2] — 2026-11-05
-
-- RuleEffect explore_bonus / risk_tolerance
-
-## [0.3.1] — 2026-11-03
-
-- Packaging, MIT, release workflow
-
-## [0.3.0] — 2026-11-03
-
-- Audit, checkpoints, bandit task
-
-## [0.2.0] / [0.1.0]
-
-- Persistence + CLI; L0/L1/L2 skeleton
+See `RELEASE_NOTES_v0.3.7.md`.
