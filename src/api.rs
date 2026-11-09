@@ -1,7 +1,8 @@
-//! Public product API (S2 + S3 hardening + adapter injection).
+//! Public product API (S2 + S3 hardening + adapter injection + config).
 
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
+use crate::config::KernelConfig;
 use crate::error::Result;
 use crate::l0::decision::ConstrainedDecisionMaker;
 use crate::l0::executor::{Executor, SandboxedExecutor};
@@ -17,17 +18,13 @@ use crate::persist::{resolve_state_path, KernelSnapshot, DEFAULT_STATE_PATH};
 use crate::safety;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Default concrete kernel type (simulation observer + sandboxed executor).
 pub type DefaultKernel = Kernel<MultiModalObserver, SandboxedExecutor>;
 
 /// Product-facing kernel. Generic over world I/O so callers can inject adapters.
-///
-/// Defaults keep existing behavior:
-/// - `Observer` = `MultiModalObserver` (simulated)
-/// - `Executor` = `SandboxedExecutor` (whitelist only, no side effects)
 pub struct Kernel<O = MultiModalObserver, E = SandboxedExecutor>
 where
     O: Observer,
@@ -80,7 +77,6 @@ fn default_allowed_actions() -> Vec<String> {
 }
 
 impl Kernel<MultiModalObserver, SandboxedExecutor> {
-    /// Create a kernel with the default simulated observer and sandboxed executor.
     pub fn new() -> Self {
         Self::with_state_path(DEFAULT_STATE_PATH)
     }
@@ -109,7 +105,6 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
         }
     }
 
-    /// Open existing state or create a new default kernel at the given path.
     pub fn open(path: Option<&str>) -> Result<Self> {
         let path = resolve_state_path(path);
         if path.exists() {
@@ -120,6 +115,17 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
             Ok(Self::with_state_path(path))
         }
     }
+
+    /// Build default kernel and apply TOML config (state path, thresholds, flags).
+    pub fn from_config_path(config_path: impl AsRef<Path>) -> Result<Self> {
+        let cfg = KernelConfig::load(config_path)?;
+        let mut k = Self::with_state_path(cfg.resolved_state_path());
+        k.apply_config(&cfg);
+        if k.state_path.exists() {
+            k.load()?;
+        }
+        Ok(k)
+    }
 }
 
 impl<O, E> Kernel<O, E>
@@ -127,7 +133,6 @@ where
     O: Observer,
     E: Executor,
 {
-    /// Inject custom world adapters. Predictor and DecisionMaker stay the built-in ones.
     pub fn with_adapters(observer: O, executor: E) -> Self {
         Self::with_adapters_and_path(observer, executor, DEFAULT_STATE_PATH)
     }
@@ -156,9 +161,24 @@ where
         }
     }
 
+    /// Apply product knobs from config without replacing adapters.
+    pub fn apply_config(&mut self, cfg: &KernelConfig) {
+        if let Some(ref p) = cfg.state_path {
+            self.state_path = PathBuf::from(p);
+        }
+        self.autosave = cfg.autosave;
+        self.auto_checkpoint_on_patch = cfg.auto_checkpoint_on_patch;
+        self.inner.l1.reflector.error_threshold = cfg.error_threshold;
+        self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
+        self.inner
+            .constraints
+            .insert("max_risk".into(), cfg.max_risk);
+    }
+
     fn audit(&self) -> AuditLog {
         AuditLog::beside_state(&self.state_path)
     }
+
     fn checkpoints(&self) -> CheckpointStore {
         CheckpointStore::beside_state(&self.state_path)
     }
@@ -316,6 +336,7 @@ where
     pub fn save(&self) -> Result<()> {
         self.snapshot().save_to(&self.state_path)
     }
+
     pub fn load(&mut self) -> Result<()> {
         let snap = KernelSnapshot::load_from(&self.state_path)?;
         self.apply_snapshot(snap);
@@ -436,5 +457,22 @@ mod tests {
         let report = k.run("adapter smoke", 3).unwrap();
         assert_eq!(report.steps, 3);
         assert!(!report.last_actions.is_empty());
+    }
+
+    #[test]
+    fn apply_config_sets_thresholds() {
+        let mut k = Kernel::new();
+        let cfg = KernelConfig {
+            error_threshold: 0.11,
+            min_steps_between_patches: 7,
+            max_risk: 0.33,
+            autosave: false,
+            ..KernelConfig::default()
+        };
+        k.apply_config(&cfg);
+        assert!((k.inner.l1.reflector.error_threshold - 0.11).abs() < 1e-9);
+        assert_eq!(k.inner.l1.reflector.min_steps_between_patches, 7);
+        assert!((k.inner.constraints["max_risk"] - 0.33).abs() < 1e-9);
+        assert!(!k.autosave);
     }
 }
