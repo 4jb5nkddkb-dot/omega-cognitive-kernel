@@ -132,11 +132,7 @@ where
         Self::with_adapters_and_path(observer, executor, DEFAULT_STATE_PATH)
     }
 
-    pub fn with_adapters_and_path(
-        observer: O,
-        executor: E,
-        path: impl Into<PathBuf>,
-    ) -> Self {
+    pub fn with_adapters_and_path(observer: O, executor: E, path: impl Into<PathBuf>) -> Self {
         let l0 = L0WorldLayer {
             observer,
             predictor: ModelBasedPredictor,
