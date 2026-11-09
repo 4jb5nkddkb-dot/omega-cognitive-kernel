@@ -16,12 +16,14 @@ fn main() -> Result<()> {
 
     let cfg_path = work.join("omega.toml");
     let state_path = work.join("state.json");
-    let mut cfg = KernelConfig::default();
-    cfg.state_path = Some(state_path.display().to_string());
-    cfg.autosave = false;
-    cfg.auto_checkpoint_on_patch = false;
-    cfg.max_risk = 0.5;
-    cfg.error_threshold = 0.28;
+    let cfg = KernelConfig {
+        state_path: Some(state_path.display().to_string()),
+        autosave: false,
+        auto_checkpoint_on_patch: false,
+        max_risk: 0.5,
+        error_threshold: 0.28,
+        ..KernelConfig::default()
+    };
     cfg.save(&cfg_path)?;
 
     println!("config: {}", cfg_path.display());

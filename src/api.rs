@@ -178,6 +178,7 @@ where
     fn audit(&self) -> AuditLog {
         AuditLog::beside_state(&self.state_path)
     }
+
     fn checkpoints(&self) -> CheckpointStore {
         CheckpointStore::beside_state(&self.state_path)
     }
@@ -335,6 +336,7 @@ where
     pub fn save(&self) -> Result<()> {
         self.snapshot().save_to(&self.state_path)
     }
+
     pub fn load(&mut self) -> Result<()> {
         let snap = KernelSnapshot::load_from(&self.state_path)?;
         self.apply_snapshot(snap);
@@ -460,11 +462,13 @@ mod tests {
     #[test]
     fn apply_config_sets_thresholds() {
         let mut k = Kernel::new();
-        let mut cfg = KernelConfig::default();
-        cfg.error_threshold = 0.11;
-        cfg.min_steps_between_patches = 7;
-        cfg.max_risk = 0.33;
-        cfg.autosave = false;
+        let cfg = KernelConfig {
+            error_threshold: 0.11,
+            min_steps_between_patches: 7,
+            max_risk: 0.33,
+            autosave: false,
+            ..KernelConfig::default()
+        };
         k.apply_config(&cfg);
         assert!((k.inner.l1.reflector.error_threshold - 0.11).abs() < 1e-9);
         assert_eq!(k.inner.l1.reflector.min_steps_between_patches, 7);
