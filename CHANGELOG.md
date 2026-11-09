@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — productization/phase-1
+
+### Config
+
+- `KernelConfig` TOML load/save (`omega.toml`)
+- Fields: `state_path`, `autosave`, `auto_checkpoint_on_patch`, `error_threshold`, `min_steps_between_patches`, `max_risk`, `default_goal`
+- `Kernel::apply_config` / `Kernel::from_config_path`
+- Example: `examples/omega.example.toml`, `examples/config_and_dir.rs`
+
+### Adapters
+
+- `DirSnapshotObserver` — directory file listing (offline-friendly)
+- `HttpObserver` — GET URL as structured observation (`ureq`)
+
+### Deps
+
+- `toml`, `ureq`
+
 ## [0.3.8] — 2026-11-09
 
 ### Adapter surface (breaking-compatible)
