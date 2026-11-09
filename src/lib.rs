@@ -14,6 +14,7 @@ pub mod task;
 pub mod types;
 
 pub use api::{Kernel, KernelStatus, RunReport};
+pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary};
 pub use config::KernelConfig;
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};

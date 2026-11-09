@@ -50,6 +50,66 @@ pub struct AuditRecord {
     pub event: AuditEvent,
 }
 
+/// Operator-facing rollup of an audit.jsonl file.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AuditSummary {
+    pub total_events: usize,
+    pub steps: usize,
+    pub patches_accepted: usize,
+    pub patches_rejected: usize,
+    pub checkpoints: usize,
+    pub rollbacks: usize,
+    pub task_episodes: usize,
+    pub first_ts: Option<DateTime<Utc>>,
+    pub last_ts: Option<DateTime<Utc>>,
+    pub last_action: Option<String>,
+    pub last_avg_err: Option<f64>,
+    pub last_damping: Option<f64>,
+    pub action_counts: Vec<(String, usize)>,
+}
+
+impl AuditSummary {
+    pub fn from_records(rows: &[AuditRecord]) -> Self {
+        use std::collections::HashMap;
+        let mut s = AuditSummary {
+            total_events: rows.len(),
+            ..AuditSummary::default()
+        };
+        let mut actions: HashMap<String, usize> = HashMap::new();
+        if let Some(first) = rows.first() {
+            s.first_ts = Some(first.ts);
+        }
+        if let Some(last) = rows.last() {
+            s.last_ts = Some(last.ts);
+        }
+        for r in rows {
+            match &r.event {
+                AuditEvent::Step {
+                    action,
+                    avg_err,
+                    damping,
+                    ..
+                } => {
+                    s.steps += 1;
+                    *actions.entry(action.clone()).or_insert(0) += 1;
+                    s.last_action = Some(action.clone());
+                    s.last_avg_err = Some(*avg_err);
+                    s.last_damping = Some(*damping);
+                }
+                AuditEvent::PatchAccepted { .. } => s.patches_accepted += 1,
+                AuditEvent::PatchRejected { .. } => s.patches_rejected += 1,
+                AuditEvent::Checkpoint { .. } => s.checkpoints += 1,
+                AuditEvent::Rollback { .. } => s.rollbacks += 1,
+                AuditEvent::TaskEpisode { .. } => s.task_episodes += 1,
+            }
+        }
+        let mut counts: Vec<_> = actions.into_iter().collect();
+        counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        s.action_counts = counts;
+        s
+    }
+}
+
 pub struct AuditLog {
     pub path: PathBuf,
 }
@@ -82,20 +142,30 @@ impl AuditLog {
     }
 
     pub fn tail(&self, n: usize) -> Result<Vec<AuditRecord>> {
+        let mut rows = self.read_all()?;
+        if rows.len() > n {
+            rows = rows.split_off(rows.len() - n);
+        }
+        Ok(rows)
+    }
+
+    pub fn read_all(&self) -> Result<Vec<AuditRecord>> {
         if !self.path.exists() {
             return Ok(vec![]);
         }
         let data =
             fs::read_to_string(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        let mut rows: Vec<AuditRecord> = data
+        let rows: Vec<AuditRecord> = data
             .lines()
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect();
-        if rows.len() > n {
-            rows = rows.split_off(rows.len() - n);
-        }
         Ok(rows)
+    }
+
+    pub fn summarize(&self) -> Result<AuditSummary> {
+        let rows = self.read_all()?;
+        Ok(AuditSummary::from_records(&rows))
     }
 }
 
@@ -118,6 +188,9 @@ mod tests {
         .unwrap();
         let rows = log.tail(10).unwrap();
         assert_eq!(rows.len(), 1);
+        let sum = log.summarize().unwrap();
+        assert_eq!(sum.steps, 1);
+        assert_eq!(sum.action_counts[0].0, "observe");
         let _ = fs::remove_file(&path);
     }
 }
