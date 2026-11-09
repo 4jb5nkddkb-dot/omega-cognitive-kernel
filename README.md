@@ -21,9 +21,12 @@ It is designed for systems that need to adapt *while running*, under tight safet
 
 Classical control / RL supply the skeleton (observe → predict → decide → act). The engineering bet is different from fine-tuning or PPO: **patch the policy surface, remember the effect, measure the consequence, roll back if needed**.
 
-Product posture and monetization notes: **[docs/PRODUCT.md](docs/PRODUCT.md)**.  
-Integrator how-to: **[docs/INTEGRATING.md](docs/INTEGRATING.md)**.  
-Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** (**in effect as of v0.4.0**).
+| Doc | Topic |
+|-----|--------|
+| **[docs/PRODUCT.md](docs/PRODUCT.md)** | Positioning & monetization posture |
+| **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
+| **[docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md)** | **Inbox vertical demo** (event queue + policy gate + audit) |
+| **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** | Integrator API freeze (**in effect as of v0.4.0**) |
 
 ---
 
@@ -81,13 +84,19 @@ cargo run -- --state ./my-agent.json run --steps 10
 cargo run -- reset --yes
 ```
 
-### Closed-loop product demo (inbox)
+### Product demo: Inbox vertical (recommended)
+
+Pluggable **observe / execute**, scripted text-event stream, optional `RuleEffect` under load, **audit.jsonl** + **actions.log**:
 
 ```bash
-cargo run --example drop_inbox_loop
+cargo run --example inbox_vertical
+
+# keep workspace on disk for inspection with a teammate
+KEEP_INBOX=1 cargo run --example inbox_vertical
 ```
 
-Watches a drop directory, adapts policy under load, logs actions — see [docs/PRODUCT.md](docs/PRODUCT.md).
+Details: **[docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md)**.  
+Directory-based variant: `cargo run --example drop_inbox_loop`.
 
 ### What `demo` proves
 
@@ -144,7 +153,8 @@ let mut kernel = Kernel::with_adapters(observer, executor);
 let report = kernel.run("adapt to external signal", 8)?;
 ```
 
-Also available: `DirSnapshotObserver`, `HttpObserver`. See `examples/custom_adapters.rs`, `examples/config_and_dir.rs`, `examples/drop_inbox_loop.rs`.
+Built-ins: `DirSnapshotObserver`, `HttpObserver`, `FileObserver`, `LoggingExecutor`.  
+End-to-end stories: `examples/inbox_vertical.rs`, `examples/drop_inbox_loop.rs`, `examples/config_and_dir.rs`, `examples/custom_adapters.rs`.
 
 Supported surface: `Kernel`, `KernelConfig`, `KernelStatus`, `RunReport`, task helpers, checkpoint/audit APIs, `Observer` / `Executor`. Prefer these over reaching into `kernel.inner` in downstream code.
 
@@ -193,7 +203,8 @@ Strategy memory ages unused arms (`idle_steps`) and applies **idle decay** so ea
 | **S1–S3 / Hardening** | Consequence, persist, audit, bandit, bounds |
 | **0.3.7–0.3.9** | L2→decision, adapters, config, Dir/Http, drop-inbox |
 | **0.4.0** | **Integrator API freeze** for 0.4.x |
-| **Next** | Vertical integrations, optional crates.io, commercial dashboard candidate |
+| **Inbox vertical** | `inbox_vertical` example + [docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md) |
+| **Next** | More verticals, optional crates.io, commercial dashboard candidate |
 
 See [CHANGELOG.md](CHANGELOG.md). Release notes: [RELEASING.md](RELEASING.md) if present.
 
