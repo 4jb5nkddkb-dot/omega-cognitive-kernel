@@ -1,11 +1,11 @@
-//! Public product API (S2 + S3 hardening).
+//! Public product API (S2 + S3 hardening + adapter injection).
 
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::error::Result;
 use crate::l0::decision::ConstrainedDecisionMaker;
-use crate::l0::executor::SandboxedExecutor;
-use crate::l0::observer::MultiModalObserver;
+use crate::l0::executor::{Executor, SandboxedExecutor};
+use crate::l0::observer::{MultiModalObserver, Observer};
 use crate::l0::predictor::ModelBasedPredictor;
 use crate::l0::L0WorldLayer;
 use crate::l1::learner::Learner;
@@ -20,15 +20,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
 
-pub type DefaultKernel = Kernel;
+/// Default concrete kernel type (simulation observer + sandboxed executor).
+pub type DefaultKernel = Kernel<MultiModalObserver, SandboxedExecutor>;
 
-pub struct Kernel {
-    pub inner: OmegaOrchestrator<
-        MultiModalObserver,
-        ModelBasedPredictor,
-        ConstrainedDecisionMaker,
-        SandboxedExecutor,
-    >,
+/// Product-facing kernel. Generic over world I/O so callers can inject adapters.
+///
+/// Defaults keep existing behavior:
+/// - `Observer` = `MultiModalObserver` (simulated)
+/// - `Executor` = `SandboxedExecutor` (whitelist only, no side effects)
+pub struct Kernel<O = MultiModalObserver, E = SandboxedExecutor>
+where
+    O: Observer,
+    E: Executor,
+{
+    pub inner: OmegaOrchestrator<O, ModelBasedPredictor, ConstrainedDecisionMaker, E>,
     pub state_path: PathBuf,
     pub autosave: bool,
     pub auto_checkpoint_on_patch: bool,
@@ -64,7 +69,18 @@ pub struct RunReport {
     pub last_actions: Vec<String>,
 }
 
-impl Kernel {
+fn default_allowed_actions() -> Vec<String> {
+    vec![
+        "noop".into(),
+        "observe".into(),
+        "explore".into(),
+        "exploit".into(),
+        "stabilize".into(),
+    ]
+}
+
+impl Kernel<MultiModalObserver, SandboxedExecutor> {
+    /// Create a kernel with the default simulated observer and sandboxed executor.
     pub fn new() -> Self {
         Self::with_state_path(DEFAULT_STATE_PATH)
     }
@@ -74,13 +90,7 @@ impl Kernel {
             observer: MultiModalObserver::new(),
             predictor: ModelBasedPredictor,
             decision: ConstrainedDecisionMaker,
-            executor: SandboxedExecutor::new(vec![
-                "noop".into(),
-                "observe".into(),
-                "explore".into(),
-                "exploit".into(),
-                "stabilize".into(),
-            ]),
+            executor: SandboxedExecutor::new(default_allowed_actions()),
             memory: MemoryFacade::new(),
             learner: Learner::default(),
         };
@@ -99,6 +109,7 @@ impl Kernel {
         }
     }
 
+    /// Open existing state or create a new default kernel at the given path.
     pub fn open(path: Option<&str>) -> Result<Self> {
         let path = resolve_state_path(path);
         if path.exists() {
@@ -107,6 +118,45 @@ impl Kernel {
             Ok(k)
         } else {
             Ok(Self::with_state_path(path))
+        }
+    }
+}
+
+impl<O, E> Kernel<O, E>
+where
+    O: Observer,
+    E: Executor,
+{
+    /// Inject custom world adapters. Predictor and DecisionMaker stay the built-in ones.
+    pub fn with_adapters(observer: O, executor: E) -> Self {
+        Self::with_adapters_and_path(observer, executor, DEFAULT_STATE_PATH)
+    }
+
+    pub fn with_adapters_and_path(
+        observer: O,
+        executor: E,
+        path: impl Into<PathBuf>,
+    ) -> Self {
+        let l0 = L0WorldLayer {
+            observer,
+            predictor: ModelBasedPredictor,
+            decision: ConstrainedDecisionMaker,
+            executor,
+            memory: MemoryFacade::new(),
+            learner: Learner::default(),
+        };
+        Self {
+            inner: OmegaOrchestrator {
+                l0,
+                l1: L1CognitiveLayer::new(),
+                l2: L2MetaLayer::new(),
+                biases: HashMap::new(),
+                constraints: safety::default_constraints(),
+                total_steps: 0,
+            },
+            state_path: path.into(),
+            autosave: true,
+            auto_checkpoint_on_patch: true,
         }
     }
 
@@ -276,20 +326,6 @@ impl Kernel {
         Ok(())
     }
 
-    pub fn reset(&mut self) -> Result<()> {
-        let path = self.state_path.clone();
-        let autosave = self.autosave;
-        let auto_ckpt = self.auto_checkpoint_on_patch;
-        *self = Self::with_state_path(path);
-        self.autosave = autosave;
-        self.auto_checkpoint_on_patch = auto_ckpt;
-        if self.state_path.exists() {
-            std::fs::remove_file(&self.state_path)
-                .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
-        }
-        Ok(())
-    }
-
     pub fn checkpoint(&self, label: &str) -> Result<CheckpointMeta> {
         let snap = self.snapshot();
         let meta = self.checkpoints().save(
@@ -338,7 +374,23 @@ impl Kernel {
     }
 }
 
-impl Default for Kernel {
+impl Kernel<MultiModalObserver, SandboxedExecutor> {
+    pub fn reset(&mut self) -> Result<()> {
+        let path = self.state_path.clone();
+        let autosave = self.autosave;
+        let auto_ckpt = self.auto_checkpoint_on_patch;
+        *self = Self::with_state_path(path);
+        self.autosave = autosave;
+        self.auto_checkpoint_on_patch = auto_ckpt;
+        if self.state_path.exists() {
+            std::fs::remove_file(&self.state_path)
+                .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
     fn default() -> Self {
         Self::new()
     }
@@ -347,6 +399,8 @@ impl Default for Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l0::executor::LoggingExecutor;
+    use crate::l0::observer::MultiModalObserver;
     use std::env::temp_dir;
 
     #[test]
@@ -374,5 +428,17 @@ mod tests {
         k.rollback(meta.id).unwrap();
         assert_eq!(k.inner.total_steps, steps_at_ckpt);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn with_adapters_runs() {
+        let observer = MultiModalObserver::new();
+        let executor = LoggingExecutor::new(default_allowed_actions()).echo_stdout(false);
+        let mut k = Kernel::with_adapters(observer, executor);
+        k.autosave = false;
+        k.auto_checkpoint_on_patch = false;
+        let report = k.run("adapter smoke", 3).unwrap();
+        assert_eq!(report.steps, 3);
+        assert!(!report.last_actions.is_empty());
     }
 }
