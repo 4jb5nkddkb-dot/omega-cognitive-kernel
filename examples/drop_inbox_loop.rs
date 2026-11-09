@@ -33,6 +33,7 @@ fn main() -> Result<()> {
         min_steps_between_patches: 2,
         max_risk: 0.55,
         default_goal: Some("stabilize under inbox load and keep audit trail".into()),
+        ..KernelConfig::default()
     };
     cfg.save(&cfg_path)?;
 
