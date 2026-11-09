@@ -1,12 +1,13 @@
 # Changelog
 
-## [Unreleased] — productization/phase-1
+## [0.3.9] — 2026-11-09
 
 ### Config
 
 - `KernelConfig` TOML load/save (`omega.toml`)
 - Fields: `state_path`, `autosave`, `auto_checkpoint_on_patch`, `error_threshold`, `min_steps_between_patches`, `max_risk`, `default_goal`
 - `Kernel::apply_config` / `Kernel::from_config_path`
+- CLI global `--config path/to/omega.toml`
 - Example: `examples/omega.example.toml`, `examples/config_and_dir.rs`
 
 ### Adapters

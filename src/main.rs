@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::config::KernelConfig;
 use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -11,6 +12,9 @@ use uuid::Uuid;
     about = "Omega Cognitive Kernel — self-improving cognitive runtime (L0/L1/L2)"
 )]
 struct Cli {
+    /// Path to omega.toml (optional). Applied after open; --state overrides config state_path.
+    #[arg(long, global = true)]
+    config: Option<PathBuf>,
     #[arg(long, global = true)]
     state: Option<PathBuf>,
     #[command(subcommand)]
@@ -63,6 +67,22 @@ fn state_path(cli: &Cli) -> Option<String> {
     cli.state.as_ref().map(|p| p.display().to_string())
 }
 
+fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
+    let mut kernel = Kernel::open(state_path(cli).as_deref())?;
+    if let Some(ref cfg_path) = cli.config {
+        let cfg = KernelConfig::load(cfg_path)?;
+        kernel.apply_config(&cfg);
+        // Explicit --state wins over config state_path.
+        if let Some(ref p) = cli.state {
+            kernel.state_path = p.clone();
+        } else if cfg.state_path.is_some() && kernel.state_path.exists() {
+            // Config pointed at a path; reload if that file exists after apply.
+            let _ = kernel.load();
+        }
+    }
+    Ok(kernel)
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
@@ -73,14 +93,29 @@ fn main() -> anyhow::Result<()> {
             steps,
             no_save,
         } => {
-            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let mut kernel = open_kernel(&cli)?;
             kernel.autosave = !no_save;
+            let goal = if goal
+                == "maintain coherent self-model while acting in world"
+            {
+                if let Some(ref cfg_path) = cli.config {
+                    if let Ok(cfg) = KernelConfig::load(cfg_path) {
+                        cfg.default_goal.unwrap_or_else(|| goal.clone())
+                    } else {
+                        goal.clone()
+                    }
+                } else {
+                    goal.clone()
+                }
+            } else {
+                goal.clone()
+            };
             println!("goal   : {goal}");
             println!("steps  : {steps}");
             println!("state  : {}", kernel.state_path.display());
             println!();
             for i in 1..=*steps {
-                let r = kernel.step(goal)?;
+                let r = kernel.step(&goal)?;
                 let act = r
                     .trajectory
                     .actions
@@ -137,7 +172,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         Commands::Status => {
-            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let kernel = open_kernel(&cli)?;
             let st = kernel.status();
             println!("state_path     : {}", st.state_path);
             println!("total_steps    : {}", st.total_steps);
@@ -161,7 +196,7 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("Refusing to reset without --yes");
                 std::process::exit(2);
             }
-            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let mut kernel = open_kernel(&cli)?;
             let path = kernel.state_path.display().to_string();
             kernel.reset()?;
             println!("reset ok — removed state at {path}");
@@ -171,6 +206,10 @@ fn main() -> anyhow::Result<()> {
             let demo_path = std::env::temp_dir().join("omega-demo-state.json");
             let _ = std::fs::remove_file(&demo_path);
             let mut kernel = Kernel::with_state_path(&demo_path);
+            if let Some(ref cfg_path) = cli.config {
+                let cfg = KernelConfig::load(cfg_path)?;
+                kernel.apply_config(&cfg);
+            }
             kernel.autosave = true;
             let goal = "maintain coherent self-model while acting in world";
             let report = kernel.run(goal, *steps)?;
@@ -195,7 +234,7 @@ fn main() -> anyhow::Result<()> {
             println!("state: {}", demo_path.display());
         }
         Commands::Audit { tail } => {
-            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let kernel = open_kernel(&cli)?;
             let rows = kernel.audit_tail(*tail)?;
             if rows.is_empty() {
                 println!("(empty audit log)");
@@ -205,7 +244,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoints => {
-            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let kernel = open_kernel(&cli)?;
             let list = kernel.list_checkpoints()?;
             if list.is_empty() {
                 println!("(no checkpoints)");
@@ -218,19 +257,19 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint { label } => {
-            let kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let kernel = open_kernel(&cli)?;
             let meta = kernel.checkpoint(label)?;
             println!("checkpoint created: {} (step={})", meta.id, meta.step);
         }
         Commands::Rollback { id } => {
             let id = Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("invalid uuid: {e}"))?;
-            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let mut kernel = open_kernel(&cli)?;
             kernel.rollback(id)?;
             println!("rolled back to {id}");
             println!("now at step {}", kernel.inner.total_steps);
         }
         Commands::Task { episodes, steps } => {
-            let mut kernel = Kernel::open(state_path(&cli).as_deref())?;
+            let mut kernel = open_kernel(&cli)?;
             println!("bandit task  episodes={episodes} steps/ep={steps}");
             let report = run_bandit_task(&mut kernel, *episodes, *steps)?;
             kernel.save()?;
