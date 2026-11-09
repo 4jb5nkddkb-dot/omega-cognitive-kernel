@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::KernelConfig;
 use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
@@ -43,9 +44,13 @@ enum Commands {
         #[arg(long, default_value_t = 12)]
         steps: u32,
     },
+    /// Show audit trail (tail) or operator summary panel.
     Audit {
         #[arg(long, default_value_t = 20)]
         tail: usize,
+        /// Print rollup panel instead of raw events.
+        #[arg(long)]
+        summary: bool,
     },
     Checkpoints,
     Checkpoint {
@@ -72,15 +77,49 @@ fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     if let Some(ref cfg_path) = cli.config {
         let cfg = KernelConfig::load(cfg_path)?;
         kernel.apply_config(&cfg);
-        // Explicit --state wins over config state_path.
         if let Some(ref p) = cli.state {
             kernel.state_path = p.clone();
         } else if cfg.state_path.is_some() && kernel.state_path.exists() {
-            // Config pointed at a path; reload if that file exists after apply.
             let _ = kernel.load();
         }
     }
     Ok(kernel)
+}
+
+fn print_audit_summary(log: &AuditLog) -> anyhow::Result<()> {
+    let s = log.summarize()?;
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║           Omega audit panel                  ║");
+    println!("╚══════════════════════════════════════════════╝");
+    println!("log        : {}", log.path.display());
+    println!("events     : {}", s.total_events);
+    if let (Some(a), Some(b)) = (s.first_ts, s.last_ts) {
+        println!("window     : {} → {}", a.to_rfc3339(), b.to_rfc3339());
+    }
+    println!("── counts ──");
+    println!("steps              : {}", s.steps);
+    println!("patches accepted   : {}", s.patches_accepted);
+    println!("patches rejected   : {}", s.patches_rejected);
+    println!("checkpoints        : {}", s.checkpoints);
+    println!("rollbacks          : {}", s.rollbacks);
+    println!("task episodes      : {}", s.task_episodes);
+    if !s.action_counts.is_empty() {
+        println!("── actions ──");
+        for (name, n) in &s.action_counts {
+            println!("  {name:<12} {n}");
+        }
+    }
+    if let Some(a) = &s.last_action {
+        println!("── last step ──");
+        println!("action     : {a}");
+        if let Some(e) = s.last_avg_err {
+            println!("avg_err    : {e:.4}");
+        }
+        if let Some(d) = s.last_damping {
+            println!("damping    : {d:.4}");
+        }
+    }
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -231,14 +270,19 @@ fn main() -> anyhow::Result<()> {
             );
             println!("state: {}", demo_path.display());
         }
-        Commands::Audit { tail } => {
+        Commands::Audit { tail, summary } => {
             let kernel = open_kernel(&cli)?;
-            let rows = kernel.audit_tail(*tail)?;
-            if rows.is_empty() {
-                println!("(empty audit log)");
-            }
-            for r in rows {
-                println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+            let log = AuditLog::beside_state(&kernel.state_path);
+            if *summary {
+                print_audit_summary(&log)?;
+            } else {
+                let rows = kernel.audit_tail(*tail)?;
+                if rows.is_empty() {
+                    println!("(empty audit log)");
+                }
+                for r in rows {
+                    println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+                }
             }
         }
         Commands::Checkpoints => {
