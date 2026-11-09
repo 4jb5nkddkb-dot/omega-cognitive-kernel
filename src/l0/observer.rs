@@ -124,14 +124,11 @@ impl Observer for DirSnapshotObserver {
         let mut entries = Vec::new();
         for ent in rd.flatten().take(self.max_entries) {
             let meta = ent.metadata().ok();
-            let modified = meta
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .ok()
-                        .map(|d| d.as_secs())
-                });
+            let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_secs())
+            });
             entries.push(serde_json::json!({
                 "name": ent.file_name().to_string_lossy(),
                 "is_dir": meta.as_ref().map(|m| m.is_dir()).unwrap_or(false),
@@ -182,7 +179,7 @@ impl HttpObserver {
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
-        let agent = ureq::builder().timeout(self.timeout).build();
+        let agent = ureq::AgentBuilder::new().timeout(self.timeout).build();
         let resp = agent.get(&self.url).call().map_err(|e| {
             OmegaError::ExecutionBlocked(format!("HttpObserver GET {}: {e}", self.url))
         })?;
@@ -199,15 +196,17 @@ impl Observer for HttpObserver {
             })
         });
 
+        let confidence = if (200..300).contains(&status) {
+            0.9
+        } else {
+            0.5
+        };
+
         Ok(vec![Observation {
             timestamp: Utc::now(),
             modality: Modality::Structured,
             content,
-            confidence: if (200..300).contains(&status) {
-                0.9
-            } else {
-                0.5
-            },
+            confidence,
             source: format!("http:{}", self.url),
         }])
     }

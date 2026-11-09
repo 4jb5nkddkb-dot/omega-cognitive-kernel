@@ -8,7 +8,6 @@ use omega_cognitive_kernel::{
     DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result,
 };
 use std::env::temp_dir;
-use std::io::Write;
 
 fn main() -> Result<()> {
     let work = temp_dir().join(format!("omega-phase1-{}", uuid::Uuid::new_v4()));
