@@ -95,9 +95,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             let mut kernel = open_kernel(&cli)?;
             kernel.autosave = !no_save;
-            let goal = if goal
-                == "maintain coherent self-model while acting in world"
-            {
+            let goal = if goal == "maintain coherent self-model while acting in world" {
                 if let Some(ref cfg_path) = cli.config {
                     if let Ok(cfg) = KernelConfig::load(cfg_path) {
                         cfg.default_goal.unwrap_or_else(|| goal.clone())

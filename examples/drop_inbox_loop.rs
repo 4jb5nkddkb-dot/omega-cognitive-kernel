@@ -10,9 +10,7 @@
 //! cargo run --example drop_inbox_loop
 //! ```
 
-use omega_cognitive_kernel::{
-    DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result,
-};
+use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result};
 use std::env::temp_dir;
 use std::fs;
 use std::thread;
@@ -97,7 +95,10 @@ fn main() -> Result<()> {
 
     println!("\n── summary ──");
     let st = kernel.status();
-    println!("steps={}  avg_err={:.3}  modules={}  ckpts={}", st.total_steps, st.avg_prediction_error, st.active_modules, st.checkpoint_count);
+    println!(
+        "steps={}  avg_err={:.3}  modules={}  ckpts={}",
+        st.total_steps, st.avg_prediction_error, st.active_modules, st.checkpoint_count
+    );
     if action_log.exists() {
         let log = fs::read_to_string(&action_log).unwrap_or_default();
         let lines = log.lines().count();

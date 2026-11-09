@@ -4,9 +4,7 @@
 //! cargo run --example config_and_dir
 //! ```
 
-use omega_cognitive_kernel::{
-    DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result,
-};
+use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result};
 use std::env::temp_dir;
 
 fn main() -> Result<()> {
