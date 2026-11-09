@@ -1,0 +1,35 @@
+# Omega strategy-governance (intervention) — minimal draft
+# Compatible with KernelConfig; omit [intervention] to use defaults.
+
+state_path = "./state.json"
+autosave = true
+auto_checkpoint_on_patch = true
+error_threshold = 0.30
+min_steps_between_patches = 3
+max_risk = 0.65
+default_goal = "adapt under constraints with auditable policy"
+
+# ── Intervention policy (DX vs strict) ───────────────────────────────────────
+# mode:
+#   exploration — tool/DX friction; may suggest path alternatives
+#   strict        — high-stakes; refuse to decide for the user
+#
+# max_level:
+#   silent | in_frame | suggest_alternative | refuse_to_decide
+#
+# friction_threshold:
+#   consecutive similar env/build failures before suggest_alternative
+#   (only when mode = exploration and max_level allows it)
+
+[intervention]
+mode = "exploration"
+max_level = "suggest_alternative"
+friction_threshold = 2
+audit_escalations = true
+
+# Strict template (uncomment for medical / legal / finance assistants):
+# [intervention]
+# mode = "strict"
+# max_level = "refuse_to_decide"
+# friction_threshold = 99
+# audit_escalations = true

@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::Kernel;
-use omega_cognitive_kernel::config::KernelConfig;
+use omega_cognitive_kernel::audit::AuditLog;
+use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
 use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -43,9 +44,13 @@ enum Commands {
         #[arg(long, default_value_t = 12)]
         steps: u32,
     },
+    /// Show audit trail (tail) or operator summary panel.
     Audit {
         #[arg(long, default_value_t = 20)]
         tail: usize,
+        /// Print rollup panel instead of raw events.
+        #[arg(long)]
+        summary: bool,
     },
     Checkpoints,
     Checkpoint {
@@ -67,20 +72,92 @@ fn state_path(cli: &Cli) -> Option<String> {
     cli.state.as_ref().map(|p| p.display().to_string())
 }
 
+fn load_intervention(cli: &Cli) -> InterventionPolicy {
+    if let Some(ref cfg_path) = cli.config {
+        if let Ok(cfg) = KernelConfig::load(cfg_path) {
+            return cfg.intervention;
+        }
+    }
+    InterventionPolicy::default()
+}
+
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     if let Some(ref cfg_path) = cli.config {
         let cfg = KernelConfig::load(cfg_path)?;
         kernel.apply_config(&cfg);
-        // Explicit --state wins over config state_path.
         if let Some(ref p) = cli.state {
             kernel.state_path = p.clone();
         } else if cfg.state_path.is_some() && kernel.state_path.exists() {
-            // Config pointed at a path; reload if that file exists after apply.
             let _ = kernel.load();
         }
     }
     Ok(kernel)
+}
+
+fn print_intervention_block(p: &InterventionPolicy) {
+    let mode = match p.mode {
+        omega_cognitive_kernel::InterventionMode::Exploration => "exploration",
+        omega_cognitive_kernel::InterventionMode::Strict => "strict",
+    };
+    let max = match p.max_level {
+        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
+        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
+        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
+        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+    };
+    let eff = match p.effective_max_level() {
+        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
+        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
+        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
+        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+    };
+    println!("── intervention ──");
+    println!("mode              : {mode}");
+    println!("max_level         : {max}");
+    println!("effective_max     : {eff}");
+    println!("friction_threshold: {}", p.friction_threshold);
+    println!("audit_escalations : {}", p.audit_escalations);
+    println!(
+        "note              : path alternatives only if exploration && failures ≥ threshold"
+    );
+}
+
+fn print_audit_summary(log: &AuditLog, policy: &InterventionPolicy) -> anyhow::Result<()> {
+    let s = log.summarize()?;
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║           Omega audit panel                  ║");
+    println!("╚══════════════════════════════════════════════╝");
+    println!("log        : {}", log.path.display());
+    println!("events     : {}", s.total_events);
+    if let (Some(a), Some(b)) = (s.first_ts, s.last_ts) {
+        println!("window     : {} → {}", a.to_rfc3339(), b.to_rfc3339());
+    }
+    print_intervention_block(policy);
+    println!("── counts ──");
+    println!("steps              : {}", s.steps);
+    println!("patches accepted   : {}", s.patches_accepted);
+    println!("patches rejected   : {}", s.patches_rejected);
+    println!("checkpoints        : {}", s.checkpoints);
+    println!("rollbacks          : {}", s.rollbacks);
+    println!("task episodes      : {}", s.task_episodes);
+    if !s.action_counts.is_empty() {
+        println!("── actions ──");
+        for (name, n) in &s.action_counts {
+            println!("  {name:<12} {n}");
+        }
+    }
+    if let Some(a) = &s.last_action {
+        println!("── last step ──");
+        println!("action     : {a}");
+        if let Some(e) = s.last_avg_err {
+            println!("avg_err    : {e:.4}");
+        }
+        if let Some(d) = s.last_damping {
+            println!("damping    : {d:.4}");
+        }
+    }
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -231,14 +308,20 @@ fn main() -> anyhow::Result<()> {
             );
             println!("state: {}", demo_path.display());
         }
-        Commands::Audit { tail } => {
+        Commands::Audit { tail, summary } => {
             let kernel = open_kernel(&cli)?;
-            let rows = kernel.audit_tail(*tail)?;
-            if rows.is_empty() {
-                println!("(empty audit log)");
-            }
-            for r in rows {
-                println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+            let log = AuditLog::beside_state(&kernel.state_path);
+            if *summary {
+                let policy = load_intervention(&cli);
+                print_audit_summary(&log, &policy)?;
+            } else {
+                let rows = kernel.audit_tail(*tail)?;
+                if rows.is_empty() {
+                    println!("(empty audit log)");
+                }
+                for r in rows {
+                    println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+                }
             }
         }
         Commands::Checkpoints => {

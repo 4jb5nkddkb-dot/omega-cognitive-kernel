@@ -22,11 +22,9 @@
 //! ```
 
 use chrono::Utc;
-use omega_cognitive_kernel::{
-    Kernel, KernelConfig, Observation, Observer, Result,
-};
 use omega_cognitive_kernel::types::{Action, Modality};
 use omega_cognitive_kernel::Executor;
+use omega_cognitive_kernel::{Kernel, KernelConfig, Observation, Observer, Result};
 use serde_json::json;
 use std::collections::{HashSet, VecDeque};
 use std::env;
@@ -140,7 +138,10 @@ impl PolicyGateExecutor {
 }
 
 impl Executor for PolicyGateExecutor {
-    fn execute(&mut self, actions: &[Action]) -> omega_cognitive_kernel::Result<Vec<serde_json::Value>> {
+    fn execute(
+        &mut self,
+        actions: &[Action],
+    ) -> omega_cognitive_kernel::Result<Vec<serde_json::Value>> {
         let mut out = Vec::new();
         for act in actions {
             if !act.constraints_checked {
@@ -150,7 +151,9 @@ impl Executor for PolicyGateExecutor {
                 )));
             }
             if !self.allowed.contains(&act.name) {
-                return Err(omega_cognitive_kernel::OmegaError::ExecutionBlocked(act.name.clone()));
+                return Err(omega_cognitive_kernel::OmegaError::ExecutionBlocked(
+                    act.name.clone(),
+                ));
             }
 
             // Product framing: map action name → handling posture for operators.
@@ -171,10 +174,7 @@ impl Executor for PolicyGateExecutor {
             });
 
             if self.echo {
-                println!(
-                    "  [gate] {} → posture={posture}",
-                    act.name
-                );
+                println!("  [gate] {} → posture={posture}", act.name);
             }
 
             let mut f = fs::OpenOptions::new()
@@ -237,7 +237,10 @@ fn main() -> Result<()> {
         error_threshold: 0.25,
         min_steps_between_patches: 2,
         max_risk: 0.50,
-        default_goal: Some("drain inbox under rising load; prefer stabilize when pressure high".into()),
+        default_goal: Some(
+            "drain inbox under rising load; prefer stabilize when pressure high".into(),
+        ),
+        ..KernelConfig::default()
     };
     cfg.save(&cfg_path)?;
 
@@ -336,7 +339,14 @@ fn main() -> Result<()> {
     if actions_path.exists() {
         let body = fs::read_to_string(&actions_path).unwrap_or_default();
         println!("\n── actions.log ({} lines) ──", body.lines().count());
-        for line in body.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
+        for line in body
+            .lines()
+            .rev()
+            .take(5)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
             println!("{line}");
         }
     }
