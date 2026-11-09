@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — productization/phase-0
+## [0.3.8] — 2026-11-09
 
 ### Adapter surface (breaking-compatible)
 
