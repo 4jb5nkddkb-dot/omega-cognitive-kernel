@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1] — 2026-11-09
+
+### Demo & docs
+
+- `examples/inbox_vertical.rs` — event-queue Observer + policy-gate Executor, audit/actions evidence
+- `docs/INBOX_VERTICAL.md` — how to run and honest scope
+- README links inbox vertical as the recommended product demo
+
+**No changes** to the 0.4.0 integrator freeze surface.
+
 ## [0.4.0] — 2026-11-09
 
 ### API surface freeze
