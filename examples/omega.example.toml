@@ -1,0 +1,14 @@
+# Example omega.toml — copy and adjust paths for your machine.
+
+# state_path = "./my-agent-state.json"
+autosave = true
+auto_checkpoint_on_patch = true
+
+# L1 patch sensitivity
+error_threshold = 0.30
+min_steps_between_patches = 3
+
+# Decision constraint
+max_risk = 0.65
+
+# default_goal = "maintain coherent self-model while acting in world"
