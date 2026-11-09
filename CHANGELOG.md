@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — productization/phase-0
+
+### Adapter surface (breaking-compatible)
+
+- `Observer` / `Executor` (and related L0 traits) re-exported from crate root
+- `Kernel` is generic over `Observer` + `Executor` with **defaults unchanged**
+  (`MultiModalObserver`, `SandboxedExecutor`)
+- New: `Kernel::with_adapters` / `with_adapters_and_path` for external injection
+- New adapters: `FileObserver`, `LoggingExecutor`
+- Example: `examples/custom_adapters.rs`
+- Product-oriented README lead-in
+
 ## [0.3.7] — 2026-11-05
 
 ### L2 biases → DecisionMaker

@@ -33,7 +33,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
 | L2 **heuristic** meta-modulation of biases & soft constraints | A license to bypass L0/L1 safety |
 
-**Status:** research prototype / experimental runtime (**v0.3.7**). APIs under `Kernel` are the supported surface; internals may change.
+**Status:** research prototype / experimental runtime (**v0.3.7** + adapter WIP on `productization/phase-0`). APIs under `Kernel` are the supported surface; internals may change.
 
 ---
 
@@ -114,7 +114,26 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 }
 ```
 
-Supported surface: `Kernel`, `KernelStatus`, `RunReport`, task helpers (`run_bandit_task*`), checkpoint/audit APIs. Prefer these over reaching into `kernel.inner` in downstream code.
+### Custom adapters (observe / act)
+
+Implement `Observer` and `Executor`, then inject them:
+
+```rust
+use omega_cognitive_kernel::{FileObserver, Kernel, LoggingExecutor};
+
+let observer = FileObserver::new("/tmp/status.json");
+let executor = LoggingExecutor::new([
+    "noop".into(), "observe".into(), "explore".into(),
+    "exploit".into(), "stabilize".into(),
+]).with_log_file("/tmp/actions.log");
+
+let mut kernel = Kernel::with_adapters(observer, executor);
+let report = kernel.run("adapt to external signal", 8)?;
+```
+
+See `examples/custom_adapters.rs`.
+
+Supported surface: `Kernel`, `KernelStatus`, `RunReport`, task helpers (`run_bandit_task*`), checkpoint/audit APIs, `Observer` / `Executor`. Prefer these over reaching into `kernel.inner` in downstream code.
 
 ---
 
