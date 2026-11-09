@@ -179,7 +179,11 @@ impl HttpObserver {
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
-        let agent = ureq::AgentBuilder::new().timeout(self.timeout).build();
+        // ureq 2.x: use timeout_connect / timeout_read (not a single `.timeout`).
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(self.timeout)
+            .timeout_read(self.timeout)
+            .build();
         let resp = agent.get(&self.url).call().map_err(|e| {
             OmegaError::ExecutionBlocked(format!("HttpObserver GET {}: {e}", self.url))
         })?;
