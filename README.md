@@ -33,7 +33,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
 | L2 **heuristic** meta-modulation of biases & soft constraints | A license to bypass L0/L1 safety |
 
-**Status:** research prototype / experimental runtime (**v0.3.7** + adapter WIP on `productization/phase-0`). APIs under `Kernel` are the supported surface; internals may change.
+**Status:** research prototype / experimental runtime (**v0.3.8**). APIs under `Kernel` are the supported surface; internals may change.
 
 ---
 
@@ -44,7 +44,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
 # pin a release:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.7 --locked
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.8 --locked
 ```
 
 **From source**
@@ -185,7 +185,8 @@ Strategy memory ages unused arms (`idle_steps`) and applies **idle decay** so ea
 | **0.3.3–0.3.4** | L1 cooldown & richer abstractor; L2 lifecycle; soft RuleEffect nudge; constraints in decision |
 | **0.3.5–0.3.6** | Strategy idle decay; Learner ownership on L0; integration tests |
 | **0.3.7** | L2 meta-biases mapped into DecisionMaker; bandit strategy-decay metrics |
-| **Next** | Stronger real tasks, optional crates.io, external observe/act adapters |
+| **0.3.8** | Public adapters (`with_adapters`, FileObserver, LoggingExecutor); product README |
+| **Next** | Stronger real tasks, optional crates.io, more adapters / config |
 
 See [CHANGELOG.md](CHANGELOG.md). Release notes: [RELEASING.md](RELEASING.md) if present.
 
