@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased] — productization/phase-2-loop
+
+- Example: `examples/drop_inbox_loop.rs` (dir observe + action log closed loop)
+- `docs/PRODUCT.md` — product narrative and monetization posture
+
 ## [0.3.9] — 2026-11-09
 
 ### Config
