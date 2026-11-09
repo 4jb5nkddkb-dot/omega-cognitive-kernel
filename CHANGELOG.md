@@ -1,9 +1,18 @@
 # Changelog
 
-## [Unreleased] — productization/phase-2-loop
+## [0.4.0] — 2026-11-09
 
-- Example: `examples/drop_inbox_loop.rs` (dir observe + action log closed loop)
-- `docs/PRODUCT.md` — product narrative and monetization posture
+### API surface freeze
+
+- Declare the **integrator surface** stable for the 0.4.x line (see `docs/API_FREEZE_0.4.md`)
+- Freeze candidates: `Kernel` (+ construction/config/loop/persist/safety methods), `KernelConfig`, `Observer`/`Executor` and built-in adapters, `run_bandit_task` / `BanditReport`, CLI `--state` / `--config` and existing subcommands
+- Explicitly **unstable**: `kernel.inner` layout, non-re-exported L1/L2 internals, heuristic constants, example code
+- Docs pack: `docs/PRODUCT.md`, `docs/INTEGRATING.md`, `docs/API_FREEZE_0.4.md`
+- Product demo: `examples/drop_inbox_loop.rs`
+- Packaging: `docs/**` included in crate `include` list
+- **crates.io:** still **git-tag preferred**; no crates.io publish required for 0.4.0
+
+No intentional breaking renames on the freeze list versus 0.3.9.
 
 ## [0.3.9] — 2026-11-09
 

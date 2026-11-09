@@ -1,12 +1,12 @@
-# API freeze notes toward 0.4
+# API freeze notes — 0.4.x
+
+**Status:** **in effect as of v0.4.0** (2026-11-09).
 
 **Goal:** make the *supported integrator surface* boring and stable so downstream crates can depend without chasing renames.
 
-This is a **planning document**, not a promise of calendar dates. Current released line: **0.3.9**.
-
 ---
 
-## Freeze candidates (intend to keep stable in 0.4.x)
+## Freeze list (stable in 0.4.x)
 
 ### Crate root re-exports
 
@@ -14,7 +14,7 @@ This is a **planning document**, not a promise of calendar dates. Current releas
 - `KernelConfig`
 - `OmegaError`, `Result`
 - `Observer`, `Executor`
-- Built-in adapters that are already public:
+- Built-in adapters:
   - `MultiModalObserver`, `FileObserver`, `DirSnapshotObserver`, `HttpObserver`
   - `SandboxedExecutor`, `LoggingExecutor`
 - `run_bandit_task`, `BanditReport` (metrics fields may grow; existing fields stay)
@@ -45,7 +45,7 @@ Flag renames should be avoided; new flags OK.
 
 ---
 
-## Explicitly **unstable** (may change without 0.4 major)
+## Explicitly **unstable**
 
 - Anything under `kernel.inner` / `OmegaOrchestrator` field layout
 - L1/L2 internal types not re-exported at crate root
@@ -55,20 +55,18 @@ Flag renames should be avoided; new flags OK.
 
 ---
 
-## Before calling it 0.4.0
+## 0.4.0 checklist
 
-Checklist:
-
-1. [ ] No outstanding renames on freeze candidates
-2. [ ] README + INTEGRATING.md match the freeze list
-3. [ ] At least one vertical example remains green (`drop_inbox_loop`)
-4. [ ] `cargo test` + release workflow green on tag
-5. [ ] CHANGELOG section “0.4.0 — API surface freeze”
-6. [ ] Decide crates.io: publish 0.4.0 or stay git-tag only
+1. [x] No outstanding renames on freeze candidates (vs 0.3.9)
+2. [x] README + INTEGRATING.md match the freeze list
+3. [x] Vertical example present (`drop_inbox_loop`)
+4. [ ] `cargo test` + release workflow green on `v0.4.0` tag (verify after tag push)
+5. [x] CHANGELOG section “0.4.0 — API surface freeze”
+6. [x] crates.io decision: **stay git-tag preferred** for 0.4.0
 
 ---
 
-## Semver policy (proposed)
+## Semver policy
 
 | Change | Version |
 |--------|---------|
@@ -85,3 +83,4 @@ Until 1.0, minors may still carry careful breaks **outside** the freeze list; do
 - Hosted dashboard / multi-tenant control plane
 - Guarantees about L2 “fixed point” semantics beyond heuristic status fields
 - Replacing the RuleEffect model with free-form code patches
+- Mandatory crates.io publish

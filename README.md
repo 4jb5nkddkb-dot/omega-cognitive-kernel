@@ -23,7 +23,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 
 Product posture and monetization notes: **[docs/PRODUCT.md](docs/PRODUCT.md)**.  
 Integrator how-to: **[docs/INTEGRATING.md](docs/INTEGRATING.md)**.  
-Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)**.
+Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** (**in effect as of v0.4.0**).
 
 ---
 
@@ -37,7 +37,7 @@ Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)**.
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
 | L2 **heuristic** meta-modulation of biases & soft constraints | A license to bypass L0/L1 safety |
 
-**Status:** research prototype / experimental runtime (**v0.3.9**). APIs under `Kernel` are the supported surface; internals may change until the 0.4 freeze.
+**Status:** research prototype / experimental runtime (**v0.4.0**). **Integrator API frozen for 0.4.x** — see freeze doc. Internals (`kernel.inner`, heuristics) may still evolve.
 
 ---
 
@@ -48,7 +48,7 @@ Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)**.
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
 # pin a release:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.9 --locked
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.0 --locked
 ```
 
 **From source**
@@ -190,17 +190,10 @@ Strategy memory ages unused arms (`idle_steps`) and applies **idle decay** so ea
 
 | Stage | Meaning |
 |-------|---------|
-| **S1** | Self-modification has measurable consequence |
-| **S2** | Persist + CLI + library API + demo narrative |
-| **S3** | Audit, checkpoints/rollback, bandit task shell |
-| **Hardening** | Reward→strategy feedback, RuleEffect bounds, checkpoint FIFO, seeded bandit |
-| **0.3.2** | `explore_bonus` / `risk_tolerance`, strategy-aware patches |
-| **0.3.3–0.3.4** | L1 cooldown & richer abstractor; L2 lifecycle; soft RuleEffect nudge; constraints in decision |
-| **0.3.5–0.3.6** | Strategy idle decay; Learner ownership on L0; integration tests |
-| **0.3.7** | L2 meta-biases mapped into DecisionMaker; bandit strategy-decay metrics |
-| **0.3.8** | Public adapters (`with_adapters`, FileObserver, LoggingExecutor); product README |
-| **0.3.9** | TOML config, CLI `--config`, Dir/Http observers, drop-inbox demo |
-| **Next** | 0.4 API freeze, optional crates.io, vertical integrations |
+| **S1–S3 / Hardening** | Consequence, persist, audit, bandit, bounds |
+| **0.3.7–0.3.9** | L2→decision, adapters, config, Dir/Http, drop-inbox |
+| **0.4.0** | **Integrator API freeze** for 0.4.x |
+| **Next** | Vertical integrations, optional crates.io, commercial dashboard candidate |
 
 See [CHANGELOG.md](CHANGELOG.md). Release notes: [RELEASING.md](RELEASING.md) if present.
 
@@ -213,6 +206,7 @@ Issues and PRs are welcome. Please:
 1. Keep the safety invariants (no arbitrary code execution path; `RuleEffect` remains the only runtime policy surface).
 2. Add or extend tests for behavioral changes (`cargo test`).
 3. Update CHANGELOG for user-visible changes.
+4. Avoid breaking the [0.4 freeze list](docs/API_FREEZE_0.4.md) without a major bump discussion.
 
 ---
 
