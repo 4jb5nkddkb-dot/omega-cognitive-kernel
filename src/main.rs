@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::Kernel;
 use omega_cognitive_kernel::audit::AuditLog;
-use omega_cognitive_kernel::config::KernelConfig;
+use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
 use omega_cognitive_kernel::task::run_bandit_task;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -72,6 +72,15 @@ fn state_path(cli: &Cli) -> Option<String> {
     cli.state.as_ref().map(|p| p.display().to_string())
 }
 
+fn load_intervention(cli: &Cli) -> InterventionPolicy {
+    if let Some(ref cfg_path) = cli.config {
+        if let Ok(cfg) = KernelConfig::load(cfg_path) {
+            return cfg.intervention;
+        }
+    }
+    InterventionPolicy::default()
+}
+
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     if let Some(ref cfg_path) = cli.config {
@@ -86,7 +95,35 @@ fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     Ok(kernel)
 }
 
-fn print_audit_summary(log: &AuditLog) -> anyhow::Result<()> {
+fn print_intervention_block(p: &InterventionPolicy) {
+    let mode = match p.mode {
+        omega_cognitive_kernel::InterventionMode::Exploration => "exploration",
+        omega_cognitive_kernel::InterventionMode::Strict => "strict",
+    };
+    let max = match p.max_level {
+        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
+        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
+        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
+        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+    };
+    let eff = match p.effective_max_level() {
+        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
+        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
+        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
+        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+    };
+    println!("── intervention ──");
+    println!("mode              : {mode}");
+    println!("max_level         : {max}");
+    println!("effective_max     : {eff}");
+    println!("friction_threshold: {}", p.friction_threshold);
+    println!("audit_escalations : {}", p.audit_escalations);
+    println!(
+        "note              : path alternatives only if exploration && failures ≥ threshold"
+    );
+}
+
+fn print_audit_summary(log: &AuditLog, policy: &InterventionPolicy) -> anyhow::Result<()> {
     let s = log.summarize()?;
     println!("╔══════════════════════════════════════════════╗");
     println!("║           Omega audit panel                  ║");
@@ -96,6 +133,7 @@ fn print_audit_summary(log: &AuditLog) -> anyhow::Result<()> {
     if let (Some(a), Some(b)) = (s.first_ts, s.last_ts) {
         println!("window     : {} → {}", a.to_rfc3339(), b.to_rfc3339());
     }
+    print_intervention_block(policy);
     println!("── counts ──");
     println!("steps              : {}", s.steps);
     println!("patches accepted   : {}", s.patches_accepted);
@@ -274,7 +312,8 @@ fn main() -> anyhow::Result<()> {
             let kernel = open_kernel(&cli)?;
             let log = AuditLog::beside_state(&kernel.state_path);
             if *summary {
-                print_audit_summary(&log)?;
+                let policy = load_intervention(&cli);
+                print_audit_summary(&log, &policy)?;
             } else {
                 let rows = kernel.audit_tail(*tail)?;
                 if rows.is_empty() {
