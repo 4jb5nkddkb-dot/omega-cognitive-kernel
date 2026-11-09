@@ -1,14 +1,25 @@
 # Omega Cognitive Kernel
 
-**Online strategy-patch runtime** — lightweight, training-free adaptation with an auditable control loop.
+**Training-free online strategy adaptation** — patch a structured `RuleEffect`, measure the consequence, roll back if needed.
 
-> One line: when error rises, emit a structured **`RuleEffect` patch**, persist it as cognitive state, change the next cycle’s predictions and actions — **no weight update, no retrain, no arbitrary code execution**.
+> When error rises, the kernel emits a bounded policy patch, persists it as cognitive state, and changes the next cycle’s decisions.  
+> **No weight updates. No code execution. Full audit trail.**
 
 ```
 World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
 ```
 
-Classical control / RL supply the skeleton (observe → predict → decide → act, explore/exploit, stabilize under error). The engineering bet is different from fine-tuning or PPO: **patch the policy surface, remember the effect, measure the consequence, roll back if needed**.
+## Why this exists
+
+Most adaptive systems either:
+- require expensive retraining / fine-tuning, or
+- allow arbitrary code changes that are hard to audit and reverse.
+
+Omega takes a third path: **structured, reversible policy patches**.
+
+It is designed for systems that need to adapt *while running*, under tight safety and audit requirements.
+
+Classical control / RL supply the skeleton (observe → predict → decide → act). The engineering bet is different from fine-tuning or PPO: **patch the policy surface, remember the effect, measure the consequence, roll back if needed**.
 
 ---
 
@@ -22,7 +33,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
 | L2 **heuristic** meta-modulation of biases & soft constraints | A license to bypass L0/L1 safety |
 
-**Status:** research prototype / experimental runtime (**v0.3.7**). APIs under `Kernel` are the supported surface; internals may change.
+**Status:** research prototype / experimental runtime (**v0.3.7** + adapter WIP on `productization/phase-0`). APIs under `Kernel` are the supported surface; internals may change.
 
 ---
 
@@ -103,7 +114,26 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 }
 ```
 
-Supported surface: `Kernel`, `KernelStatus`, `RunReport`, task helpers (`run_bandit_task*`), checkpoint/audit APIs. Prefer these over reaching into `kernel.inner` in downstream code.
+### Custom adapters (observe / act)
+
+Implement `Observer` and `Executor`, then inject them:
+
+```rust
+use omega_cognitive_kernel::{FileObserver, Kernel, LoggingExecutor};
+
+let observer = FileObserver::new("/tmp/status.json");
+let executor = LoggingExecutor::new([
+    "noop".into(), "observe".into(), "explore".into(),
+    "exploit".into(), "stabilize".into(),
+]).with_log_file("/tmp/actions.log");
+
+let mut kernel = Kernel::with_adapters(observer, executor);
+let report = kernel.run("adapt to external signal", 8)?;
+```
+
+See `examples/custom_adapters.rs`.
+
+Supported surface: `Kernel`, `KernelStatus`, `RunReport`, task helpers (`run_bandit_task*`), checkpoint/audit APIs, `Observer` / `Executor`. Prefer these over reaching into `kernel.inner` in downstream code.
 
 ---
 

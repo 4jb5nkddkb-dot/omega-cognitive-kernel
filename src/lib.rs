@@ -18,3 +18,9 @@ pub use orchestrator::{OmegaOrchestrator, StepResult};
 pub use persist::{KernelSnapshot, DEFAULT_STATE_PATH};
 pub use task::{run_bandit_task, BanditReport};
 pub use types::*;
+
+// Public adapter surface — implement these to plug real world I/O into the kernel.
+pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
+pub use l0::executor::{Executor, LoggingExecutor, SandboxedExecutor};
+pub use l0::observer::{FileObserver, MultiModalObserver, Observer};
+pub use l0::predictor::{ModelBasedPredictor, Predictor};
