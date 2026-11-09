@@ -15,9 +15,7 @@ pub mod types;
 
 pub use api::{Kernel, KernelStatus, RunReport};
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary};
-pub use config::{
-    InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig,
-};
+pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
 pub use persist::{KernelSnapshot, DEFAULT_STATE_PATH};

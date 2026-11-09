@@ -16,7 +16,8 @@ fn main() -> Result<()> {
     let state = match arg {
         Some(p) => PathBuf::from(p),
         None => {
-            let path = env::temp_dir().join(format!("omega-audit-panel-{}.json", uuid::Uuid::new_v4()));
+            let path =
+                env::temp_dir().join(format!("omega-audit-panel-{}.json", uuid::Uuid::new_v4()));
             let mut k = Kernel::with_state_path(&path);
             k.autosave = true;
             k.auto_checkpoint_on_patch = true;
@@ -36,8 +37,10 @@ fn main() -> Result<()> {
     println!("state      : {}", state.display());
     println!("audit log  : {}", log.path.display());
     println!("events     : {}", s.total_events);
-    println!("steps={}  patches_ok={}  patches_rej={}  ckpts={}  rollbacks={}",
-        s.steps, s.patches_accepted, s.patches_rejected, s.checkpoints, s.rollbacks);
+    println!(
+        "steps={}  patches_ok={}  patches_rej={}  ckpts={}  rollbacks={}",
+        s.steps, s.patches_accepted, s.patches_rejected, s.checkpoints, s.rollbacks
+    );
     if !s.action_counts.is_empty() {
         println!("── action histogram ──");
         for (name, n) in &s.action_counts {
@@ -47,8 +50,12 @@ fn main() -> Result<()> {
     if let Some(a) = &s.last_action {
         println!(
             "last: action={a} err={} damp={}",
-            s.last_avg_err.map(|e| format!("{e:.3}")).unwrap_or_else(|| "-".into()),
-            s.last_damping.map(|d| format!("{d:.3}")).unwrap_or_else(|| "-".into()),
+            s.last_avg_err
+                .map(|e| format!("{e:.3}"))
+                .unwrap_or_else(|| "-".into()),
+            s.last_damping
+                .map(|d| format!("{d:.3}"))
+                .unwrap_or_else(|| "-".into()),
         );
     }
 

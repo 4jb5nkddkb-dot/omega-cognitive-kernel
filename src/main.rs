@@ -118,9 +118,7 @@ fn print_intervention_block(p: &InterventionPolicy) {
     println!("effective_max     : {eff}");
     println!("friction_threshold: {}", p.friction_threshold);
     println!("audit_escalations : {}", p.audit_escalations);
-    println!(
-        "note              : path alternatives only if exploration && failures ≥ threshold"
-    );
+    println!("note              : path alternatives only if exploration && failures ≥ threshold");
 }
 
 fn print_audit_summary(log: &AuditLog, policy: &InterventionPolicy) -> anyhow::Result<()> {

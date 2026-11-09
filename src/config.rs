@@ -121,7 +121,7 @@ impl Default for KernelConfig {
 }
 
 impl KernelConfig {
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn from_toml(s: &str) -> Result<Self> {
         toml::from_str(s).map_err(|e| OmegaError::Config(format!("parse TOML: {e}")))
     }
 
@@ -129,7 +129,7 @@ impl KernelConfig {
         let path = path.as_ref();
         let raw = std::fs::read_to_string(path)
             .map_err(|e| OmegaError::Config(format!("read {}: {e}", path.display())))?;
-        Self::from_str(&raw)
+        Self::from_toml(&raw)
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
@@ -157,7 +157,7 @@ mod tests {
     fn roundtrip_defaults() {
         let c = KernelConfig::default();
         let s = toml::to_string_pretty(&c).unwrap();
-        let c2 = KernelConfig::from_str(&s).unwrap();
+        let c2 = KernelConfig::from_toml(&s).unwrap();
         assert!((c2.error_threshold - 0.30).abs() < 1e-9);
         assert_eq!(c2.min_steps_between_patches, 3);
         assert!((c2.max_risk - 0.65).abs() < 1e-9);
@@ -171,7 +171,7 @@ max_risk = 0.4
 error_threshold = 0.25
 autosave = false
 "#;
-        let c = KernelConfig::from_str(s).unwrap();
+        let c = KernelConfig::from_toml(s).unwrap();
         assert!((c.max_risk - 0.4).abs() < 1e-9);
         assert!((c.error_threshold - 0.25).abs() < 1e-9);
         assert!(!c.autosave);
@@ -207,7 +207,7 @@ max_level = "in_frame"
 friction_threshold = 5
 audit_escalations = false
 "#;
-        let c = KernelConfig::from_str(s).unwrap();
+        let c = KernelConfig::from_toml(s).unwrap();
         assert_eq!(c.intervention.mode, InterventionMode::Strict);
         assert_eq!(c.intervention.max_level, InterventionLevel::InFrame);
         assert_eq!(c.intervention.friction_threshold, 5);

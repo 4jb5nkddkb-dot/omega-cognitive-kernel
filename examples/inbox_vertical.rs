@@ -145,10 +145,9 @@ impl Executor for PolicyGateExecutor {
         let mut out = Vec::new();
         for act in actions {
             if !act.constraints_checked {
-                return Err(omega_cognitive_kernel::OmegaError::ExecutionBlocked(format!(
-                    "{} (constraints not checked)",
-                    act.name
-                )));
+                return Err(omega_cognitive_kernel::OmegaError::ExecutionBlocked(
+                    format!("{} (constraints not checked)", act.name),
+                ));
             }
             if !self.allowed.contains(&act.name) {
                 return Err(omega_cognitive_kernel::OmegaError::ExecutionBlocked(
