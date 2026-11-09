@@ -21,6 +21,10 @@ It is designed for systems that need to adapt *while running*, under tight safet
 
 Classical control / RL supply the skeleton (observe → predict → decide → act). The engineering bet is different from fine-tuning or PPO: **patch the policy surface, remember the effect, measure the consequence, roll back if needed**.
 
+Product posture and monetization notes: **[docs/PRODUCT.md](docs/PRODUCT.md)**.  
+Integrator how-to: **[docs/INTEGRATING.md](docs/INTEGRATING.md)**.  
+Stability plan: **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)**.
+
 ---
 
 ## What this is / is not
@@ -33,7 +37,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 | Minimal runtime (JSON state + small Kernel API) | A substitute for large-scale model training |
 | L2 **heuristic** meta-modulation of biases & soft constraints | A license to bypass L0/L1 safety |
 
-**Status:** research prototype / experimental runtime (**v0.3.8**). APIs under `Kernel` are the supported surface; internals may change.
+**Status:** research prototype / experimental runtime (**v0.3.9**). APIs under `Kernel` are the supported surface; internals may change until the 0.4 freeze.
 
 ---
 
@@ -44,7 +48,7 @@ Classical control / RL supply the skeleton (observe → predict → decide → a
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
 # pin a release:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.8 --locked
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.3.9 --locked
 ```
 
 **From source**
@@ -57,7 +61,7 @@ cargo build --release
 # binary: target/release/omega-kernel
 ```
 
-Binary name: `omega-kernel`.
+Binary name: `omega-kernel`. Linux tarball also attached on [GitHub Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases).
 
 ---
 
@@ -67,6 +71,7 @@ Binary name: `omega-kernel`.
 cargo run -- demo
 cargo run -- run --steps 20
 cargo run -- status
+cargo run -- --config examples/omega.example.toml status
 cargo run -- task --episodes 6 --steps 4
 cargo run -- audit --tail 30
 cargo run -- checkpoints
@@ -75,6 +80,14 @@ cargo run -- rollback <UUID>
 cargo run -- --state ./my-agent.json run --steps 10
 cargo run -- reset --yes
 ```
+
+### Closed-loop product demo (inbox)
+
+```bash
+cargo run --example drop_inbox_loop
+```
+
+Watches a drop directory, adapts policy under load, logs actions — see [docs/PRODUCT.md](docs/PRODUCT.md).
 
 ### What `demo` proves
 
@@ -131,9 +144,9 @@ let mut kernel = Kernel::with_adapters(observer, executor);
 let report = kernel.run("adapt to external signal", 8)?;
 ```
 
-See `examples/custom_adapters.rs`.
+Also available: `DirSnapshotObserver`, `HttpObserver`. See `examples/custom_adapters.rs`, `examples/config_and_dir.rs`, `examples/drop_inbox_loop.rs`.
 
-Supported surface: `Kernel`, `KernelStatus`, `RunReport`, task helpers (`run_bandit_task*`), checkpoint/audit APIs, `Observer` / `Executor`. Prefer these over reaching into `kernel.inner` in downstream code.
+Supported surface: `Kernel`, `KernelConfig`, `KernelStatus`, `RunReport`, task helpers, checkpoint/audit APIs, `Observer` / `Executor`. Prefer these over reaching into `kernel.inner` in downstream code.
 
 ---
 
@@ -186,7 +199,8 @@ Strategy memory ages unused arms (`idle_steps`) and applies **idle decay** so ea
 | **0.3.5–0.3.6** | Strategy idle decay; Learner ownership on L0; integration tests |
 | **0.3.7** | L2 meta-biases mapped into DecisionMaker; bandit strategy-decay metrics |
 | **0.3.8** | Public adapters (`with_adapters`, FileObserver, LoggingExecutor); product README |
-| **Next** | Stronger real tasks, optional crates.io, more adapters / config |
+| **0.3.9** | TOML config, CLI `--config`, Dir/Http observers, drop-inbox demo |
+| **Next** | 0.4 API freeze, optional crates.io, vertical integrations |
 
 See [CHANGELOG.md](CHANGELOG.md). Release notes: [RELEASING.md](RELEASING.md) if present.
 
