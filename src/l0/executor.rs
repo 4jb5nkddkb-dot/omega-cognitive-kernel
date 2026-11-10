@@ -265,11 +265,7 @@ impl Executor for ToolGateExecutor {
 
             // Real side effect only for http_get when explicitly enabled.
             if self.enable_http_get && act.name == "http_get" {
-                let url = act
-                    .params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let url = act.params.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 if url.is_empty() {
                     return Err(OmegaError::ExecutionBlocked(
                         "http_get requires params.url".into(),

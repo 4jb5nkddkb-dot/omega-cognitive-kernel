@@ -11,10 +11,8 @@
 //! cargo run --example tool_gate
 //! ```
 
-use omega_cognitive_kernel::{
-    AuditLog, AuditSummary, Executor, Result, ToolGateExecutor,
-};
 use omega_cognitive_kernel::types::Action;
+use omega_cognitive_kernel::{AuditLog, AuditSummary, Executor, Result, ToolGateExecutor};
 use std::collections::HashMap;
 use std::env::temp_dir;
 use std::path::PathBuf;
@@ -40,21 +38,18 @@ fn main() -> Result<()> {
     println!();
 
     // Safe tools an agent may call; dangerous names explicitly denied.
-    let mut gate = ToolGateExecutor::new([
-        "search_docs".into(),
-        "http_get".into(),
-        "summarize".into(),
-    ])
-    .deny([
-        "delete_database".into(),
-        "shell_exec".into(),
-        "send_wire_transfer".into(),
-    ])
-    .with_audit(AuditLog {
-        path: audit.path.clone(),
-    })
-    .echo(true)
-    .fail_closed(false); // continue batch after deny so demo shows mixed outcomes
+    let mut gate =
+        ToolGateExecutor::new(["search_docs".into(), "http_get".into(), "summarize".into()])
+            .deny([
+                "delete_database".into(),
+                "shell_exec".into(),
+                "send_wire_transfer".into(),
+            ])
+            .with_audit(AuditLog {
+                path: audit.path.clone(),
+            })
+            .echo(true)
+            .fail_closed(false); // continue batch after deny so demo shows mixed outcomes
 
     // Simulated model proposals (not from DecisionMaker — host/agent layer).
     let proposals = [
@@ -62,8 +57,8 @@ fn main() -> Result<()> {
         tool("http_get"),
         tool("delete_database"), // should DENY
         tool("summarize"),
-        tool("shell_exec"),      // should DENY
-        tool("unknown_tool"),    // not on allow-list → DENY
+        tool("shell_exec"),   // should DENY
+        tool("unknown_tool"), // not on allow-list → DENY
     ];
 
     println!("── model proposed tools ──");
@@ -77,7 +72,10 @@ fn main() -> Result<()> {
     }
     .summarize()?;
     println!("\n── audit summary ──");
-    println!("events={}  tools_allowed={}  tools_denied={}", sum.total_events, sum.tools_allowed, sum.tools_denied);
+    println!(
+        "events={}  tools_allowed={}  tools_denied={}",
+        sum.total_events, sum.tools_allowed, sum.tools_denied
+    );
     for (name, n) in &sum.action_counts {
         println!("  {name:<24} {n}");
     }

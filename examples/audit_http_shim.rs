@@ -43,9 +43,8 @@ fn main() -> Result<()> {
     println!("routes: GET /health  GET /audit/summary  GET /audit/tail?n=20");
     println!("(Ctrl+C to stop)\n");
 
-    let listener = TcpListener::bind(&addr).map_err(|e| {
-        omega_cognitive_kernel::OmegaError::Persist(format!("bind {addr}: {e}"))
-    })?;
+    let listener = TcpListener::bind(&addr)
+        .map_err(|e| omega_cognitive_kernel::OmegaError::Persist(format!("bind {addr}: {e}")))?;
 
     for conn in listener.incoming() {
         let mut stream = match conn {
@@ -77,7 +76,9 @@ fn main() -> Result<()> {
                 }
             }
             ("GET", p) if p.starts_with("/audit/tail") => {
-                let n = query_param(p, "n").and_then(|s| s.parse().ok()).unwrap_or(20);
+                let n = query_param(p, "n")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(20);
                 match audit.tail(n) {
                     Ok(rows) => match serde_json::to_string_pretty(&rows) {
                         Ok(j) => (200, "application/json", j),
