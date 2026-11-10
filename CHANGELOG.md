@@ -1,42 +1,35 @@
 # Changelog
 
+## [0.4.4] — 2026-11-10
+
+### Audit HTTP shim (demo)
+
+- `examples/audit_http_shim.rs` — localhost read-only HTTP over `audit.jsonl`
+- Routes: `GET /health`, `/audit/summary`, `/audit/tail?n=`
+- Bind `127.0.0.1` only; no TLS/auth — not a production gateway
+- Doc: `docs/AUDIT_HTTP_SHIM.md`
+- README links the shim
+
+Library freeze surface unchanged (example + docs).
+
 ## [0.4.3] — 2026-11-10
 
-### Tool gate + real HTTP GET
-
-- `ToolGateExecutor::enable_http_get(true)` — after ALLOW, tool `http_get` may perform a real GET
-- Constraints: `http://` / `https://` only; connect/read timeouts; body preview ≤ 2 KiB
-- DENY paths still open **no** sockets
-- Example: `examples/tool_gate_http.rs`
-- Doc: `docs/TOOL_GATE.md` updated
-
-Additive on 0.4.x; freeze surface unchanged.
+- `ToolGateExecutor::enable_http_get` — real GET after ALLOW
+- Example `tool_gate_http`
 
 ## [0.4.2] — 2026-11-10
 
-### Tool-call gate (safety MVP)
-
-- `ToolGateExecutor` — allow-list + deny-list, optional audit, `fail_closed`
-- Audit events: `ToolAllowed`, `ToolDenied`
-- `AuditSummary.tools_allowed` / `tools_denied`
-- Example: `examples/tool_gate.rs`
-- Doc: `docs/TOOL_GATE.md`
-
-### Audit panel & intervention policy
-
-- CLI: `omega-kernel audit --summary`
-- `AuditSummary` / `AuditLog::summarize`
-- `[intervention]` in `omega.toml`
-- Docs: `docs/AUDIT_PANEL.md`, `docs/INTERVENTION_POLICY.md`
+- Tool gate allow/deny + audit events
+- `audit --summary`, `[intervention]` policy
 
 ## [0.4.1] — 2026-11-09
 
-- Inbox vertical demo + README links
+- Inbox vertical demo
 
 ## [0.4.0] — 2026-11-09
 
 - Integrator API freeze for 0.4.x
 
-## [0.3.9] — [0.1.0]
+## Earlier
 
-- See prior tags
+- See prior tags (0.3.x …)

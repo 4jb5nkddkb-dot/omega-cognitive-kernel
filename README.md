@@ -17,15 +17,14 @@ Most adaptive systems either:
 
 Omega takes a third path: **structured, reversible policy patches**.
 
-It is designed for systems that need to adapt *while running*, under tight safety and audit requirements.
-
 | Doc | Topic |
 |-----|--------|
 | **[docs/PRODUCT.md](docs/PRODUCT.md)** | Positioning & monetization posture |
 | **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
 | **[docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md)** | Inbox vertical (events + audit) |
-| **[docs/TOOL_GATE.md](docs/TOOL_GATE.md)** | **Tool-call gate** (allow/deny + optional real `http_get`) |
+| **[docs/TOOL_GATE.md](docs/TOOL_GATE.md)** | Tool-call gate (+ optional real `http_get`) |
 | **[docs/AUDIT_PANEL.md](docs/AUDIT_PANEL.md)** | Operator `audit --summary` |
+| **[docs/AUDIT_HTTP_SHIM.md](docs/AUDIT_HTTP_SHIM.md)** | **Localhost read-only audit HTTP** |
 | **[docs/INTERVENTION_POLICY.md](docs/INTERVENTION_POLICY.md)** | exploration vs strict intervention |
 | **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** | Integrator API freeze (**v0.4.0+**) |
 
@@ -38,9 +37,9 @@ It is designed for systems that need to adapt *while running*, under tight safet
 | Structured online patches (`RuleEffect`) | Hot-loading arbitrary source code |
 | Auditable, checkpointable adaptation | Full industrial control / AGI |
 | Pluggable observe/execute + tool gate | NLP content moderation product |
-| L2 **heuristic** meta soft-nudge | License to bypass L0/L1 safety |
+| Localhost audit HTTP **demo** | Production public API gateway |
 
-**Status:** research prototype (**v0.4.3**). Integrator API frozen for **0.4.x**.
+**Status:** research prototype (**v0.4.4**). Integrator API frozen for **0.4.x**.
 
 ---
 
@@ -49,10 +48,8 @@ It is designed for systems that need to adapt *while running*, under tight safet
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
 # pin:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.3 --locked
+# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.4 --locked
 ```
-
-From source: `cargo test && cargo build --release` → `target/release/omega-kernel`.
 
 ---
 
@@ -61,27 +58,25 @@ From source: `cargo test && cargo build --release` → `target/release/omega-ker
 ```bash
 cargo run -- demo
 cargo run -- run --steps 20
-cargo run -- status
-cargo run -- --config examples/omega.example.toml status
 cargo run -- audit --summary
-cargo run -- task --episodes 6 --steps 4
 ```
 
 ### Product demos
 
 ```bash
-# Inbox vertical — events, policy, audit trail
+# Inbox vertical
 cargo run --example inbox_vertical
-KEEP_INBOX=1 cargo run --example inbox_vertical
 
-# Tool-call gate — allow/deny (no network)
+# Tool gate (deny high-risk names)
 cargo run --example tool_gate
 
-# Tool gate + real read-only HTTP GET after ALLOW
+# Tool gate + real GET after ALLOW
 cargo run --example tool_gate_http
-```
 
-Docs: [INBOX_VERTICAL](docs/INBOX_VERTICAL.md) · [TOOL_GATE](docs/TOOL_GATE.md)
+# Localhost audit HTTP shim (read-only)
+cargo run --example audit_http_shim
+# curl -s http://127.0.0.1:8787/audit/summary
+```
 
 ---
 
@@ -102,19 +97,16 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 }
 ```
 
-Adapters: `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, **`ToolGateExecutor`** (optional `enable_http_get`).  
-Inject via `Kernel::with_adapters`.
+Adapters: `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, `ToolGateExecutor`.
 
 ---
 
 ## Safety posture
 
-- L0 action whitelist + `max_risk`; **tool gate** for proposed tool names
-- After ALLOW, optional real **`http_get`** only (`http`/`https`, truncated body); DENY never opens sockets
-- L1 bounded `RuleEffect` + cooldown; checkpoints before patches
-- L2 soft biases only
-- Audit log + `audit --summary` for operators
-- `[intervention]` policy: exploration (DX) vs strict (high-stakes)
+- Tool gate allow/deny; optional real `http_get` after ALLOW only
+- Bounded `RuleEffect`, checkpoints, audit trail
+- `[intervention]` exploration vs strict
+- Audit HTTP shim is **localhost demo only** (no auth/TLS)
 
 ---
 
@@ -123,10 +115,11 @@ Inject via `Kernel::with_adapters`.
 | Stage | Meaning |
 |-------|---------|
 | **0.4.0** | Integrator API freeze |
-| **0.4.1** | Inbox vertical demo |
-| **0.4.2** | Tool gate + audit panel + intervention config |
-| **0.4.3** | Real `http_get` after tool-gate ALLOW |
-| **Next** | Thin service / dashboard when needed |
+| **0.4.1** | Inbox vertical |
+| **0.4.2** | Tool gate + audit panel + intervention |
+| **0.4.3** | Real `http_get` after ALLOW |
+| **0.4.4** | Localhost audit HTTP shim |
+| **Next** | Real caller-driven service/auth only when needed |
 
 See [CHANGELOG.md](CHANGELOG.md).
 
