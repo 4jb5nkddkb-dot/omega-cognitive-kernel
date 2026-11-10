@@ -42,6 +42,15 @@ pub enum AuditEvent {
         reward: f64,
         steps: u32,
     },
+    /// Tool-call gate: proposed tool was on allow-list and recorded.
+    ToolAllowed {
+        tool: String,
+    },
+    /// Tool-call gate: proposed tool blocked (deny-list or not allowed).
+    ToolDenied {
+        tool: String,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +69,8 @@ pub struct AuditSummary {
     pub checkpoints: usize,
     pub rollbacks: usize,
     pub task_episodes: usize,
+    pub tools_allowed: usize,
+    pub tools_denied: usize,
     pub first_ts: Option<DateTime<Utc>>,
     pub last_ts: Option<DateTime<Utc>>,
     pub last_action: Option<String>,
@@ -101,6 +112,14 @@ impl AuditSummary {
                 AuditEvent::Checkpoint { .. } => s.checkpoints += 1,
                 AuditEvent::Rollback { .. } => s.rollbacks += 1,
                 AuditEvent::TaskEpisode { .. } => s.task_episodes += 1,
+                AuditEvent::ToolAllowed { tool } => {
+                    s.tools_allowed += 1;
+                    *actions.entry(format!("tool:{tool}")).or_insert(0) += 1;
+                }
+                AuditEvent::ToolDenied { tool, .. } => {
+                    s.tools_denied += 1;
+                    *actions.entry(format!("deny:{tool}")).or_insert(0) += 1;
+                }
             }
         }
         let mut counts: Vec<_> = actions.into_iter().collect();

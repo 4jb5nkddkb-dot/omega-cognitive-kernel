@@ -24,7 +24,7 @@ pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
 pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
-pub use l0::executor::{Executor, LoggingExecutor, SandboxedExecutor};
+pub use l0::executor::{Executor, LoggingExecutor, SandboxedExecutor, ToolGateExecutor};
 pub use l0::observer::{
     DirSnapshotObserver, FileObserver, HttpObserver, MultiModalObserver, Observer,
 };

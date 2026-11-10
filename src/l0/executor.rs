@@ -1,3 +1,4 @@
+use crate::audit::{AuditEvent, AuditLog};
 use crate::error::{OmegaError, Result};
 use crate::types::Action;
 use std::collections::HashSet;
@@ -118,11 +119,123 @@ impl Executor for LoggingExecutor {
     }
 }
 
+/// Tool-call gate: allow-list + explicit deny-list, optional audit side-channel.
+///
+/// Product story: a model (or agent) *proposes* tool names; this executor is the
+/// last line of defense before side effects. Denied tools never run; they are
+/// recorded when `audit` is set. No real network/FS side effects in this type.
+pub struct ToolGateExecutor {
+    allowed: HashSet<String>,
+    denied: HashSet<String>,
+    audit: Option<AuditLog>,
+    echo: bool,
+    /// If true, denied tools return Err and stop the batch; if false, skip and continue.
+    fail_closed: bool,
+}
+
+impl ToolGateExecutor {
+    pub fn new(allowed: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            allowed: allowed.into_iter().collect(),
+            denied: HashSet::new(),
+            audit: None,
+            echo: true,
+            fail_closed: true,
+        }
+    }
+
+    pub fn deny(mut self, names: impl IntoIterator<Item = String>) -> Self {
+        self.denied.extend(names);
+        self
+    }
+
+    pub fn with_audit(mut self, log: AuditLog) -> Self {
+        self.audit = Some(log);
+        self
+    }
+
+    pub fn echo(mut self, on: bool) -> Self {
+        self.echo = on;
+        self
+    }
+
+    pub fn fail_closed(mut self, on: bool) -> Self {
+        self.fail_closed = on;
+        self
+    }
+
+    fn is_denied(&self, name: &str) -> bool {
+        self.denied.contains(name) || !self.allowed.contains(name)
+    }
+}
+
+impl Executor for ToolGateExecutor {
+    fn execute(&mut self, actions: &[Action]) -> Result<Vec<serde_json::Value>> {
+        let mut results = Vec::new();
+        for act in actions {
+            if !act.constraints_checked {
+                return Err(OmegaError::ExecutionBlocked(format!(
+                    "{} (constraints not checked)",
+                    act.name
+                )));
+            }
+
+            if self.is_denied(&act.name) {
+                let reason = if self.denied.contains(&act.name) {
+                    "deny_list"
+                } else {
+                    "not_on_allow_list"
+                };
+                if let Some(log) = &self.audit {
+                    let _ = log.append(AuditEvent::ToolDenied {
+                        tool: act.name.clone(),
+                        reason: reason.into(),
+                    });
+                }
+                if self.echo {
+                    println!("[tool-gate] DENY  {} ({reason})", act.name);
+                }
+                if self.fail_closed {
+                    return Err(OmegaError::ExecutionBlocked(format!(
+                        "tool denied: {} ({reason})",
+                        act.name
+                    )));
+                }
+                results.push(serde_json::json!({
+                    "status": "denied",
+                    "action": act.name,
+                    "reason": reason,
+                }));
+                continue;
+            }
+
+            if let Some(log) = &self.audit {
+                let _ = log.append(AuditEvent::ToolAllowed {
+                    tool: act.name.clone(),
+                });
+            }
+            if self.echo {
+                println!("[tool-gate] ALLOW {}", act.name);
+            }
+            results.push(serde_json::json!({
+                "status": "ok",
+                "action": act.name,
+                "params": act.params,
+                // Simulated — no real side effect.
+                "effect": "simulated",
+            }));
+        }
+        Ok(results)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::Action;
     use std::collections::HashMap;
+    use std::env::temp_dir;
+    use uuid::Uuid;
 
     fn action(name: &str, checked: bool) -> Action {
         Action {
@@ -160,5 +273,25 @@ mod tests {
         let res = ex.execute(&[action("observe", true)]).unwrap();
         assert_eq!(res[0]["status"], "logged");
         assert_eq!(res[0]["action"], "observe");
+    }
+
+    #[test]
+    fn tool_gate_denies_dangerous_tool() {
+        let path = temp_dir().join(format!("omega-gate-{}.json", Uuid::new_v4()));
+        let audit = AuditLog::beside_state(&path);
+        let mut gate = ToolGateExecutor::new(["search_docs".into(), "http_get".into()])
+            .deny(["delete_database".into(), "shell_exec".into()])
+            .with_audit(audit)
+            .echo(false)
+            .fail_closed(true);
+        assert!(gate.execute(&[action("search_docs", true)]).is_ok());
+        assert!(gate.execute(&[action("delete_database", true)]).is_err());
+        let sum = AuditLog::beside_state(&path).summarize().unwrap();
+        // ToolAllowed + ToolDenied counted in total_events via read
+        let rows = AuditLog::beside_state(&path).read_all().unwrap();
+        assert!(rows.len() >= 2);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
+        let _ = sum;
     }
 }
