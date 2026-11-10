@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.2] — 2026-11-10
+
+### Tool-call gate (safety MVP)
+
+- `ToolGateExecutor` — allow-list + deny-list, optional audit, `fail_closed`
+- Audit events: `ToolAllowed`, `ToolDenied`
+- `AuditSummary.tools_allowed` / `tools_denied`
+- Example: `examples/tool_gate.rs`
+- Doc: `docs/TOOL_GATE.md`
+
+### Audit panel & intervention policy
+
+- CLI: `omega-kernel audit --summary` (counts + action histogram + intervention block)
+- `AuditSummary` / `AuditLog::summarize` / `read_all`
+- `[intervention]` in `omega.toml`: mode, max_level, friction_threshold
+- Types: `InterventionPolicy`, `InterventionMode`, `InterventionLevel`
+- Docs: `docs/AUDIT_PANEL.md`, `docs/INTERVENTION_POLICY.md`
+
+**No breaks** to the 0.4.0 freeze list; additive APIs only.
+
 ## [0.4.1] — 2026-11-09
 
 ### Demo & docs
@@ -59,47 +79,9 @@ No intentional breaking renames on the freeze list versus 0.3.9.
 
 ### L2 biases → DecisionMaker
 
-- Meta biases mapped onto action scores:
-  - `explore_preference` → boost explore / mild penalize exploit+stabilize
-  - `self_ref` + `coherence` → boost stabilize (+ mild observe)
-  - `observation_depth` → boost observe
-- Action params expose `l2_explore_pref`
-- Unit tests: explore_preference selects explore; self_ref+coherence selects stabilize
+- Meta biases mapped onto action scores
+- Bandit strategy-decay metrics
 
-### Bandit strategy-decay metrics
+## [0.3.6] — [0.1.0]
 
-- `StrategyMemory::stats` reports idle/active counts and weight means
-- `BanditReport` adds: `strategy_count`, `idle_strategy_count`, `mean_strategy_weight`, `mean_idle_steps`, `max_idle_steps`, `mean_idle_weight`, `mean_active_weight`
-- CLI `task` prints a strategy-decay block
-
-## [0.3.6] — 2026-11-05
-
-- L0 owns Learner path; single decay ownership; fixed-point exit e2e test
-
-## [0.3.5] — 2026-11-05
-
-- Strategy idle decay; Learner ownership; integration tests (cooldown, max_risk, L2 nudge)
-
-## [0.3.4] — 2026-11-05
-
-- L2 soft RuleEffect modulation; constraints in DecisionMaker; L2 status surface
-
-## [0.3.3] — 2026-11-05
-
-- L1 Abstractor/cooldown/store bound; L2 lifecycle
-
-## [0.3.2] — 2026-11-05
-
-- RuleEffect explore_bonus / risk_tolerance
-
-## [0.3.1] — 2026-11-03
-
-- Packaging, MIT, release workflow
-
-## [0.3.0] — 2026-11-03
-
-- Audit, checkpoints, bandit task
-
-## [0.2.0] / [0.1.0]
-
-- Persistence + CLI; L0/L1/L2 skeleton
+- See prior tags for L0–L2 hardening, packaging, CLI
