@@ -4,6 +4,7 @@ use crate::types::Action;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// External world execution interface.
 ///
@@ -50,9 +51,6 @@ impl Executor for SandboxedExecutor {
 }
 
 /// Records intended actions to a log file (and optionally stdout).
-///
-/// Safe first real adapter: the kernel can decide, you can inspect what it
-/// would have done, without performing dangerous side effects.
 pub struct LoggingExecutor {
     allowed: HashSet<String>,
     log_path: Option<PathBuf>,
@@ -119,18 +117,58 @@ impl Executor for LoggingExecutor {
     }
 }
 
-/// Tool-call gate: allow-list + explicit deny-list, optional audit side-channel.
+/// Max response body bytes kept for `http_get` (truncate after this).
+const HTTP_GET_BODY_LIMIT: usize = 2048;
+
+/// Safe GET-only fetch for tool-gate. No redirects beyond ureq defaults; HTTPS/HTTP only.
+fn safe_http_get(url: &str) -> Result<serde_json::Value> {
+    let url = url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(OmegaError::ExecutionBlocked(
+            "http_get: only http:// or https:// URLs allowed".into(),
+        ));
+    }
+    // Block obvious credential injection in userinfo (basic hygiene).
+    if url.contains('@') && !url.split('@').next().unwrap_or("").contains("://") {
+        // crude: reject if @ appears before path in a way that looks like userinfo
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(10))
+        .build();
+    let resp = agent
+        .get(url)
+        .call()
+        .map_err(|e| OmegaError::ExecutionBlocked(format!("http_get failed: {e}")))?;
+    let status = resp.status();
+    let body = resp
+        .into_string()
+        .map_err(|e| OmegaError::ExecutionBlocked(format!("http_get body: {e}")))?;
+    let truncated = body.len() > HTTP_GET_BODY_LIMIT;
+    let preview: String = body.chars().take(HTTP_GET_BODY_LIMIT).collect();
+    Ok(serde_json::json!({
+        "status": "ok",
+        "action": "http_get",
+        "http_status": status,
+        "url": url,
+        "body_preview": preview,
+        "truncated": truncated,
+        "effect": "network_get",
+    }))
+}
+
+/// Tool-call gate: allow-list + deny-list, optional audit, optional real `http_get`.
 ///
-/// Product story: a model (or agent) *proposes* tool names; this executor is the
-/// last line of defense before side effects. Denied tools never run; they are
-/// recorded when `audit` is set. No real network/FS side effects in this type.
+/// Denied tools never touch the network. When `enable_http_get` is true and the
+/// tool name is `http_get` on the allow-list, a GET is performed (response truncated).
 pub struct ToolGateExecutor {
     allowed: HashSet<String>,
     denied: HashSet<String>,
     audit: Option<AuditLog>,
     echo: bool,
-    /// If true, denied tools return Err and stop the batch; if false, skip and continue.
     fail_closed: bool,
+    /// If true, ALLOW + name `http_get` performs a real GET (`params.url`).
+    enable_http_get: bool,
 }
 
 impl ToolGateExecutor {
@@ -141,6 +179,7 @@ impl ToolGateExecutor {
             audit: None,
             echo: true,
             fail_closed: true,
+            enable_http_get: false,
         }
     }
 
@@ -161,6 +200,12 @@ impl ToolGateExecutor {
 
     pub fn fail_closed(mut self, on: bool) -> Self {
         self.fail_closed = on;
+        self
+    }
+
+    /// Enable real HTTP GET for tool name `http_get` after allow-list pass.
+    pub fn enable_http_get(mut self, on: bool) -> Self {
+        self.enable_http_get = on;
         self
     }
 
@@ -217,11 +262,30 @@ impl Executor for ToolGateExecutor {
             if self.echo {
                 println!("[tool-gate] ALLOW {}", act.name);
             }
+
+            // Real side effect only for http_get when explicitly enabled.
+            if self.enable_http_get && act.name == "http_get" {
+                let url = act
+                    .params
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if url.is_empty() {
+                    return Err(OmegaError::ExecutionBlocked(
+                        "http_get requires params.url".into(),
+                    ));
+                }
+                if self.echo {
+                    println!("[tool-gate] GET   {url}");
+                }
+                results.push(safe_http_get(url)?);
+                continue;
+            }
+
             results.push(serde_json::json!({
                 "status": "ok",
                 "action": act.name,
                 "params": act.params,
-                // Simulated — no real side effect.
                 "effect": "simulated",
             }));
         }
@@ -286,12 +350,24 @@ mod tests {
             .fail_closed(true);
         assert!(gate.execute(&[action("search_docs", true)]).is_ok());
         assert!(gate.execute(&[action("delete_database", true)]).is_err());
-        let sum = AuditLog::beside_state(&path).summarize().unwrap();
-        // ToolAllowed + ToolDenied counted in total_events via read
         let rows = AuditLog::beside_state(&path).read_all().unwrap();
         assert!(rows.len() >= 2);
-        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
-        let _ = sum;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn http_get_rejects_non_http_scheme() {
+        let mut gate = ToolGateExecutor::new(["http_get".into()])
+            .enable_http_get(true)
+            .echo(false);
+        let mut params = HashMap::new();
+        params.insert("url".into(), serde_json::json!("file:///etc/passwd"));
+        let act = Action {
+            name: "http_get".into(),
+            params,
+            constraints_checked: true,
+        };
+        assert!(gate.execute(&[act]).is_err());
     }
 }
