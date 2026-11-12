@@ -122,9 +122,12 @@ mod tests {
             memory: MemoryFacade::new(),
             learner: Learner::default(),
         };
+        let mut l1 = L1CognitiveLayer::new();
+        // Tests that exercise patching explicitly enable self-modify.
+        l1.self_modify_enabled = true;
         OmegaOrchestrator {
             l0,
-            l1: L1CognitiveLayer::new(),
+            l1,
             l2: L2MetaLayer::new(),
             biases: HashMap::new(),
             constraints: safety::default_constraints(),
