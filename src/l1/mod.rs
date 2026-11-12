@@ -32,6 +32,9 @@ pub struct L1CognitiveLayer {
     pub learner: Learner,
     /// Steps since the last accepted patch (for cooldown).
     pub steps_since_last_patch: u64,
+    /// Master switch: when false, no cognitive code/rule patches are applied.
+    /// Set from KernelConfig.self_modify_enabled (default false).
+    pub self_modify_enabled: bool,
 }
 
 impl L1CognitiveLayer {
@@ -42,7 +45,8 @@ impl L1CognitiveLayer {
             sandbox: CodeSandbox::default(),
             store: VersionedStore::new(),
             learner: Learner::default(),
-            steps_since_last_patch: 100, // allow first patch immediately
+            steps_since_last_patch: 100, // allow first patch immediately when enabled
+            self_modify_enabled: false,
         }
     }
 
@@ -54,6 +58,16 @@ impl L1CognitiveLayer {
         self.steps_since_last_patch = self.steps_since_last_patch.saturating_add(1);
 
         let abstraction = self.abstractor.distill(trajectory)?;
+
+        // Hard gate: no self-modification unless explicitly enabled.
+        if !self.self_modify_enabled {
+            return Ok(L1Result {
+                patched: false,
+                patch_id: None,
+                reason: Some("self_modify_enabled=false".into()),
+                effect_damping: None,
+            });
+        }
 
         let mut strategy_weights = HashMap::new();
         for s in memory.strategy.retrieve("", 16) {
