@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to attach binary to (e.g. v0.3.7)"
+        description: "Tag to create/update release for (e.g. v0.4.6)"
         required: true
-        default: "v0.3.7"
+        default: "v0.4.6"
 
 permissions:
   contents: write
@@ -19,28 +19,101 @@ env:
 
 jobs:
   build-linux:
-    name: Build Linux binary
+    name: Build Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Tag push: build that tag. Manual dispatch: build latest main (fixes),
-          # still publish assets onto the requested release tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.ref }}
 
-      - name: Install Rust toolchain
+      - name: Install system deps for egui
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev libgl1-mesa-dev libx11-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libwayland-dev libxkbcommon-x11-dev pkg-config
+
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Test
+      - name: Test (CLI surface)
         run: cargo test --release
 
-      - name: Build release binary
-        run: cargo build --release --bin omega-kernel
+      - name: Build CLI binaries
+        run: |
+          cargo build --release --bin omega-kernel
+          cargo build --release --bin omega-audit-panel
 
-      - name: Resolve tag name
+      - name: Build GUI dashboard
+        continue-on-error: true
+        run: cargo build --release --features gui --bin omega-dashboard
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          [ -f target/release/omega-kernel ] && cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
+          [ -f target/release/omega-audit-panel ] && cp target/release/omega-audit-panel dist/omega-audit-panel-linux-x86_64
+          [ -f target/release/omega-dashboard ] && cp target/release/omega-dashboard dist/omega-dashboard-linux-x86_64
+          cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/ 2>/dev/null || true
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          NOTES="RELEASE_NOTES_${TAG}.md"
+          [ -f "$NOTES" ] && cp "$NOTES" dist/ || true
+          ls -la dist/
+          tar -czf omega-kernel-linux-x86_64.tar.gz -C dist .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omega-linux
+          path: omega-kernel-linux-x86_64.tar.gz
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI binaries
+        run: |
+          cargo build --release --bin omega-kernel
+          cargo build --release --bin omega-audit-panel
+
+      - name: Build GUI dashboard
+        continue-on-error: true
+        run: cargo build --release --features gui --bin omega-dashboard
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          if (Test-Path target/release/omega-kernel.exe) { Copy-Item target/release/omega-kernel.exe dist/omega-kernel-windows-x86_64.exe }
+          if (Test-Path target/release/omega-audit-panel.exe) { Copy-Item target/release/omega-audit-panel.exe dist/omega-audit-panel-windows-x86_64.exe }
+          if (Test-Path target/release/omega-dashboard.exe) { Copy-Item target/release/omega-dashboard.exe dist/omega-dashboard-windows-x86_64.exe }
+          Get-ChildItem dist
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omega-windows
+          path: dist/*
+          if-no-files-found: warn
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -49,23 +122,18 @@ jobs:
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Package artifact
-        run: |
-          TAG="${{ steps.tag.outputs.name }}"
-          mkdir -p dist
-          cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
-          cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/ 2>/dev/null || true
-          NOTES="RELEASE_NOTES_${TAG}.md"
-          if [ -f "$NOTES" ]; then cp "$NOTES" dist/; fi
-          tar -czf omega-kernel-linux-x86_64.tar.gz -C dist .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: omega-kernel-linux-x86_64
-          path: omega-kernel-linux-x86_64.tar.gz
+          path: artifacts
 
-      - name: Load release notes body
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find artifacts -type f -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Load release notes
         id: notes
         run: |
           TAG="${{ steps.tag.outputs.name }}"
@@ -77,25 +145,29 @@ jobs:
               echo ""
               echo "OMEGA_RELEASE_EOF"
             } >> "$GITHUB_OUTPUT"
-            echo "Using $NOTES as release body"
           else
             {
               echo "body<<OMEGA_RELEASE_EOF"
               echo "## Omega Cognitive Kernel ${TAG}"
               echo ""
-              echo "Training-free online strategy-patch runtime (RuleEffect)."
-              echo "See CHANGELOG.md on this tag for details."
+              echo "- **omega-kernel** — CLI runtime"
+              echo "- **omega-audit-panel** — audit operator tool"
+              echo "- **omega-dashboard** — desktop GUI (if build succeeded)"
+              echo ""
+              echo "See CHANGELOG.md for details."
               echo "OMEGA_RELEASE_EOF"
             } >> "$GITHUB_OUTPUT"
-            echo "No $NOTES; using fallback body"
           fi
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
+          name: Omega Cognitive Kernel ${{ steps.tag.outputs.name }}
           generate_release_notes: false
-          files: omega-kernel-linux-x86_64.tar.gz
+          files: out/*
           body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
