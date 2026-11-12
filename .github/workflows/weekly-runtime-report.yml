@@ -1,0 +1,79 @@
+name: Weekly Runtime Report
+
+on:
+  schedule:
+    # Monday 03:00 UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --bin omega-kernel
+
+      - name: Run short demo and capture status
+        id: run
+        run: |
+          set -e
+          STATE=./.omega-weekly-state.json
+          rm -f "$STATE" trajectory.jsonl audit.jsonl 2>/dev/null || true
+          ./target/release/omega-kernel --state "$STATE" demo --steps 16 > demo_out.txt 2>&1 || true
+          ./target/release/omega-kernel --state "$STATE" status > status_out.txt 2>&1 || true
+          ./target/release/omega-kernel --state "$STATE" audit --summary > audit_out.txt 2>&1 || true
+          echo "captured"
+
+      - name: Compose weekly report
+        run: |
+          WEEK=$(date -u +%Y-W%V)
+          mkdir -p reports
+          {
+            echo "# Omega Weekly Runtime Report — $WEEK"
+            echo
+            echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "## Demo run (16 steps)"
+            echo '```'
+            cat demo_out.txt || echo "(no demo output)"
+            echo '```'
+            echo
+            echo "## Status"
+            echo '```'
+            cat status_out.txt || echo "(no status)"
+            echo '```'
+            echo
+            echo "## Audit summary"
+            echo '```'
+            cat audit_out.txt || echo "(no audit)"
+            echo '```'
+            echo
+            echo "## Notes"
+            echo "- self_modify_enabled defaults to **false** (safe)."
+            echo "- trajectory.jsonl is written when dump_trajectory=true."
+            echo "- This report is produced by the scheduled workflow; no production state is modified."
+          } > "reports/weekly-$WEEK.md"
+          ls -la reports/
+
+      - name: Commit report if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --cached --quiet; then
+            echo "No report changes"
+          else
+            git commit -m "chore: weekly runtime report $(date -u +%Y-W%V)"
+            git push origin main
+          fi
