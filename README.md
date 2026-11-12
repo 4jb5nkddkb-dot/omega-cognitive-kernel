@@ -21,11 +21,11 @@ Omega takes a third path: **structured, reversible policy patches**.
 |-----|--------|
 | **[docs/PRODUCT.md](docs/PRODUCT.md)** | Positioning & monetization posture |
 | **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
+| **[docs/CLOSED_LOOP.md](docs/CLOSED_LOOP.md)** | Safety switches + trajectory |
+| **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
 | **[docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md)** | Inbox vertical (events + audit) |
 | **[docs/TOOL_GATE.md](docs/TOOL_GATE.md)** | Tool-call gate (+ optional real `http_get`) |
-| **[docs/AUDIT_PANEL.md](docs/AUDIT_PANEL.md)** | Operator `audit --summary` |
-| **[docs/AUDIT_HTTP_SHIM.md](docs/AUDIT_HTTP_SHIM.md)** | **Localhost read-only audit HTTP** |
-| **[docs/INTERVENTION_POLICY.md](docs/INTERVENTION_POLICY.md)** | exploration vs strict intervention |
+| **[docs/AUDIT_HTTP_SHIM.md](docs/AUDIT_HTTP_SHIM.md)** | Localhost read-only audit HTTP |
 | **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** | Integrator API freeze (**v0.4.0+**) |
 
 ---
@@ -37,45 +37,47 @@ Omega takes a third path: **structured, reversible policy patches**.
 | Structured online patches (`RuleEffect`) | Hot-loading arbitrary source code |
 | Auditable, checkpointable adaptation | Full industrial control / AGI |
 | Pluggable observe/execute + tool gate | NLP content moderation product |
-| Localhost audit HTTP **demo** | Production public API gateway |
+| Optional desktop dashboard | Production public API gateway |
 
-**Status:** research prototype (**v0.4.4**). Integrator API frozen for **0.4.x**.
+**Status:** research prototype (**v0.4.7**). Integrator API frozen for **0.4.x**.
 
 ---
 
 ## Install
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --locked
-# pin:
-# cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.4 --locked
+# CLI
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.7 --locked
+
+# Optional GUI dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.7 --locked --features gui --bin omega-dashboard
 ```
+
+Or download binaries from the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page.
 
 ---
 
 ## Quick start
 
 ```bash
-cargo run -- demo
-cargo run -- run --steps 20
-cargo run -- audit --summary
+cargo run --release -- demo
+cargo run --release -- run --steps 20
+cargo run --release -- status
+cargo run --release -- audit --summary
+
+# Desktop dashboard
+cargo run --release --features gui --bin omega-dashboard
 ```
+
+Default: **`self_modify_enabled = false`** (no L1 rule commits until you turn it on in config / dashboard).
 
 ### Product demos
 
 ```bash
-# Inbox vertical
 cargo run --example inbox_vertical
-
-# Tool gate (deny high-risk names)
 cargo run --example tool_gate
-
-# Tool gate + real GET after ALLOW
 cargo run --example tool_gate_http
-
-# Localhost audit HTTP shim (read-only)
 cargo run --example audit_http_shim
-# curl -s http://127.0.0.1:8787/audit/summary
 ```
 
 ---
@@ -103,23 +105,25 @@ Adapters: `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecuto
 
 ## Safety posture
 
+- **`self_modify_enabled`** master switch (default off)
 - Tool gate allow/deny; optional real `http_get` after ALLOW only
-- Bounded `RuleEffect`, checkpoints, audit trail
+- Bounded `RuleEffect`, checkpoints, audit trail, optional `trajectory.jsonl`
 - `[intervention]` exploration vs strict
-- Audit HTTP shim is **localhost demo only** (no auth/TLS)
 
 ---
 
-## Status
+## Version map (0.4.x)
 
-| Stage | Meaning |
-|-------|---------|
+| Version | Meaning |
+|---------|---------|
 | **0.4.0** | Integrator API freeze |
 | **0.4.1** | Inbox vertical |
 | **0.4.2** | Tool gate + audit panel + intervention |
 | **0.4.3** | Real `http_get` after ALLOW |
 | **0.4.4** | Localhost audit HTTP shim |
-| **Next** | Real caller-driven service/auth only when needed |
+| **0.4.5** | self_modify + trajectory (no public tag; folded forward) |
+| **0.4.6** | Dashboard introduced (GUI binary may be missing on that tag) |
+| **0.4.7** | Dashboard compile fix + doc alignment — **current** |
 
 See [CHANGELOG.md](CHANGELOG.md).
 
