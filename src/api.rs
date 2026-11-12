@@ -34,6 +34,8 @@ where
     pub state_path: PathBuf,
     pub autosave: bool,
     pub auto_checkpoint_on_patch: bool,
+    /// When true, append full step trajectory to trajectory.jsonl beside state.
+    pub dump_trajectory: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +55,7 @@ pub struct KernelStatus {
     pub dwell_steps: u64,
     pub last_alignment_score: f64,
     pub max_risk: f64,
+    pub self_modify_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +105,7 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
             state_path: path.into(),
             autosave: true,
             auto_checkpoint_on_patch: true,
+            dump_trajectory: true,
         }
     }
 
@@ -158,6 +162,7 @@ where
             state_path: path.into(),
             autosave: true,
             auto_checkpoint_on_patch: true,
+            dump_trajectory: true,
         }
     }
 
@@ -168,8 +173,10 @@ where
         }
         self.autosave = cfg.autosave;
         self.auto_checkpoint_on_patch = cfg.auto_checkpoint_on_patch;
+        self.dump_trajectory = cfg.dump_trajectory;
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
+        self.inner.l1.self_modify_enabled = cfg.self_modify_enabled;
         self.inner
             .constraints
             .insert("max_risk".into(), cfg.max_risk);
@@ -181,6 +188,41 @@ where
 
     fn checkpoints(&self) -> CheckpointStore {
         CheckpointStore::beside_state(&self.state_path)
+    }
+
+    fn trajectory_path(&self) -> PathBuf {
+        let mut p = self.state_path.clone();
+        p.set_file_name("trajectory.jsonl");
+        p
+    }
+
+    fn append_trajectory(&self, goal: &str, result: &StepResult) {
+        if !self.dump_trajectory {
+            return;
+        }
+        use std::io::Write;
+        let path = self.trajectory_path();
+        let rec = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "step": self.inner.total_steps,
+            "goal": goal,
+            "action": result.trajectory.actions.first().map(|a| a.name.clone()),
+            "prediction_errors": result.trajectory.prediction_errors,
+            "patched": result.l1.patched,
+            "patch_reason": result.l1.reason,
+            "effect_damping": result.l1.effect_damping,
+            "l2_in_fp": result.l2.in_fixed_point,
+            "l2_align": result.l2.alignment_score,
+            "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
+            "self_modify_enabled": self.inner.l1.self_modify_enabled,
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(f, "{}", rec);
+        }
     }
 
     pub fn step(&mut self, goal: &str) -> Result<StepResult> {
@@ -205,6 +247,7 @@ where
             avg_err,
             damping,
         });
+        self.append_trajectory(goal, &result);
         if result.l1.patched {
             if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
                 if let Ok(meta) = self.checkpoints().save(
@@ -294,6 +337,7 @@ where
             dwell_steps: self.inner.l2.dwell_steps,
             last_alignment_score: self.inner.l2.last_alignment_score,
             max_risk,
+            self_modify_enabled: self.inner.l1.self_modify_enabled,
         }
     }
 
@@ -396,9 +440,11 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
         let path = self.state_path.clone();
         let autosave = self.autosave;
         let auto_ckpt = self.auto_checkpoint_on_patch;
+        let dump = self.dump_trajectory;
         *self = Self::with_state_path(path);
         self.autosave = autosave;
         self.auto_checkpoint_on_patch = auto_ckpt;
+        self.dump_trajectory = dump;
         if self.state_path.exists() {
             std::fs::remove_file(&self.state_path)
                 .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
@@ -467,6 +513,7 @@ mod tests {
             min_steps_between_patches: 7,
             max_risk: 0.33,
             autosave: false,
+            self_modify_enabled: true,
             ..KernelConfig::default()
         };
         k.apply_config(&cfg);
@@ -474,5 +521,6 @@ mod tests {
         assert_eq!(k.inner.l1.reflector.min_steps_between_patches, 7);
         assert!((k.inner.constraints["max_risk"] - 0.33).abs() < 1e-9);
         assert!(!k.autosave);
+        assert!(k.inner.l1.self_modify_enabled);
     }
 }
