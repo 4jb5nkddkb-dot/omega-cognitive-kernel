@@ -39,7 +39,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 | Pluggable observe/execute + tool gate | NLP content moderation product |
 | Optional desktop dashboard | Production public API gateway |
 
-**Status:** research prototype (**v0.4.7**). Integrator API frozen for **0.4.x**.
+**Status:** research prototype (**v0.4.8**). Integrator API frozen for **0.4.x**.
 
 ---
 
@@ -47,10 +47,10 @@ Omega takes a third path: **structured, reversible policy patches**.
 
 ```bash
 # CLI
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.7 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.8 --locked
 
 # Optional GUI dashboard
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.7 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.8 --locked --features gui --bin omega-dashboard
 ```
 
 Or download binaries from the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page.
@@ -123,7 +123,8 @@ Adapters: `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecuto
 | **0.4.4** | Localhost audit HTTP shim |
 | **0.4.5** | self_modify + trajectory (no public tag; folded forward) |
 | **0.4.6** | Dashboard introduced (GUI binary may be missing on that tag) |
-| **0.4.7** | Dashboard compile fix + doc alignment — **current** |
+| **0.4.7** | Dashboard compile fix + doc alignment |
+| **0.4.8** | Case memory: prioritized experience replay — **current** |
 
 See [CHANGELOG.md](CHANGELOG.md).
 
