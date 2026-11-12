@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.7] — 2026-11-12
+
+### Fixes
+
+- `omega-dashboard`: match-arm type error in audit UI (`Response` vs `()`) — GUI now builds on CI
+- Version strings aligned across Cargo.toml / README / docs
+
+### Release note
+
+v0.4.6 tag existed but dashboard binary was missing from Assets due to the compile error above. Prefer **v0.4.7** for GUI downloads.
+
 ## [0.4.6] — 2026-11-12
 
 ### Desktop dashboard
@@ -9,13 +20,11 @@
 - Windows: no console window; CJK font load
 - Docs: `docs/DASHBOARD.md`
 
-### Build
-
 ```bash
 cargo run --release --features gui --bin omega-dashboard
 ```
 
-## [0.4.5] — 2026-11-12
+## [0.4.5] — 2026-11-12 (no public tag; folded into 0.4.6+)
 
 ### Safety & observability
 
@@ -34,8 +43,6 @@ cargo run --release --features gui --bin omega-dashboard
 - Routes: `GET /health`, `/audit/summary`, `/audit/tail?n=`
 - Bind `127.0.0.1` only; no TLS/auth — not a production gateway
 - Doc: `docs/AUDIT_HTTP_SHIM.md`
-
-Library freeze surface unchanged (example + docs).
 
 ## [0.4.3] — 2026-11-10
 
