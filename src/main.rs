@@ -186,6 +186,10 @@ fn main() -> anyhow::Result<()> {
             println!("goal   : {goal}");
             println!("steps  : {steps}");
             println!("state  : {}", kernel.state_path.display());
+            println!(
+                "self_modify : {}  dump_trajectory : {}",
+                kernel.inner.l1.self_modify_enabled, kernel.dump_trajectory
+            );
             println!();
             for i in 1..=*steps {
                 let r = kernel.step(&goal)?;
@@ -243,26 +247,32 @@ fn main() -> anyhow::Result<()> {
                 "L2: in_fp={} dwell={} align={:.3}  max_risk={:.2}",
                 st.in_fixed_point, st.dwell_steps, st.last_alignment_score, st.max_risk
             );
+            println!(
+                "self_modify={}  dump_trajectory={}",
+                st.self_modify_enabled, kernel.dump_trajectory
+            );
         }
         Commands::Status => {
             let kernel = open_kernel(&cli)?;
             let st = kernel.status();
-            println!("state_path     : {}", st.state_path);
-            println!("total_steps    : {}", st.total_steps);
-            println!("avg_pred_error : {:.4}", st.avg_prediction_error);
-            println!("adaptation     : {:.4}", st.adaptation_score);
-            println!("error_damping  : {:.4}", st.error_damping);
-            println!("explore_bonus  : {:.4}", st.explore_bonus);
-            println!("risk_tolerance : {:.4}", st.risk_tolerance);
-            println!("max_risk       : {:.4}", st.max_risk);
-            println!("active_modules : {}", st.active_modules);
-            println!("strategies     : {}", st.strategy_count);
-            println!("cases          : {}", st.case_count);
-            println!("checkpoints    : {}", st.checkpoint_count);
+            println!("state_path          : {}", st.state_path);
+            println!("total_steps         : {}", st.total_steps);
+            println!("avg_pred_error      : {:.4}", st.avg_prediction_error);
+            println!("adaptation          : {:.4}", st.adaptation_score);
+            println!("error_damping       : {:.4}", st.error_damping);
+            println!("explore_bonus       : {:.4}", st.explore_bonus);
+            println!("risk_tolerance      : {:.4}", st.risk_tolerance);
+            println!("max_risk            : {:.4}", st.max_risk);
+            println!("active_modules      : {}", st.active_modules);
+            println!("strategies          : {}", st.strategy_count);
+            println!("cases               : {}", st.case_count);
+            println!("checkpoints         : {}", st.checkpoint_count);
+            println!("self_modify_enabled : {}", st.self_modify_enabled);
+            println!("dump_trajectory     : {}", kernel.dump_trajectory);
             println!("── L2 ──");
-            println!("in_fixed_point : {}", st.in_fixed_point);
-            println!("dwell_steps    : {}", st.dwell_steps);
-            println!("alignment_score: {:.4}", st.last_alignment_score);
+            println!("in_fixed_point      : {}", st.in_fixed_point);
+            println!("dwell_steps         : {}", st.dwell_steps);
+            println!("alignment_score     : {:.4}", st.last_alignment_score);
         }
         Commands::Reset { yes } => {
             if !yes {
@@ -303,6 +313,10 @@ fn main() -> anyhow::Result<()> {
             println!(
                 "L2 in_fp={} dwell={} align={:.3}",
                 st.in_fixed_point, st.dwell_steps, st.last_alignment_score
+            );
+            println!(
+                "self_modify={}  dump_trajectory={}",
+                st.self_modify_enabled, kernel.dump_trajectory
             );
             println!("state: {}", demo_path.display());
         }
