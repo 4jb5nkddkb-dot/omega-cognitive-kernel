@@ -69,7 +69,11 @@ impl CaseMemory {
     }
 
     fn recompute_sum(&mut self) {
-        self.priority_sum = self.cases.iter().map(|c| c.priority.max(PRIORITY_EPS)).sum();
+        self.priority_sum = self
+            .cases
+            .iter()
+            .map(|c| c.priority.max(PRIORITY_EPS))
+            .sum();
     }
 
     /// Index of minimum-priority case (oldest among ties).
@@ -157,7 +161,7 @@ impl CaseMemory {
             .wrapping_add(
                 self.cases
                     .back()
-                    .map(|c| (c.error_mean.to_bits() as u64) ^ (c.priority.to_bits() as u64))
+                    .map(|c| c.error_mean.to_bits() ^ c.priority.to_bits())
                     .unwrap_or(1),
             );
 
@@ -166,9 +170,7 @@ impl CaseMemory {
             if sum <= 0.0 || remaining.is_empty() {
                 break;
             }
-            seed = seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1);
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             let r = (seed >> 33) as f64 / (u32::MAX as f64) * sum;
             let mut acc = 0.0;
             let mut pick = 0usize;
@@ -295,7 +297,10 @@ mod tests {
         mem.add(&sample_traj("high", 0.9)); // high priority
         mem.add(&sample_traj("mid", 0.4)); // should kick out "low"
         let goals: Vec<_> = mem.cases.iter().map(|c| c.goal.as_str()).collect();
-        assert!(!goals.contains(&"low"), "low-error case should be evicted: {goals:?}");
+        assert!(
+            !goals.contains(&"low"),
+            "low-error case should be evicted: {goals:?}"
+        );
         assert!(goals.contains(&"high"));
         assert!(goals.contains(&"mid"));
     }
