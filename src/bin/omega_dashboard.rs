@@ -7,8 +7,8 @@
 #![windows_subsystem = "windows"]
 
 use eframe::egui::{self, Color32, RichText};
-use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::KernelConfig;
 use std::path::PathBuf;
 
@@ -405,7 +405,9 @@ impl DashboardApp {
                     }
                 }
             }
-            Err(e) => ui.colored_label(Color32::from_rgb(255, 120, 120), format!("{e}")),
+            Err(e) => {
+                ui.colored_label(Color32::from_rgb(255, 120, 120), format!("{e}"));
+            }
         }
 
         ui.add_space(12.0);
@@ -421,7 +423,9 @@ impl DashboardApp {
                     }
                 });
             }
-            Err(e) => ui.colored_label(Color32::from_rgb(255, 120, 120), format!("{e}")),
+            Err(e) => {
+                ui.colored_label(Color32::from_rgb(255, 120, 120), format!("{e}"));
+            }
         }
     }
 
