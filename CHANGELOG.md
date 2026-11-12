@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.6] — 2026-11-12
+
+### Desktop dashboard
+
+- Optional feature `gui` + binary `omega-dashboard` (egui)
+- Tabs: 仪表盘 / 运行 / 审计 / 策略 / 设置
+- Windows: no console window; CJK font load
+- Docs: `docs/DASHBOARD.md`
+
+### Build
+
+```bash
+cargo run --release --features gui --bin omega-dashboard
+```
+
+## [0.4.5] — 2026-11-12
+
+### Safety & observability
+
+- `KernelConfig.self_modify_enabled` (default **false**) — hard gate in L1
+- `KernelConfig.dump_trajectory` (default true) → `trajectory.jsonl` beside state
+- CLI `status` / `run` print `self_modify_enabled` and `dump_trajectory`
+- Standalone `omega-audit-panel` binary
+- Weekly runtime report workflow → `reports/weekly-*.md`
+- Docs: `docs/CLOSED_LOOP.md`
+
 ## [0.4.4] — 2026-11-10
 
 ### Audit HTTP shim (demo)
@@ -8,7 +34,6 @@
 - Routes: `GET /health`, `/audit/summary`, `/audit/tail?n=`
 - Bind `127.0.0.1` only; no TLS/auth — not a production gateway
 - Doc: `docs/AUDIT_HTTP_SHIM.md`
-- README links the shim
 
 Library freeze surface unchanged (example + docs).
 
