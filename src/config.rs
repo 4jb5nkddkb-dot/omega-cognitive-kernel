@@ -103,6 +103,12 @@ pub struct KernelConfig {
     pub default_goal: Option<String>,
     /// Optional strategy-governance policy (friction + domain mode).
     pub intervention: InterventionPolicy,
+    /// Master switch for autonomous cognitive code / rule evolution (L1 patches).
+    /// Default **false** — self-modification only when explicitly enabled.
+    pub self_modify_enabled: bool,
+    /// If true, every step appends a full trajectory record to trajectory.jsonl
+    /// beside the state file. Default true for auditability.
+    pub dump_trajectory: bool,
 }
 
 impl Default for KernelConfig {
@@ -116,6 +122,8 @@ impl Default for KernelConfig {
             max_risk: 0.65,
             default_goal: None,
             intervention: InterventionPolicy::default(),
+            self_modify_enabled: false,
+            dump_trajectory: true,
         }
     }
 }
@@ -162,6 +170,8 @@ mod tests {
         assert_eq!(c2.min_steps_between_patches, 3);
         assert!((c2.max_risk - 0.65).abs() < 1e-9);
         assert_eq!(c2.intervention.friction_threshold, 2);
+        assert!(!c2.self_modify_enabled);
+        assert!(c2.dump_trajectory);
     }
 
     #[test]
@@ -170,6 +180,7 @@ mod tests {
 max_risk = 0.4
 error_threshold = 0.25
 autosave = false
+self_modify_enabled = true
 "#;
         let c = KernelConfig::from_toml(s).unwrap();
         assert!((c.max_risk - 0.4).abs() < 1e-9);
@@ -177,6 +188,7 @@ autosave = false
         assert!(!c.autosave);
         assert!(c.auto_checkpoint_on_patch); // default
         assert_eq!(c.intervention.mode, InterventionMode::Exploration);
+        assert!(c.self_modify_enabled);
     }
 
     #[test]
