@@ -520,7 +520,7 @@ where
         Ok(())
     }
 
-    pub fn checkpoint(&mut self, label: &str) -> Result<CheckpointMeta> {
+    pub fn checkpoint(&self, label: &str) -> Result<CheckpointMeta> {
         let snap = self.snapshot();
         let meta = self.checkpoints().save(
             label,
@@ -529,7 +529,8 @@ where
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
         )?;
-        self.append_event(AuditEvent::Checkpoint {
+        // Note: append_event needs &mut self; for checkpoint we emit via audit directly
+        let _ = self.audit().append(AuditEvent::Checkpoint {
             checkpoint_id: meta.id,
             step: meta.step,
             label: meta.label.clone(),
@@ -548,7 +549,6 @@ where
         self.append_event(AuditEvent::Rollback {
             checkpoint_id,
             step_before,
-            step_after: self.inner.total_steps,
         });
         if self.autosave {
             let _ = self.save();
@@ -556,16 +556,92 @@ where
         Ok(())
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<()> {
+        let path = self.state_path.clone();
+        let autosave = self.autosave;
+        let auto_ckpt = self.auto_checkpoint_on_patch;
+        let dump = self.dump_trajectory;
         let hook = self.event_hook.take();
-        *self = Self::with_adapters_and_path(
-            // We cannot reconstruct generic O/E easily; for DefaultKernel this is used via concrete.
-            // Callers using generics should re-create.
-            // This is only called on DefaultKernel paths in practice.
-            MultiModalObserver::new() as O, // This will not compile for generic; see note
-            SandboxedExecutor::new(default_allowed_actions()) as E,
-            self.state_path.clone(),
-        );
+        *self = Self::with_state_path(path);
+        self.autosave = autosave;
+        self.auto_checkpoint_on_patch = auto_ckpt;
+        self.dump_trajectory = dump;
         self.event_hook = hook;
+        if self.state_path.exists() {
+            std::fs::remove_file(&self.state_path)
+                .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::l0::executor::LoggingExecutor;
+    use crate::l0::observer::MultiModalObserver;
+    use std::env::temp_dir;
+    use std::io::Write;
+
+    #[test]
+    fn run_and_persist_roundtrip() {
+        let path = temp_dir().join(format!("omega-api-{}.json", Uuid::new_v4()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = true;
+        assert_eq!(k.run("coherent self-model", 5).unwrap().steps, 5);
+        let mut k2 = Kernel::with_state_path(&path);
+        k2.load().unwrap();
+        assert_eq!(k2.inner.total_steps, 5);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn event_hook_fires() {
+        let path = temp_dir().join(format!("omega-hook-{}.json", Uuid::new_v4()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        let fired = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let f2 = fired.clone();
+        k.set_event_hook(move |_| {
+            f2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        let _ = k.step("test");
+        assert!(fired.load(std::sync::atomic::Ordering::SeqCst) >= 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn replay_trajectory_file_works() {
+        let path = temp_dir().join(format!("omega-traj-{}.jsonl", Uuid::new_v4()));
+        let mut f = std::fs::File::create(&path).unwrap();
+        let line1 = serde_json::json!({
+            "step": 1,
+            "action": "observe",
+            "patched": false,
+            "avg_err": 0.5,
+            "goal": "g"
+        });
+        let line2 = serde_json::json!({
+            "step": 2,
+            "action": "stabilize",
+            "patched": true,
+            "avg_err": 0.3,
+            "goal": "g"
+        });
+        writeln!(f, "{line1}").unwrap();
+        writeln!(f, "{line2}").unwrap();
+        let sum = replay_trajectory_file(&path, 10).unwrap();
+        assert_eq!(sum.rows, 2);
+        assert_eq!(sum.patches, 1);
+        assert!((sum.first_avg_err.unwrap() - 0.5).abs() < 1e-9);
+        assert!((sum.last_avg_err.unwrap() - 0.3).abs() < 1e-9);
+        assert_eq!(sum.tail.len(), 2);
+        let _ = std::fs::remove_file(&path);
     }
 }
