@@ -567,7 +567,7 @@ where
     }
 
     pub fn rollback(&mut self, checkpoint_id: Uuid) -> Result<()> {
-        let snap = self.checkpoints().load(checkpoint_id)?;
+        let snap = self.checkpoints().load_snapshot(checkpoint_id)?;
         self.apply_snapshot(snap);
         Ok(())
     }
