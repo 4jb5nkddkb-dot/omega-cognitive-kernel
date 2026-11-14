@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
 use omega_cognitive_kernel::task::run_bandit_task;
@@ -51,6 +51,14 @@ enum Commands {
         /// Print rollup panel instead of raw events.
         #[arg(long)]
         summary: bool,
+    },
+    /// Offline replay of trajectory.jsonl (no world re-execution).
+    Replay {
+        /// Explicit trajectory path; default is trajectory.jsonl beside --state.
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, default_value_t = 20)]
+        tail: usize,
     },
     Checkpoints,
     Checkpoint {
@@ -236,7 +244,8 @@ fn main() -> anyhow::Result<()> {
             let st = kernel.status();
             println!("\n── status ──");
             println!(
-                "steps={}  avg_err={:.3}  damp={:.3}  modules={}  ckpts={}",
+                "schema={}  steps={}  avg_err={:.3}  damp={:.3}  modules={}  ckpts={}",
+                st.schema_version,
                 st.total_steps,
                 st.avg_prediction_error,
                 st.error_damping,
@@ -255,6 +264,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Status => {
             let kernel = open_kernel(&cli)?;
             let st = kernel.status();
+            println!("schema_version      : {}", st.schema_version);
             println!("state_path          : {}", st.state_path);
             println!("total_steps         : {}", st.total_steps);
             println!("avg_pred_error      : {:.4}", st.avg_prediction_error);
@@ -333,6 +343,42 @@ fn main() -> anyhow::Result<()> {
                 }
                 for r in rows {
                     println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+                }
+            }
+        }
+        Commands::Replay { path, tail } => {
+            let traj = if let Some(p) = path {
+                p.clone()
+            } else {
+                let kernel = open_kernel(&cli)?;
+                let mut p = kernel.state_path.clone();
+                p.set_file_name("trajectory.jsonl");
+                p
+            };
+            let sum = replay_trajectory_file(&traj, *tail)?;
+            println!("trajectory : {}", sum.path);
+            println!("rows       : {}", sum.rows);
+            println!("patches    : {}", sum.patches);
+            if let (Some(a), Some(b)) = (sum.first_avg_err, sum.last_avg_err) {
+                println!("avg_err    : {a:.4} → {b:.4}");
+            }
+            if !sum.action_counts.is_empty() {
+                println!("── actions ──");
+                for (name, n) in &sum.action_counts {
+                    println!("  {name:<12} {n}");
+                }
+            }
+            if !sum.tail.is_empty() {
+                println!("── tail ──");
+                for r in &sum.tail {
+                    let err = r
+                        .avg_err
+                        .map(|e| format!("{e:.3}"))
+                        .unwrap_or_else(|| "-".into());
+                    println!(
+                        "step {:>4}  act={:<10}  patched={:<5}  avg_err={}",
+                        r.step, r.action, r.patched, err
+                    );
                 }
             }
         }

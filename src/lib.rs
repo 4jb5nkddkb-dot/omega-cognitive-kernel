@@ -13,12 +13,15 @@ pub mod safety;
 pub mod task;
 pub mod types;
 
-pub use api::{Kernel, KernelStatus, RunReport};
+pub use api::{
+    replay_trajectory_file, Kernel, KernelStatus, RunReport, TrajectoryReplayRow,
+    TrajectoryReplaySummary,
+};
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary};
 pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
-pub use persist::{KernelSnapshot, DEFAULT_STATE_PATH};
+pub use persist::{KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
 pub use task::{run_bandit_task, BanditReport};
 pub use types::*;
 
