@@ -3,7 +3,7 @@
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::config::KernelConfig;
-use crate::error::Result;
+use crate::error::{OmegaError, Result};
 use crate::l0::decision::ConstrainedDecisionMaker;
 use crate::l0::executor::{Executor, SandboxedExecutor};
 use crate::l0::observer::{MultiModalObserver, Observer};
@@ -14,7 +14,7 @@ use crate::l1::L1CognitiveLayer;
 use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
 use crate::orchestrator::{OmegaOrchestrator, StepResult};
-use crate::persist::{resolve_state_path, KernelSnapshot, DEFAULT_STATE_PATH};
+use crate::persist::{resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
 use crate::safety;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -40,6 +40,7 @@ where
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KernelStatus {
+    pub schema_version: u32,
     pub total_steps: u64,
     pub avg_prediction_error: f64,
     pub adaptation_score: f64,
@@ -69,6 +70,28 @@ pub struct RunReport {
     pub last_actions: Vec<String>,
 }
 
+/// Offline summary of a `trajectory.jsonl` file (no world re-execution).
+#[derive(Debug, Clone, Serialize)]
+pub struct TrajectoryReplaySummary {
+    pub path: String,
+    pub rows: usize,
+    pub patches: usize,
+    pub first_avg_err: Option<f64>,
+    pub last_avg_err: Option<f64>,
+    pub action_counts: Vec<(String, usize)>,
+    /// Last N step lines (step, action, patched, avg_err) for operator view.
+    pub tail: Vec<TrajectoryReplayRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrajectoryReplayRow {
+    pub step: u64,
+    pub action: String,
+    pub patched: bool,
+    pub avg_err: Option<f64>,
+    pub goal: Option<String>,
+}
+
 fn default_allowed_actions() -> Vec<String> {
     vec![
         "noop".into(),
@@ -77,6 +100,78 @@ fn default_allowed_actions() -> Vec<String> {
         "exploit".into(),
         "stabilize".into(),
     ]
+}
+
+/// Read and summarize a trajectory.jsonl without running the kernel loop.
+pub fn replay_trajectory_file(path: &Path, tail_n: usize) -> Result<TrajectoryReplaySummary> {
+    use std::fs;
+    if !path.exists() {
+        return Err(OmegaError::Persist(format!(
+            "trajectory not found: {}",
+            path.display()
+        )));
+    }
+    let data = fs::read_to_string(path).map_err(|e| OmegaError::Persist(e.to_string()))?;
+    let mut rows = 0usize;
+    let mut patches = 0usize;
+    let mut first_avg_err = None;
+    let mut last_avg_err = None;
+    let mut actions: HashMap<String, usize> = HashMap::new();
+    let mut tail_buf: Vec<TrajectoryReplayRow> = Vec::new();
+
+    for line in data.lines().filter(|l| !l.trim().is_empty()) {
+        let v: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        rows += 1;
+        let step = v.get("step").and_then(|x| x.as_u64()).unwrap_or(0);
+        let action = v
+            .get("action")
+            .and_then(|x| x.as_str())
+            .unwrap_or("-")
+            .to_string();
+        let patched = v.get("patched").and_then(|x| x.as_bool()).unwrap_or(false);
+        if patched {
+            patches += 1;
+        }
+        let avg_err = v.get("avg_err").and_then(|x| x.as_f64());
+        if first_avg_err.is_none() {
+            first_avg_err = avg_err;
+        }
+        if avg_err.is_some() {
+            last_avg_err = avg_err;
+        }
+        *actions.entry(action.clone()).or_insert(0) += 1;
+        let goal = v
+            .get("goal")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        tail_buf.push(TrajectoryReplayRow {
+            step,
+            action,
+            patched,
+            avg_err,
+            goal,
+        });
+    }
+
+    let mut action_counts: Vec<_> = actions.into_iter().collect();
+    action_counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let tail = if tail_buf.len() > tail_n {
+        tail_buf.split_off(tail_buf.len() - tail_n)
+    } else {
+        tail_buf
+    };
+
+    Ok(TrajectoryReplaySummary {
+        path: path.display().to_string(),
+        rows,
+        patches,
+        first_avg_err,
+        last_avg_err,
+        action_counts,
+        tail,
+    })
 }
 
 impl Kernel<MultiModalObserver, SandboxedExecutor> {
@@ -194,6 +289,11 @@ where
         let mut p = self.state_path.clone();
         p.set_file_name("trajectory.jsonl");
         p
+    }
+
+    /// Summarize this kernel's trajectory.jsonl (offline).
+    pub fn replay_trajectory(&self, tail_n: usize) -> Result<TrajectoryReplaySummary> {
+        replay_trajectory_file(&self.trajectory_path(), tail_n)
     }
 
     fn append_trajectory(&self, goal: &str, result: &StepResult) {
@@ -322,6 +422,7 @@ where
             .copied()
             .unwrap_or(0.65);
         KernelStatus {
+            schema_version: CURRENT_SCHEMA_VERSION,
             total_steps: self.inner.total_steps,
             avg_prediction_error: self.inner.l0.memory.cas.avg_prediction_error,
             adaptation_score: self.inner.l0.memory.cas.adaptation_score,
@@ -345,7 +446,7 @@ where
         let (cases, cap) = self.inner.l0.memory.case.snapshot();
         let (active, history) = self.inner.l1.store.snapshot();
         KernelSnapshot {
-            version: 1,
+            version: CURRENT_SCHEMA_VERSION,
             total_steps: self.inner.total_steps,
             biases: self.inner.biases.clone(),
             constraints: self.inner.constraints.clone(),
@@ -465,6 +566,7 @@ mod tests {
     use crate::l0::executor::LoggingExecutor;
     use crate::l0::observer::MultiModalObserver;
     use std::env::temp_dir;
+    use std::io::Write;
 
     #[test]
     fn run_and_persist_roundtrip() {
@@ -522,5 +624,28 @@ mod tests {
         assert!((k.inner.constraints["max_risk"] - 0.33).abs() < 1e-9);
         assert!(!k.autosave);
         assert!(k.inner.l1.self_modify_enabled);
+    }
+
+    #[test]
+    fn replay_trajectory_counts_patches() {
+        let path = temp_dir().join(format!("omega-traj-{}.jsonl", Uuid::new_v4()));
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"step":1,"action":"explore","patched":false,"avg_err":0.5,"goal":"g"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"step":2,"action":"stabilize","patched":true,"avg_err":0.3,"goal":"g"}}"#
+        )
+        .unwrap();
+        let sum = replay_trajectory_file(&path, 10).unwrap();
+        assert_eq!(sum.rows, 2);
+        assert_eq!(sum.patches, 1);
+        assert!((sum.first_avg_err.unwrap() - 0.5).abs() < 1e-9);
+        assert!((sum.last_avg_err.unwrap() - 0.3).abs() < 1e-9);
+        assert_eq!(sum.tail.len(), 2);
+        let _ = std::fs::remove_file(&path);
     }
 }
