@@ -1,13 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.5] — 2026-11-14
 
-### Docs / examples
-- `examples/event_hook_poll.rs` — in-process `set_event_hook` + `AuditLog::poll_after`
-- `examples/audit_http_shim` — `GET /status` (read-only `KernelStatus`)
-- `docs/INTEGRATING.md`, `docs/API_0.5.md` aligned to v0.5.4
-- `NOTICE` trademark / open-core boundary; README + PRODUCT posture
-- `RELEASING.md` crates.io publish checklist
+### CLI
+- `status --json` — machine-readable `KernelStatus` for scripts and integrators
+
+### Examples / docs
+- `audit_http_shim` `GET /status` (read-only)
+- `event_hook_poll` example; INTEGRATING / API docs aligned
+- `NOTICE` + open-core posture; crates.io checklist in RELEASING.md
 
 ## [0.5.4] — 2026-11-14
 
