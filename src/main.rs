@@ -225,11 +225,13 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Demo { steps } => {
             println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
-            let demo_path = std::env::temp_dir().join(format!("omega-demo-{}.json", Uuid::new_v4()));
+            let demo_path =
+                std::env::temp_dir().join(format!("omega-demo-{}.json", Uuid::new_v4()));
             let mut kernel = Kernel::with_state_path(&demo_path);
             kernel.autosave = true;
             kernel.dump_trajectory = true;
-            let report = kernel.run("maintain coherent self-model while acting in world", *steps)?;
+            let report =
+                kernel.run("maintain coherent self-model while acting in world", *steps)?;
             kernel.save()?;
             println!("steps            : {}", report.steps);
             println!("patches_accepted : {}", report.patches_accepted);
