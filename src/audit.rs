@@ -1,12 +1,18 @@
 //! Append-only audit log (S3 hardening).
+//!
+//! `AuditEvent` is the kernel's public event stream. Prefer the alias
+//! [`KernelEvent`] at the crate root when wiring integrators.
 
 use crate::error::{OmegaError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+/// Public event stream for integrators (same shape as [`AuditEvent`]).
+pub type KernelEvent = AuditEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -182,6 +188,59 @@ impl AuditLog {
         Ok(rows)
     }
 
+    /// Current file length in bytes (0 if missing). Use as the cursor for [`poll_after`].
+    pub fn byte_len(&self) -> Result<u64> {
+        if !self.path.exists() {
+            return Ok(0);
+        }
+        let meta = fs::metadata(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        Ok(meta.len())
+    }
+
+    /// Read complete JSONL records written after `offset` bytes.
+    ///
+    /// Returns `(new_records, new_offset)`. Incomplete trailing lines are left
+    /// for a later poll (offset does not advance past them).
+    pub fn poll_after(&self, offset: u64) -> Result<(Vec<AuditRecord>, u64)> {
+        if !self.path.exists() {
+            return Ok((vec![], 0));
+        }
+        let mut f = fs::File::open(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let len = f
+            .metadata()
+            .map_err(|e| OmegaError::Persist(e.to_string()))?
+            .len();
+        if offset > len {
+            // File was truncated/rotated — resync from start.
+            return self.poll_after(0);
+        }
+        f.seek(SeekFrom::Start(offset))
+            .map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let mut buf = String::new();
+        f.read_to_string(&mut buf)
+            .map_err(|e| OmegaError::Persist(e.to_string()))?;
+
+        let mut rows = Vec::new();
+        let mut consumed = 0usize;
+        for line in buf.split_inclusive('\n') {
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if trimmed.is_empty() {
+                consumed += line.len();
+                continue;
+            }
+            // Incomplete last line (no newline yet) — wait for more bytes.
+            if !line.ends_with('\n') {
+                break;
+            }
+            if let Ok(rec) = serde_json::from_str::<AuditRecord>(trimmed) {
+                rows.push(rec);
+            }
+            consumed += line.len();
+        }
+        let new_offset = offset + consumed as u64;
+        Ok((rows, new_offset))
+    }
+
     pub fn summarize(&self) -> Result<AuditSummary> {
         let rows = self.read_all()?;
         Ok(AuditSummary::from_records(&rows))
@@ -210,6 +269,41 @@ mod tests {
         let sum = log.summarize().unwrap();
         assert_eq!(sum.steps, 1);
         assert_eq!(sum.action_counts[0].0, "observe");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn poll_after_reads_only_new_lines() {
+        let path = temp_dir().join(format!("omega-poll-{}.jsonl", Uuid::new_v4()));
+        let log = AuditLog { path: path.clone() };
+        log.append(AuditEvent::Step {
+            step: 1,
+            goal: "g".into(),
+            action: "explore".into(),
+            avg_err: 0.4,
+            damping: 1.0,
+        })
+        .unwrap();
+        let (first, off) = log.poll_after(0).unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(off > 0);
+
+        let (none, off2) = log.poll_after(off).unwrap();
+        assert!(none.is_empty());
+        assert_eq!(off2, off);
+
+        log.append(AuditEvent::PatchAccepted {
+            step: 2,
+            patch_id: Uuid::nil(),
+            damping: 0.8,
+            description: "t".into(),
+        })
+        .unwrap();
+        let (second, off3) = log.poll_after(off).unwrap();
+        assert_eq!(second.len(), 1);
+        assert!(matches!(second[0].event, AuditEvent::PatchAccepted { .. }));
+        assert!(off3 > off);
+
         let _ = fs::remove_file(&path);
     }
 }

@@ -17,7 +17,7 @@ pub use api::{
     replay_trajectory_file, Kernel, KernelStatus, RunReport, TrajectoryReplayRow,
     TrajectoryReplaySummary,
 };
-pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary};
+pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
 pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};

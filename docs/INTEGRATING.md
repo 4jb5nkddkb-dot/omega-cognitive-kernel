@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.3.9+**
+Target version: **v0.5.1+**
 
 ---
 
@@ -11,14 +11,14 @@ Target version: **v0.3.9+**
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.3.9" }
+omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.1" }
 ```
 
 Or path / main branch while iterating.
 
 ---
 
-## 2. Minimal embed (default simulated world)
+## 2. Minimal embed
 
 ```rust
 use omega_cognitive_kernel::Kernel;
@@ -39,19 +39,17 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 
 ## 3. Config file
 
-Copy `examples/omega.example.toml` and tune:
-
 ```toml
 state_path = "./agent-state.json"
 autosave = true
 auto_checkpoint_on_patch = true
+self_modify_enabled = false
+dump_trajectory = true
 error_threshold = 0.30
 min_steps_between_patches = 3
 max_risk = 0.65
 default_goal = "stabilize under load"
 ```
-
-Library:
 
 ```rust
 use omega_cognitive_kernel::{Kernel, KernelConfig};
@@ -61,82 +59,67 @@ let mut k = Kernel::with_state_path(cfg.resolved_state_path());
 k.apply_config(&cfg);
 ```
 
-CLI:
+---
 
-```bash
-omega-kernel --config ./omega.toml status
-omega-kernel --config ./omega.toml run --steps 12
+## 4. Event stream (KernelEvent)
+
+`KernelEvent` is an alias of `AuditEvent`. Tail new records without re-reading the whole file:
+
+```rust
+use omega_cognitive_kernel::AuditLog;
+
+let log = AuditLog::beside_state(std::path::Path::new("./agent-state.json"));
+let mut cursor = log.byte_len()?;
+loop {
+    let (rows, next) = log.poll_after(cursor)?;
+    for r in rows {
+        println!("{} {:?}", r.ts, r.event);
+    }
+    cursor = next;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+}
 ```
 
-`--state` overrides `state_path` from config.
+Offline trajectory summary (no world re-exec):
+
+```rust
+let sum = k.replay_trajectory(20)?;
+println!("rows={} patches={}", sum.rows, sum.patches);
+```
 
 ---
 
-## 4. Real observe / act adapters
-
-Implement or reuse:
+## 5. Real observe / act adapters
 
 | Type | Role |
 |------|------|
 | `Observer` | Feed world state each step |
-| `Executor` | Apply chosen actions (whitelist still enforced by your impl) |
-| Built-ins | `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, `SandboxedExecutor` |
-
-```rust
-use omega_cognitive_kernel::{
-    DirSnapshotObserver, Kernel, LoggingExecutor,
-};
-
-let observer = DirSnapshotObserver::new("./inbox");
-let executor = LoggingExecutor::new([
-    "noop".into(), "observe".into(), "explore".into(),
-    "exploit".into(), "stabilize".into(),
-])
-.with_log_file("./actions.log");
-
-let mut k = Kernel::with_adapters(observer, executor);
-k.apply_config(&KernelConfig::load("omega.toml")?);
-let _ = k.run("stabilize under inbox load", 8)?;
-```
-
-End-to-end story: `cargo run --example drop_inbox_loop`.
+| `Executor` | Apply chosen actions |
+| Built-ins | `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, `SandboxedExecutor`, `ToolGateExecutor` |
 
 ---
 
-## 5. Safety contract (do not bypass)
+## 6. Safety contract
 
-- Runtime policy surface is **`RuleEffect` only** — not arbitrary code execution
+- Runtime policy surface is **`RuleEffect` only**
 - L0 actions should stay on a **whitelist**
-- L1 patches are **bounded + cooldown**
-- L2 only **soft-biases / soft constraints**
-- Use **checkpoint** before risky experiments; **rollback** on regression
-- Prefer public `Kernel` APIs over `kernel.inner.*`
+- Prefer **`self_modify_enabled = false`** until deliberate experiments
+- Use **checkpoint** / **rollback**; inspect **audit** and **replay**
 
 ---
 
-## 6. Persistence layout
+## 7. Persistence layout
 
-Beside your state file (or under `.omega/` depending on path helpers):
-
-- `state.json` — cognitive snapshot
-- `audit.jsonl` — per-step / patch / checkpoint events
+- `state.json` — schema-versioned snapshot
+- `audit.jsonl` — event stream (`KernelEvent`)
+- `trajectory.jsonl` — optional step dump
 - `checkpoints/` — rollback snapshots
-
----
-
-## 7. Suggested integration checklist
-
-1. [ ] Pin a **tag** (`v0.3.9` or later)
-2. [ ] Ship an `omega.toml` with explicit `max_risk` and cooldown
-3. [ ] Start with `LoggingExecutor` before real side effects
-4. [ ] Wire one real `Observer` (file, dir, or HTTP)
-5. [ ] Log `RunReport` / `KernelStatus` to your metrics system
-6. [ ] Document how operators rollback a bad patch
 
 ---
 
 ## 8. Further reading
 
-- [PRODUCT.md](./PRODUCT.md) — positioning and monetization posture
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — L0/L1/L2 data flow
-- [API_FREEZE_0.4.md](./API_FREEZE_0.4.md) — what we intend to stabilize
+- [PRODUCT.md](./PRODUCT.md)
+- [API_0.5.md](./API_0.5.md)
+- [ROADMAP_0.5.md](./ROADMAP_0.5.md)
+- [ARCHITECTURE.md](../ARCHITECTURE.md)

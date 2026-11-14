@@ -10,22 +10,23 @@
 - Systems that must **audit** why the policy changed and **undo** bad patches
 - Integrators who already have sensors / files / HTTP status and want a small closed loop
 
-## What ships today (v0.4.7)
+## What ships today (v0.5.1+)
 
 | Capability | Surface |
 |------------|---------|
 | Kernel API | `Kernel`, `run` / `step` / status / checkpoint / rollback |
 | Config | `omega.toml` via `KernelConfig` and CLI `--config` |
 | Safety switch | `self_modify_enabled` (default **false**) |
-| Trajectory | `dump_trajectory` → `trajectory.jsonl` |
+| Trajectory | `dump_trajectory` → `trajectory.jsonl` + `replay` |
+| Events | `KernelEvent` / `AuditEvent`; `AuditLog::poll_after` |
 | Adapters | `Observer` / `Executor`; File, Dir, HTTP, Logging, ToolGate |
 | CLI | `omega-kernel`, `omega-audit-panel` |
-| GUI | `omega-dashboard` (`--features gui`) |
+| GUI | `omega-dashboard` (`--features gui`) — Dashboard / Run / Audit / Replay |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
 
 ## Demo story (sellable)
 
-**Drop-inbox loop** (`examples/drop_inbox_loop.rs`) and **Dashboard** operator UI.
+**Drop-inbox loop** and **Dashboard** operator UI.
 
 ```bash
 cargo run --example drop_inbox_loop
@@ -46,6 +47,6 @@ cargo run --release --features gui --bin omega-dashboard
 
 ## Next product steps
 
-1. Keep 0.4.x freeze; ship operator UX (dashboard) and safety defaults
+1. Keep 0.5.x additive; deepen operator UX and event integration examples
 2. Optional crates.io when API churn stays low
 3. Real caller-driven service/auth only when a concrete deployment needs it
