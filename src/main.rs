@@ -396,7 +396,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint { label } => {
-            let kernel = open_kernel(&cli)?;
+            let mut kernel = open_kernel(&cli)?;
             let meta = kernel.checkpoint(label)?;
             println!("checkpoint created: {} (step={})", meta.id, meta.step);
         }
