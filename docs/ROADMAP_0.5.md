@@ -1,20 +1,15 @@
 # Roadmap — Omega Cognitive Kernel 0.5
 
-**Status:** **v0.5.3** — dashboard strategy editor + multi-workspace.
+**Status:** **v0.5.4** — audit follow + CLI strategy/audit-poll.
 
 ## Shipped
 
-### 0.5.0–0.5.1
-- Schema, replay, dashboard Replay tab, hard GUI release
+### 0.5.0–0.5.3
+- Schema, replay, event hooks, strategy weights, dashboard workspaces
 
-### 0.5.2
-- [x] `KernelEvent` + `poll_after`
-- [x] `Kernel::set_event_hook`
-- [x] `set_strategy_weight` operator nudge
-
-### 0.5.3
-- [x] Dashboard strategy weight +/- / reset
-- [x] Multi-workspace switcher (local state.json instances)
+### 0.5.4
+- [x] CLI `strategy-weight` / `audit-poll`
+- [x] Dashboard Audit live follow (`poll_after`)
 
 ## Still deferred
 
