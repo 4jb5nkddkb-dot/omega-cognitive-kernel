@@ -1,7 +1,7 @@
-//! Minimal **localhost** read-only audit HTTP shim.
+//! Minimal **localhost** read-only audit + status HTTP shim.
 //!
 //! Not a product gateway. Proves an external process can pull
-//! `AuditSummary` over HTTP without Axum/auth/multi-tenant complexity.
+//! `AuditSummary` and `KernelStatus` over HTTP without Axum/auth/multi-tenant.
 //!
 //! ```bash
 //! # terminal 1 — leave running
@@ -11,6 +11,7 @@
 //!
 //! # terminal 2
 //! curl -s http://127.0.0.1:8787/health
+//! curl -s http://127.0.0.1:8787/status
 //! curl -s http://127.0.0.1:8787/audit/summary | head
 //! ```
 //!
@@ -40,7 +41,7 @@ fn main() -> Result<()> {
     println!("state : {}", state.display());
     println!("audit : {}", audit.path.display());
     println!("listen: http://{addr}");
-    println!("routes: GET /health  GET /audit/summary  GET /audit/tail?n=20");
+    println!("routes: GET /health  GET /status  GET /audit/summary  GET /audit/tail?n=20");
     println!("(Ctrl+C to stop)\n");
 
     let listener = TcpListener::bind(&addr)
@@ -66,6 +67,12 @@ fn main() -> Result<()> {
                 "application/json",
                 r#"{"ok":true,"service":"omega-audit-shim"}"#.to_string(),
             ),
+            ("GET", p) if p == "/status" || p.starts_with("/status?") => {
+                match load_status(&state) {
+                    Ok(j) => (200, "application/json", j),
+                    Err(e) => (500, "text/plain", format!("status: {e}")),
+                }
+            }
             ("GET", p) if p == "/audit/summary" || p.starts_with("/audit/summary?") => {
                 match audit.summarize() {
                     Ok(s) => match serde_json::to_string_pretty(&s) {
@@ -90,7 +97,8 @@ fn main() -> Result<()> {
             ("GET", "/") => (
                 200,
                 "text/plain",
-                "omega audit shim\nGET /health\nGET /audit/summary\nGET /audit/tail?n=20\n".into(),
+                "omega audit shim\nGET /health\nGET /status\nGET /audit/summary\nGET /audit/tail?n=20\n"
+                    .into(),
             ),
             _ => (404, "text/plain", "not found\n".into()),
         };
@@ -105,11 +113,18 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn load_status(state: &Path) -> std::result::Result<String, String> {
+    let path_str = state.to_string_lossy().to_string();
+    let k = Kernel::open(Some(&path_str)).map_err(|e| e.to_string())?;
+    let st = k.status();
+    serde_json::to_string_pretty(&st).map_err(|e| e.to_string())
+}
+
 fn resolve_state_path() -> Result<PathBuf> {
     if let Some(p) = env::args().nth(1) {
         return Ok(PathBuf::from(p));
     }
-    // Generate a short trail so /audit/summary is non-empty out of the box.
+    // Generate a short trail so /audit/summary and /status are non-empty out of the box.
     let path = env::temp_dir().join(format!("omega-shim-state-{}.json", uuid::Uuid::new_v4()));
     let mut k = Kernel::with_state_path(&path);
     k.autosave = true;
