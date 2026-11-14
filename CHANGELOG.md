@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.3] — 2026-11-14
+
+### Dashboard
+- Strategy weight operator nudge (`+` / `−` / reset to 1.0)
+- Multi-workspace switcher (open / new / recent state.json instances)
+
 ## [0.5.2] — 2026-11-14
 
 ### Events
