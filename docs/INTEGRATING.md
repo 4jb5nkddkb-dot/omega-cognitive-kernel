@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.5.6+**
+Target version: **v0.5.6+** ([crates.io](https://crates.io/crates/omega-cognitive-kernel))
 
 ---
 
@@ -11,10 +11,14 @@ Target version: **v0.5.6+**
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }
+omega-cognitive-kernel = "0.5.6"
 ```
 
-Or path / main branch while iterating. Optional crates.io: see [CRATES_IO.md](./CRATES_IO.md).
+```bash
+cargo add omega-cognitive-kernel
+```
+
+Git pin still works: `{ git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }`.
 
 ---
 
@@ -184,4 +188,4 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
 - [NOTICE](../NOTICE) — trademark / open-core boundary
-- [CRATES_IO.md](./CRATES_IO.md) — optional crates.io
+- [CRATES_IO.md](./CRATES_IO.md)
