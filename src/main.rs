@@ -94,80 +94,79 @@ fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     if let Some(ref cfg_path) = cli.config {
         let cfg = KernelConfig::load(cfg_path)?;
         kernel.apply_config(&cfg);
-        if let Some(ref p) = cli.state {
-            kernel.state_path = p.clone();
-        } else if cfg.state_path.is_some() && kernel.state_path.exists() {
-            let _ = kernel.load();
+        if let Some(ref s) = cli.state {
+            kernel.state_path = s.clone();
         }
     }
     Ok(kernel)
 }
 
-fn print_intervention_block(p: &InterventionPolicy) {
+fn print_intervention(p: &InterventionPolicy) {
     let mode = match p.mode {
-        omega_cognitive_kernel::InterventionMode::Exploration => "exploration",
-        omega_cognitive_kernel::InterventionMode::Strict => "strict",
+        omega_cognitive_kernel::config::InterventionMode::Exploration => "exploration",
+        omega_cognitive_kernel::config::InterventionMode::Strict => "strict",
     };
     let max = match p.max_level {
-        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
-        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
-        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
-        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+        omega_cognitive_kernel::config::InterventionLevel::None => "none",
+        omega_cognitive_kernel::config::InterventionLevel::Log => "log",
+        omega_cognitive_kernel::config::InterventionLevel::SuggestAlternative => "suggest",
+        omega_cognitive_kernel::config::InterventionLevel::Block => "block",
     };
     let eff = match p.effective_max_level() {
-        omega_cognitive_kernel::InterventionLevel::Silent => "silent",
-        omega_cognitive_kernel::InterventionLevel::InFrame => "in_frame",
-        omega_cognitive_kernel::InterventionLevel::SuggestAlternative => "suggest_alternative",
-        omega_cognitive_kernel::InterventionLevel::RefuseToDecide => "refuse_to_decide",
+        omega_cognitive_kernel::config::InterventionLevel::None => "none",
+        omega_cognitive_kernel::config::InterventionLevel::Log => "log",
+        omega_cognitive_kernel::config::InterventionLevel::SuggestAlternative => "suggest",
+        omega_cognitive_kernel::config::InterventionLevel::Block => "block",
     };
-    println!("── intervention ──");
     println!("mode              : {mode}");
     println!("max_level         : {max}");
     println!("effective_max     : {eff}");
     println!("friction_threshold: {}", p.friction_threshold);
     println!("audit_escalations : {}", p.audit_escalations);
-    println!("note              : path alternatives only if exploration && failures ≥ threshold");
 }
 
 fn print_audit_summary(log: &AuditLog, policy: &InterventionPolicy) -> anyhow::Result<()> {
-    let s = log.summarize()?;
+    let sum = log.summarize()?;
     println!("╔══════════════════════════════════════════════╗");
     println!("║           Omega audit panel                  ║");
     println!("╚══════════════════════════════════════════════╝");
-    println!("log        : {}", log.path.display());
-    println!("events     : {}", s.total_events);
-    if let (Some(a), Some(b)) = (s.first_ts, s.last_ts) {
-        println!("window     : {} → {}", a.to_rfc3339(), b.to_rfc3339());
+    println!("path             : {}", log.path.display());
+    println!("total_events     : {}", sum.total_events);
+    println!("steps            : {}", sum.steps);
+    println!("patches_accepted : {}", sum.patches_accepted);
+    println!("patches_rejected : {}", sum.patches_rejected);
+    println!("checkpoints      : {}", sum.checkpoints);
+    println!("rollbacks        : {}", sum.rollbacks);
+    println!("task_episodes    : {}", sum.task_episodes);
+    println!("tools_allowed    : {}", sum.tools_allowed);
+    println!("tools_denied     : {}", sum.tools_denied);
+    if let Some(ts) = sum.first_ts {
+        println!("first_ts         : {}", ts.to_rfc3339());
     }
-    print_intervention_block(policy);
-    println!("── counts ──");
-    println!("steps              : {}", s.steps);
-    println!("patches accepted   : {}", s.patches_accepted);
-    println!("patches rejected   : {}", s.patches_rejected);
-    println!("checkpoints        : {}", s.checkpoints);
-    println!("rollbacks          : {}", s.rollbacks);
-    println!("task episodes      : {}", s.task_episodes);
-    if !s.action_counts.is_empty() {
-        println!("── actions ──");
-        for (name, n) in &s.action_counts {
-            println!("  {name:<12} {n}");
+    if let Some(ts) = sum.last_ts {
+        println!("last_ts          : {}", ts.to_rfc3339());
+    }
+    if let Some(a) = &sum.last_action {
+        println!("last_action      : {a}");
+    }
+    if let Some(e) = sum.last_avg_err {
+        println!("last_avg_err     : {e:.4}");
+    }
+    if let Some(d) = sum.last_damping {
+        println!("last_damping     : {d:.4}");
+    }
+    if !sum.action_counts.is_empty() {
+        println!("── action counts ──");
+        for (a, c) in sum.action_counts.iter().take(12) {
+            println!("  {a:20} {c}");
         }
     }
-    if let Some(a) = &s.last_action {
-        println!("── last step ──");
-        println!("action     : {a}");
-        if let Some(e) = s.last_avg_err {
-            println!("avg_err    : {e:.4}");
-        }
-        if let Some(d) = s.last_damping {
-            println!("damping    : {d:.4}");
-        }
-    }
+    println!("── intervention ──");
+    print_intervention(policy);
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
     match &cli.command {
@@ -177,157 +176,76 @@ fn main() -> anyhow::Result<()> {
             no_save,
         } => {
             let mut kernel = open_kernel(&cli)?;
-            kernel.autosave = !no_save;
-            let goal = if goal == "maintain coherent self-model while acting in world" {
-                if let Some(ref cfg_path) = cli.config {
-                    if let Ok(cfg) = KernelConfig::load(cfg_path) {
-                        cfg.default_goal.unwrap_or_else(|| goal.clone())
-                    } else {
-                        goal.clone()
-                    }
-                } else {
-                    goal.clone()
-                }
-            } else {
-                goal.clone()
-            };
-            println!("goal   : {goal}");
-            println!("steps  : {steps}");
-            println!("state  : {}", kernel.state_path.display());
-            println!(
-                "self_modify : {}  dump_trajectory : {}",
-                kernel.inner.l1.self_modify_enabled, kernel.dump_trajectory
-            );
-            println!();
-            for i in 1..=*steps {
-                let r = kernel.step(&goal)?;
-                let act = r
-                    .trajectory
-                    .actions
-                    .first()
-                    .map(|a| a.name.as_str())
-                    .unwrap_or("-");
-                let effect = &kernel.inner.l0.memory.cognitive_effect;
-                let fp = if r.l2.in_fixed_point { "FP" } else { "  " };
-                println!(
-                    "step {i:>2} │ act={act:<9} │ patched={:<5} │ damp={:.2} │ avg_err={:.3} │ {fp} align={:.2}",
-                    r.l1.patched,
-                    effect.error_damping,
-                    kernel.inner.l0.memory.cas.avg_prediction_error,
-                    r.l2.alignment_score,
-                );
-                if let Some(d) = r.l1.effect_damping {
-                    println!(
-                        "         └─ rule committed: damp→{d:.2}  explore_bonus={:.2}  risk_tol={:.2}",
-                        effect.explore_bonus, effect.risk_tolerance
-                    );
-                }
-                if r.l2.entered_fixed_point {
-                    println!(
-                        "         └─ entered fixed-point (align={:.2})",
-                        r.l2.alignment_score
-                    );
-                }
-                if r.l2.exited_fixed_point {
-                    println!("         └─ exited fixed-point");
-                }
-                if r.l2.effect_nudge.is_some() {
-                    println!(
-                        "         └─ L2 soft-nudge: explore_bonus={:.2} risk_tol={:.2}",
-                        effect.explore_bonus, effect.risk_tolerance
-                    );
-                }
+            if *no_save {
+                kernel.autosave = false;
             }
-            if !no_save {
+            let report = kernel.run(goal, *steps)?;
+            if !*no_save {
                 kernel.save()?;
             }
+            println!("steps            : {}", report.steps);
+            println!("patches_accepted : {}", report.patches_accepted);
+            println!("early_avg_err    : {:.4}", report.early_avg_err);
+            println!("final_avg_err    : {:.4}", report.final_avg_err);
+            println!("final_damping    : {:.4}", report.final_damping);
+            println!("error_decreased  : {}", report.error_decreased);
+            if !report.last_actions.is_empty() {
+                println!(
+                    "last_actions     : {}",
+                    report.last_actions.join(", ")
+                );
+            }
             let st = kernel.status();
-            println!("\n── status ──");
-            println!(
-                "schema={}  steps={}  avg_err={:.3}  damp={:.3}  modules={}  ckpts={}",
-                st.schema_version,
-                st.total_steps,
-                st.avg_prediction_error,
-                st.error_damping,
-                st.active_modules,
-                st.checkpoint_count
-            );
-            println!(
-                "L2: in_fp={} dwell={} align={:.3}  max_risk={:.2}",
-                st.in_fixed_point, st.dwell_steps, st.last_alignment_score, st.max_risk
-            );
-            println!(
-                "self_modify={}  dump_trajectory={}",
-                st.self_modify_enabled, kernel.dump_trajectory
-            );
+            println!("schema_version   : {}", st.schema_version);
+            println!("self_modify      : {}", st.self_modify_enabled);
+            println!("state            : {}", st.state_path);
         }
         Commands::Status => {
             let kernel = open_kernel(&cli)?;
             let st = kernel.status();
             println!("schema_version      : {}", st.schema_version);
-            println!("state_path          : {}", st.state_path);
             println!("total_steps         : {}", st.total_steps);
-            println!("avg_pred_error      : {:.4}", st.avg_prediction_error);
-            println!("adaptation          : {:.4}", st.adaptation_score);
+            println!("avg_prediction_error: {:.4}", st.avg_prediction_error);
+            println!("adaptation_score    : {:.4}", st.adaptation_score);
             println!("error_damping       : {:.4}", st.error_damping);
             println!("explore_bonus       : {:.4}", st.explore_bonus);
             println!("risk_tolerance      : {:.4}", st.risk_tolerance);
-            println!("max_risk            : {:.4}", st.max_risk);
             println!("active_modules      : {}", st.active_modules);
-            println!("strategies          : {}", st.strategy_count);
-            println!("cases               : {}", st.case_count);
-            println!("checkpoints         : {}", st.checkpoint_count);
-            println!("self_modify_enabled : {}", st.self_modify_enabled);
-            println!("dump_trajectory     : {}", kernel.dump_trajectory);
-            println!("── L2 ──");
+            println!("strategy_count      : {}", st.strategy_count);
+            println!("case_count          : {}", st.case_count);
+            println!("checkpoint_count    : {}", st.checkpoint_count);
             println!("in_fixed_point      : {}", st.in_fixed_point);
             println!("dwell_steps         : {}", st.dwell_steps);
-            println!("alignment_score     : {:.4}", st.last_alignment_score);
+            println!("last_alignment      : {:.4}", st.last_alignment_score);
+            println!("max_risk            : {:.2}", st.max_risk);
+            println!("self_modify_enabled : {}", st.self_modify_enabled);
+            println!("state_path          : {}", st.state_path);
         }
         Commands::Reset { yes } => {
             if !yes {
-                eprintln!("Refusing to reset without --yes");
-                std::process::exit(2);
+                anyhow::bail!("pass --yes to confirm reset");
             }
             let mut kernel = open_kernel(&cli)?;
-            let path = kernel.state_path.display().to_string();
             kernel.reset()?;
-            println!("reset ok — removed state at {path}");
+            println!("reset ok — state cleared at {}", kernel.state_path.display());
         }
         Commands::Demo { steps } => {
-            println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
             let demo_path = std::env::temp_dir().join("omega-demo-state.json");
-            let _ = std::fs::remove_file(&demo_path);
             let mut kernel = Kernel::with_state_path(&demo_path);
-            if let Some(ref cfg_path) = cli.config {
-                let cfg = KernelConfig::load(cfg_path)?;
-                kernel.apply_config(&cfg);
-            }
             kernel.autosave = true;
-            let goal = "maintain coherent self-model while acting in world";
-            let report = kernel.run(goal, *steps)?;
-            let effect = &kernel.inner.l0.memory.cognitive_effect;
-            let st = kernel.status();
+            kernel.dump_trajectory = true;
+            println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
+            let report = kernel.run(
+                "maintain coherent self-model while acting in world",
+                *steps,
+            )?;
+            kernel.save()?;
             println!("steps            : {}", report.steps);
-            println!("patches accepted : {}", report.patches_accepted);
-            println!("early avg_err    : {:.3}", report.early_avg_err);
-            println!("final avg_err    : {:.3}", report.final_avg_err);
-            println!("final damping    : {:.3}", report.final_damping);
-            println!("explore_bonus    : {:.3}", effect.explore_bonus);
-            println!("risk_tolerance   : {:.3}", effect.risk_tolerance);
-            println!(
-                "error decreased  : {}",
-                if report.error_decreased { "yes" } else { "no" }
-            );
-            println!("checkpoints      : {}", st.checkpoint_count);
-            println!(
-                "L2 in_fp={} dwell={} align={:.3}",
-                st.in_fixed_point, st.dwell_steps, st.last_alignment_score
-            );
-            println!(
-                "self_modify={}  dump_trajectory={}",
-                st.self_modify_enabled, kernel.dump_trajectory
-            );
+            println!("patches_accepted : {}", report.patches_accepted);
+            println!("early_avg_err    : {:.4}", report.early_avg_err);
+            println!("final_avg_err    : {:.4}", report.final_avg_err);
+            println!("final_damping    : {:.4}", report.final_damping);
+            println!("error_decreased  : {}", report.error_decreased);
             println!("state: {}", demo_path.display());
         }
         Commands::Audit { tail, summary } => {
@@ -359,13 +277,16 @@ fn main() -> anyhow::Result<()> {
             println!("trajectory : {}", sum.path);
             println!("rows       : {}", sum.rows);
             println!("patches    : {}", sum.patches);
-            if let (Some(a), Some(b)) = (sum.first_avg_err, sum.last_avg_err) {
-                println!("avg_err    : {a:.4} → {b:.4}");
+            if let Some(e) = sum.first_avg_err {
+                println!("first_err  : {e:.4}");
+            }
+            if let Some(e) = sum.last_avg_err {
+                println!("last_err   : {e:.4}");
             }
             if !sum.action_counts.is_empty() {
                 println!("── actions ──");
-                for (name, n) in &sum.action_counts {
-                    println!("  {name:<12} {n}");
+                for (a, c) in sum.action_counts.iter().take(10) {
+                    println!("  {a:16} {c}");
                 }
             }
             if !sum.tail.is_empty() {
@@ -376,7 +297,7 @@ fn main() -> anyhow::Result<()> {
                         .map(|e| format!("{e:.3}"))
                         .unwrap_or_else(|| "-".into());
                     println!(
-                        "step {:>4}  act={:<10}  patched={:<5}  avg_err={}",
+                        "  step={:<6} {:12} patched={} err={}",
                         r.step, r.action, r.patched, err
                     );
                 }
@@ -396,7 +317,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint { label } => {
-            let mut kernel = open_kernel(&cli)?;
+            let kernel = open_kernel(&cli)?;
             let meta = kernel.checkpoint(label)?;
             println!("checkpoint created: {} (step={})", meta.id, meta.step);
         }
