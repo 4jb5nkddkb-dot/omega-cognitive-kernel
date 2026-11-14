@@ -1,6 +1,6 @@
 # Audit HTTP shim (localhost)
 
-Minimal **read-only** HTTP surface over `audit.jsonl` — no new crate dependencies, bind **127.0.0.1** only.
+Minimal **read-only** HTTP surface over `audit.jsonl` and kernel status — no new crate dependencies, bind **127.0.0.1** only.
 
 ```bash
 cargo run --example audit_http_shim
@@ -9,6 +9,7 @@ cargo run --example audit_http_shim -- ./omega-inbox-demo/state.json
 
 # other terminal
 curl -s http://127.0.0.1:8787/health
+curl -s http://127.0.0.1:8787/status
 curl -s http://127.0.0.1:8787/audit/summary
 curl -s 'http://127.0.0.1:8787/audit/tail?n=10'
 ```
@@ -20,6 +21,7 @@ Port: `OMEGA_AUDIT_PORT` (default `8787`).
 | Method | Path | Body |
 |--------|------|------|
 | GET | `/health` | `{ "ok": true, ... }` |
+| GET | `/status` | `KernelStatus` JSON (opens state read-only) |
 | GET | `/audit/summary` | `AuditSummary` JSON |
 | GET | `/audit/tail?n=20` | recent `AuditRecord`s |
 
@@ -27,7 +29,7 @@ Port: `OMEGA_AUDIT_PORT` (default `8787`).
 
 | Is | Is not |
 |----|--------|
-| Proof external tools can consume audit | Production API gateway |
+| Proof external tools can consume audit + status | Production API gateway |
 | Localhost demo | TLS / auth / multi-tenant |
 | std `TcpListener` only | Axum service skeleton |
 
