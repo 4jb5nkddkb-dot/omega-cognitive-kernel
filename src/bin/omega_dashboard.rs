@@ -93,6 +93,10 @@ struct DashboardApp {
     /// Recent workspaces for multi-instance operator switching.
     workspaces: Vec<WorkspaceSlot>,
     active_workspace: usize,
+    /// Audit follow: byte cursor for AuditLog::poll_after.
+    audit_offset: u64,
+    audit_follow: bool,
+    audit_live: Vec<String>,
 }
 
 impl DashboardApp {
@@ -131,6 +135,9 @@ impl DashboardApp {
             replay_summary: None,
             workspaces: vec![slot],
             active_workspace: 0,
+            audit_offset: 0,
+            audit_follow: false,
+            audit_live: Vec::new(),
         }
     }
 
@@ -142,6 +149,27 @@ impl DashboardApp {
     fn apply_flags_to_kernel(&mut self) {
         self.kernel.inner.l1.self_modify_enabled = self.self_modify;
         self.kernel.dump_trajectory = self.dump_trajectory;
+    }
+
+    fn poll_audit_once(&mut self) {
+        let log = AuditLog::beside_state(&self.kernel.state_path);
+        match log.poll_after(self.audit_offset) {
+            Ok((rows, next)) => {
+                for r in &rows {
+                    self.audit_live
+                        .push(format!("{}  {:?}", r.ts.to_rfc3339(), r.event));
+                }
+                if self.audit_live.len() > 200 {
+                    let drop_n = self.audit_live.len() - 200;
+                    self.audit_live.drain(0..drop_n);
+                }
+                self.audit_offset = next;
+                if !rows.is_empty() {
+                    self.status_msg = format!("audit +{} @{}", rows.len(), next);
+                }
+            }
+            Err(e) => self.error = Some(format!("audit poll: {e}")),
+        }
     }
 
     fn remember_workspace(&mut self, path: PathBuf, label: Option<String>) {
@@ -515,12 +543,43 @@ impl DashboardApp {
             }
         }
 
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.audit_follow, "Follow (poll_after)");
+            ui.label(format!("cursor={}", self.audit_offset));
+            if ui.button("Poll once").clicked() {
+                self.poll_audit_once();
+            }
+            if ui.button("Reset cursor").clicked() {
+                self.audit_offset = 0;
+                self.audit_live.clear();
+                self.status_msg = "audit cursor reset".into();
+            }
+        });
+        if self.audit_follow {
+            self.poll_audit_once();
+        }
+
+        ui.add_space(8.0);
+        ui.heading("Live stream");
+        egui::ScrollArea::vertical()
+            .max_height(160.0)
+            .show(ui, |ui| {
+                if self.audit_live.is_empty() {
+                    ui.label("(empty — enable Follow or Poll once)");
+                } else {
+                    for line in &self.audit_live {
+                        ui.monospace(line);
+                    }
+                }
+            });
+
         ui.add_space(12.0);
-        ui.heading("Recent events");
+        ui.heading("Recent events (tail)");
         match self.kernel.audit_tail(30) {
             Ok(rows) => {
                 egui::ScrollArea::vertical()
-                    .max_height(280.0)
+                    .max_height(220.0)
                     .show(ui, |ui| {
                         if rows.is_empty() {
                             ui.label("(empty)");
@@ -726,7 +785,7 @@ impl DashboardApp {
             .small(),
         );
         ui.label(
-            RichText::new("Omega Dashboard v0.5.3  ·  MIT")
+            RichText::new("Omega Dashboard v0.5.4  ·  MIT")
                 .weak()
                 .small(),
         );
