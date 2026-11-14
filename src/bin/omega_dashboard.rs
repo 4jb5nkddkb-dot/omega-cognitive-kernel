@@ -619,7 +619,11 @@ impl DashboardApp {
                     if ui.small_button("+").on_hover_text("weight +0.1").clicked() {
                         nudges.push((s.name.clone(), (s.weight + 0.1).min(10.0)));
                     }
-                    if ui.small_button("1.0").on_hover_text("reset to 1.0").clicked() {
+                    if ui
+                        .small_button("1.0")
+                        .on_hover_text("reset to 1.0")
+                        .clicked()
+                    {
                         nudges.push((s.name.clone(), 1.0));
                     }
                 });
