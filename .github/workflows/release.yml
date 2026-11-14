@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to create/update release for (e.g. v0.4.6)"
+        description: "Tag to create/update release for (e.g. v0.5.1)"
         required: true
-        default: "v0.4.6"
+        default: "v0.5.1"
 
 permissions:
   contents: write
@@ -47,15 +47,14 @@ jobs:
           cargo build --release --bin omega-audit-panel
 
       - name: Build GUI dashboard
-        continue-on-error: true
         run: cargo build --release --features gui --bin omega-dashboard
 
       - name: Package artifacts
         run: |
           mkdir -p dist
-          [ -f target/release/omega-kernel ] && cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
-          [ -f target/release/omega-audit-panel ] && cp target/release/omega-audit-panel dist/omega-audit-panel-linux-x86_64
-          [ -f target/release/omega-dashboard ] && cp target/release/omega-dashboard dist/omega-dashboard-linux-x86_64
+          cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
+          cp target/release/omega-audit-panel dist/omega-audit-panel-linux-x86_64
+          cp target/release/omega-dashboard dist/omega-dashboard-linux-x86_64
           cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/ 2>/dev/null || true
           TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           NOTES="RELEASE_NOTES_${TAG}.md"
@@ -87,16 +86,15 @@ jobs:
           cargo build --release --bin omega-audit-panel
 
       - name: Build GUI dashboard
-        continue-on-error: true
         run: cargo build --release --features gui --bin omega-dashboard
 
       - name: Package artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          if (Test-Path target/release/omega-kernel.exe) { Copy-Item target/release/omega-kernel.exe dist/omega-kernel-windows-x86_64.exe }
-          if (Test-Path target/release/omega-audit-panel.exe) { Copy-Item target/release/omega-audit-panel.exe dist/omega-audit-panel-windows-x86_64.exe }
-          if (Test-Path target/release/omega-dashboard.exe) { Copy-Item target/release/omega-dashboard.exe dist/omega-dashboard-windows-x86_64.exe }
+          Copy-Item target/release/omega-kernel.exe dist/omega-kernel-windows-x86_64.exe
+          Copy-Item target/release/omega-audit-panel.exe dist/omega-audit-panel-windows-x86_64.exe
+          Copy-Item target/release/omega-dashboard.exe dist/omega-dashboard-windows-x86_64.exe
           Get-ChildItem dist
 
       - name: Upload Windows artifacts
@@ -104,7 +102,7 @@ jobs:
         with:
           name: omega-windows
           path: dist/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     name: Publish GitHub Release
@@ -152,7 +150,7 @@ jobs:
               echo ""
               echo "- **omega-kernel** — CLI runtime"
               echo "- **omega-audit-panel** — audit operator tool"
-              echo "- **omega-dashboard** — desktop GUI (if build succeeded)"
+              echo "- **omega-dashboard** — desktop GUI"
               echo ""
               echo "See CHANGELOG.md for details."
               echo "OMEGA_RELEASE_EOF"
