@@ -35,7 +35,12 @@ enum Commands {
         #[arg(long)]
         no_save: bool,
     },
-    Status,
+    /// Print kernel status (human text or --json).
+    Status {
+        /// Emit KernelStatus as JSON (for scripts / HTTP shims).
+        #[arg(long)]
+        json: bool,
+    },
     Reset {
         #[arg(long)]
         yes: bool,
@@ -207,26 +212,30 @@ fn main() -> anyhow::Result<()> {
                 println!("last_actions     : {}", report.last_actions.join(", "));
             }
         }
-        Commands::Status => {
+        Commands::Status { json } => {
             let kernel = open_kernel(&cli)?;
             let st = kernel.status();
-            println!("schema_version     : {}", st.schema_version);
-            println!("total_steps        : {}", st.total_steps);
-            println!("avg_prediction_err : {:.4}", st.avg_prediction_error);
-            println!("adaptation_score   : {:.4}", st.adaptation_score);
-            println!("error_damping      : {:.4}", st.error_damping);
-            println!("explore_bonus      : {:.4}", st.explore_bonus);
-            println!("risk_tolerance     : {:.4}", st.risk_tolerance);
-            println!("active_modules     : {}", st.active_modules);
-            println!("strategy_count     : {}", st.strategy_count);
-            println!("case_count         : {}", st.case_count);
-            println!("checkpoint_count   : {}", st.checkpoint_count);
-            println!("in_fixed_point     : {}", st.in_fixed_point);
-            println!("dwell_steps        : {}", st.dwell_steps);
-            println!("last_alignment     : {:.4}", st.last_alignment_score);
-            println!("max_risk           : {:.2}", st.max_risk);
-            println!("self_modify        : {}", st.self_modify_enabled);
-            println!("state_path         : {}", st.state_path);
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&st)?);
+            } else {
+                println!("schema_version     : {}", st.schema_version);
+                println!("total_steps        : {}", st.total_steps);
+                println!("avg_prediction_err : {:.4}", st.avg_prediction_error);
+                println!("adaptation_score   : {:.4}", st.adaptation_score);
+                println!("error_damping      : {:.4}", st.error_damping);
+                println!("explore_bonus      : {:.4}", st.explore_bonus);
+                println!("risk_tolerance     : {:.4}", st.risk_tolerance);
+                println!("active_modules     : {}", st.active_modules);
+                println!("strategy_count     : {}", st.strategy_count);
+                println!("case_count         : {}", st.case_count);
+                println!("checkpoint_count   : {}", st.checkpoint_count);
+                println!("in_fixed_point     : {}", st.in_fixed_point);
+                println!("dwell_steps        : {}", st.dwell_steps);
+                println!("last_alignment     : {:.4}", st.last_alignment_score);
+                println!("max_risk           : {:.2}", st.max_risk);
+                println!("self_modify        : {}", st.self_modify_enabled);
+                println!("state_path         : {}", st.state_path);
+            }
         }
         Commands::Reset { yes } => {
             if !*yes {
