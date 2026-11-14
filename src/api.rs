@@ -573,6 +573,11 @@ where
         Ok(())
     }
 
+    /// Last N audit records (operator / CLI convenience).
+    pub fn audit_tail(&self, n: usize) -> Result<Vec<crate::audit::AuditRecord>> {
+        self.audit().tail(n)
+    }
+
     pub fn audit_task(&mut self, task: &str, reward: f64, steps: u32) -> Result<()> {
         self.append_event(AuditEvent::TaskEpisode {
             task: task.into(),
