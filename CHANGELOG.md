@@ -6,7 +6,8 @@
 - `PatchGenerator` now uses `high_error_streak` more aggressively (extra damping on long streaks) and includes streak + recent mean error in the audit `code` comment and `expected_effect` string.
 
 ### Audit / L2
-- Added `AuditEvent::FixedPointEntered` and `FixedPointExited` (additive, tagged enum). Summary counters updated. Emission from the L2 step path is a follow-up; the variants are ready for integrators and Dashboard.
+- Added `AuditEvent::FixedPointEntered` and `FixedPointExited` (additive, tagged enum). Summary counters updated.
+- `Kernel::step` now emits these events when L2 enters or exits the fixed-point regime.
 
 ## [0.5.6] — 2026-11-14
 
