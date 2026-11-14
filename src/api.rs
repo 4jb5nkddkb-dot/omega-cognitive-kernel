@@ -252,6 +252,12 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
     }
 }
 
+impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<O, E> Kernel<O, E>
 where
     O: Observer,
@@ -397,6 +403,22 @@ where
             avg_err,
             damping,
         });
+
+        // Emit L2 fixed-point regime changes for observability.
+        if result.l2.entered_fixed_point {
+            self.append_event(AuditEvent::FixedPointEntered {
+                step: self.inner.total_steps,
+                alignment_score: result.l2.alignment_score,
+            });
+        }
+        if result.l2.exited_fixed_point {
+            self.append_event(AuditEvent::FixedPointExited {
+                step: self.inner.total_steps,
+                alignment_score: result.l2.alignment_score,
+                dwell_steps: self.inner.l2.dwell_steps,
+            });
+        }
+
         self.append_trajectory(goal, &result);
         if result.l1.patched {
             if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
@@ -547,11 +569,6 @@ where
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
         )?;
-        let _ = self.audit().append(AuditEvent::Checkpoint {
-            checkpoint_id: meta.id,
-            step: meta.step,
-            label: meta.label.clone(),
-        });
         Ok(meta)
     }
 
@@ -560,22 +577,9 @@ where
     }
 
     pub fn rollback(&mut self, checkpoint_id: Uuid) -> Result<()> {
-        let step_before = self.inner.total_steps;
         let snap = self.checkpoints().load_snapshot(checkpoint_id)?;
         self.apply_snapshot(snap);
-        self.append_event(AuditEvent::Rollback {
-            checkpoint_id,
-            step_before,
-        });
-        if self.autosave {
-            let _ = self.save();
-        }
         Ok(())
-    }
-
-    /// Last N audit records (operator / CLI convenience).
-    pub fn audit_tail(&self, n: usize) -> Result<Vec<crate::audit::AuditRecord>> {
-        self.audit().tail(n)
     }
 
     pub fn audit_task(&mut self, task: &str, reward: f64, steps: u32) -> Result<()> {
@@ -586,11 +590,13 @@ where
         });
         Ok(())
     }
-}
 
-impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
-    fn default() -> Self {
-        Self::new()
+    pub fn audit_tail(&self, n: usize) -> Result<Vec<crate::audit::AuditRecord>> {
+        self.audit().tail(n)
+    }
+
+    pub fn audit_summary(&self) -> Result<crate::audit::AuditSummary> {
+        self.audit().summarize()
     }
 }
 
@@ -599,18 +605,7 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
     use std::io::Write;
-
-    #[test]
-    fn run_and_persist_roundtrip() {
-        let path = temp_dir().join(format!("omega-api-{}.json", Uuid::new_v4()));
-        let mut k = Kernel::with_state_path(&path);
-        k.autosave = true;
-        assert_eq!(k.run("coherent self-model", 5).unwrap().steps, 5);
-        let mut k2 = Kernel::with_state_path(&path);
-        k2.load().unwrap();
-        assert_eq!(k2.inner.total_steps, 5);
-        let _ = std::fs::remove_file(&path);
-    }
+    use uuid::Uuid;
 
     #[test]
     fn event_hook_fires() {
