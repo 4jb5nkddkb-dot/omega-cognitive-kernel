@@ -1,6 +1,6 @@
 # API notes — 0.5.x
 
-**Status:** in effect as of **v0.5.0** (extended through **v0.5.4**).
+**Status:** in effect as of **v0.5.0** (extended through **v0.5.5**).
 
 ## Additive surface since 0.4
 
@@ -17,6 +17,8 @@
 | Dashboard strategy +/- , multi-workspace | 0.5.3 | Operator UX |
 | CLI `strategy-weight` / `audit-poll` | 0.5.4 | Integrator parity |
 | Dashboard Audit Follow / poll once | 0.5.4 | Live stream |
+| CLI `status --json` | 0.5.5 | Machine-readable status |
+| Example `GET /status` (audit_http_shim) | 0.5.5 | Localhost read-only |
 
 ## Event stream
 
@@ -42,11 +44,21 @@ Kernel::set_strategy_weight(name, weight: f64) -> bool   // false if unknown
 
 CLI: `omega-kernel strategy-weight <name> <weight>`
 
-## CLI additions (0.5.4)
+## Status export
+
+```bash
+omega-kernel status              # human text
+omega-kernel status --json       # KernelStatus JSON
+```
+
+Library: `kernel.status()` → `KernelStatus` (serde).
+
+## CLI additions (0.5.4+)
 
 ```bash
 omega-kernel strategy-weight explore 1.25
 omega-kernel audit-poll --offset 0          # prints new events + next cursor
+omega-kernel status --json
 ```
 
 ## Still unstable
