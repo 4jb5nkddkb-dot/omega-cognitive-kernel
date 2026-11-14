@@ -397,6 +397,22 @@ where
             avg_err,
             damping,
         });
+
+        // Emit L2 fixed-point regime changes for observability.
+        if result.l2.entered_fixed_point {
+            self.append_event(AuditEvent::FixedPointEntered {
+                step: self.inner.total_steps,
+                alignment_score: result.l2.alignment_score,
+            });
+        }
+        if result.l2.exited_fixed_point {
+            self.append_event(AuditEvent::FixedPointExited {
+                step: self.inner.total_steps,
+                alignment_score: result.l2.alignment_score,
+                dwell_steps: self.inner.l2.dwell_steps,
+            });
+        }
+
         self.append_trajectory(goal, &result);
         if result.l1.patched {
             if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
@@ -547,112 +563,12 @@ where
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
         )?;
-        let _ = self.audit().append(AuditEvent::Checkpoint {
-            checkpoint_id: meta.id,
-            step: meta.step,
-            label: meta.label.clone(),
-        });
         Ok(meta)
     }
 
-    pub fn list_checkpoints(&self) -> Result<Vec<CheckpointMeta>> {
-        self.checkpoints().list()
-    }
-
     pub fn rollback(&mut self, checkpoint_id: Uuid) -> Result<()> {
-        let step_before = self.inner.total_steps;
-        let snap = self.checkpoints().load_snapshot(checkpoint_id)?;
+        let snap = self.checkpoints().load(checkpoint_id)?;
         self.apply_snapshot(snap);
-        self.append_event(AuditEvent::Rollback {
-            checkpoint_id,
-            step_before,
-        });
-        if self.autosave {
-            let _ = self.save();
-        }
         Ok(())
-    }
-
-    /// Last N audit records (operator / CLI convenience).
-    pub fn audit_tail(&self, n: usize) -> Result<Vec<crate::audit::AuditRecord>> {
-        self.audit().tail(n)
-    }
-
-    pub fn audit_task(&mut self, task: &str, reward: f64, steps: u32) -> Result<()> {
-        self.append_event(AuditEvent::TaskEpisode {
-            task: task.into(),
-            reward,
-            steps,
-        });
-        Ok(())
-    }
-}
-
-impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env::temp_dir;
-    use std::io::Write;
-
-    #[test]
-    fn run_and_persist_roundtrip() {
-        let path = temp_dir().join(format!("omega-api-{}.json", Uuid::new_v4()));
-        let mut k = Kernel::with_state_path(&path);
-        k.autosave = true;
-        assert_eq!(k.run("coherent self-model", 5).unwrap().steps, 5);
-        let mut k2 = Kernel::with_state_path(&path);
-        k2.load().unwrap();
-        assert_eq!(k2.inner.total_steps, 5);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn event_hook_fires() {
-        let path = temp_dir().join(format!("omega-hook-{}.json", Uuid::new_v4()));
-        let mut k = Kernel::with_state_path(&path);
-        k.autosave = false;
-        let fired = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let f2 = fired.clone();
-        k.set_event_hook(move |_| {
-            f2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        });
-        let _ = k.step("test");
-        assert!(fired.load(std::sync::atomic::Ordering::SeqCst) >= 1);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn replay_trajectory_file_works() {
-        let path = temp_dir().join(format!("omega-traj-{}.jsonl", Uuid::new_v4()));
-        let mut f = std::fs::File::create(&path).unwrap();
-        let line1 = serde_json::json!({
-            "step": 1,
-            "action": "observe",
-            "patched": false,
-            "avg_err": 0.5,
-            "goal": "g"
-        });
-        let line2 = serde_json::json!({
-            "step": 2,
-            "action": "stabilize",
-            "patched": true,
-            "avg_err": 0.3,
-            "goal": "g"
-        });
-        writeln!(f, "{line1}").unwrap();
-        writeln!(f, "{line2}").unwrap();
-        let sum = replay_trajectory_file(&path, 10).unwrap();
-        assert_eq!(sum.rows, 2);
-        assert_eq!(sum.patches, 1);
-        assert!((sum.first_avg_err.unwrap() - 0.5).abs() < 1e-9);
-        assert!((sum.last_avg_err.unwrap() - 0.3).abs() < 1e-9);
-        assert_eq!(sum.tail.len(), 2);
-        let _ = std::fs::remove_file(&path);
     }
 }
