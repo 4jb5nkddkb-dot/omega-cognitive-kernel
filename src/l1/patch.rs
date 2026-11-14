@@ -79,6 +79,13 @@ impl PatchGenerator {
             }
         }
 
+        // Extra damping boost when streak is long.
+        let error_damping = if ctx.high_error_streak >= 3 {
+            (error_damping * 0.92).clamp(0.25, 0.55)
+        } else {
+            error_damping
+        };
+
         let risk = if high_error { 0.48 } else { 0.20 };
 
         let code = format!(
@@ -86,6 +93,7 @@ impl PatchGenerator {
 // auto-generated cognitive rule (audit trail only — runtime uses RuleEffect)
 // summary: {summary}
 // error_damping: {damping:.3}  explore_bonus: {eb:.2}  risk_tolerance: {rt:.2}
+// high_error_streak: {streak}  recent_mean_err: {rme:.3}
 // generated_at: {ts}
 fn adjust_bias(err: f64) -> f64 {{
     if err > 0.5 {{ {damping:.3} }} else {{ 1.0 }}
@@ -95,6 +103,8 @@ fn adjust_bias(err: f64) -> f64 {{
             damping = error_damping,
             eb = explore_bonus,
             rt = risk_tolerance,
+            streak = ctx.high_error_streak,
+            rme = ctx.recent_mean_error,
             ts = Utc::now().to_rfc3339()
         );
 
@@ -104,10 +114,11 @@ fn adjust_bias(err: f64) -> f64 {{
             code,
             target_module: "cognitive_rules".into(),
             expected_effect: format!(
-                "damp={:.2} explore_bonus={:.2} risk_tol={:.2} prefs={:?}",
+                "damp={:.2} explore_bonus={:.2} risk_tol={:.2} streak={} prefs={:?}",
                 error_damping,
                 explore_bonus,
                 risk_tolerance,
+                ctx.high_error_streak,
                 action_preference.keys().collect::<Vec<_>>()
             ),
             risk_level: risk,
