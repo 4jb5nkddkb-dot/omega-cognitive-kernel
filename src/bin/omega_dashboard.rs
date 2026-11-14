@@ -72,6 +72,11 @@ enum Tab {
     Settings,
 }
 
+struct WorkspaceSlot {
+    label: String,
+    path: PathBuf,
+}
+
 struct DashboardApp {
     tab: Tab,
     kernel: Kernel,
@@ -85,6 +90,9 @@ struct DashboardApp {
     dump_trajectory: bool,
     replay_tail: usize,
     replay_summary: Option<TrajectoryReplaySummary>,
+    /// Recent workspaces for multi-instance operator switching.
+    workspaces: Vec<WorkspaceSlot>,
+    active_workspace: usize,
 }
 
 impl DashboardApp {
@@ -104,6 +112,10 @@ impl DashboardApp {
         kernel.dump_trajectory = true;
         kernel.inner.l1.self_modify_enabled = false;
 
+        let slot = WorkspaceSlot {
+            label: "default".into(),
+            path: state.clone(),
+        };
         Self {
             tab: Tab::Dashboard,
             kernel,
@@ -117,6 +129,8 @@ impl DashboardApp {
             dump_trajectory: true,
             replay_tail: 20,
             replay_summary: None,
+            workspaces: vec![slot],
+            active_workspace: 0,
         }
     }
 
@@ -128,6 +142,63 @@ impl DashboardApp {
     fn apply_flags_to_kernel(&mut self) {
         self.kernel.inner.l1.self_modify_enabled = self.self_modify;
         self.kernel.dump_trajectory = self.dump_trajectory;
+    }
+
+    fn remember_workspace(&mut self, path: PathBuf, label: Option<String>) {
+        if let Some(i) = self.workspaces.iter().position(|w| w.path == path) {
+            self.active_workspace = i;
+            return;
+        }
+        let label = label.unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("workspace")
+                .to_string()
+        });
+        self.workspaces.push(WorkspaceSlot { label, path });
+        self.active_workspace = self.workspaces.len() - 1;
+    }
+
+    fn switch_workspace(&mut self, idx: usize) {
+        if idx >= self.workspaces.len() {
+            return;
+        }
+        let path = self.workspaces[idx].path.clone();
+        let _ = self.kernel.save();
+        match Kernel::open(path.to_str()) {
+            Ok(mut k) => {
+                k.autosave = true;
+                self.kernel = k;
+                self.active_workspace = idx;
+                self.refresh_flags_from_kernel();
+                self.replay_summary = None;
+                self.last_log.clear();
+                self.status_msg = format!("switched → {}", path.display());
+                self.error = None;
+            }
+            Err(e) => self.error = Some(format!("switch failed: {e}")),
+        }
+    }
+
+    fn new_workspace(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("New workspace state.json")
+            .set_file_name("state.json")
+            .save_file()
+        {
+            let _ = self.kernel.save();
+            let mut k = Kernel::with_state_path(&path);
+            k.autosave = true;
+            k.dump_trajectory = self.dump_trajectory;
+            k.inner.l1.self_modify_enabled = self.self_modify;
+            let _ = k.save();
+            self.kernel = k;
+            self.remember_workspace(path.clone(), None);
+            self.replay_summary = None;
+            self.last_log.clear();
+            self.status_msg = format!("new workspace {}", path.display());
+            self.error = None;
+        }
     }
 
     fn run_steps(&mut self) {
@@ -191,6 +262,7 @@ impl DashboardApp {
                 Ok(mut k) => {
                     k.autosave = true;
                     self.kernel = k;
+                    self.remember_workspace(path.clone(), None);
                     self.refresh_flags_from_kernel();
                     self.replay_summary = None;
                     self.status_msg = format!("loaded {}", path.display());
@@ -519,6 +591,11 @@ impl DashboardApp {
 
     fn ui_strategies(&mut self, ui: &mut egui::Ui) {
         ui.heading("Strategy memory");
+        ui.label(
+            RichText::new("Operator weight nudge (0.1–10). Does not enable self_modify.")
+                .weak()
+                .small(),
+        );
         let strategies = self.kernel.inner.l0.memory.strategy.retrieve("", 50);
         if strategies.is_empty() {
             ui.label("(none yet — run some steps)");
@@ -526,17 +603,34 @@ impl DashboardApp {
         }
         ui.label(format!("{} entries", strategies.len()));
         ui.add_space(6.0);
+
+        let mut nudges: Vec<(String, f64)> = Vec::new();
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for s in strategies {
+            for s in &strategies {
                 ui.horizontal(|ui| {
                     ui.monospace(format!("{:<12}", s.name));
                     ui.label(format!(
                         "w={:.3}  ok={}  fail={}  idle={}",
                         s.weight, s.success_count, s.fail_count, s.idle_steps
                     ));
+                    if ui.small_button("−").on_hover_text("weight −0.1").clicked() {
+                        nudges.push((s.name.clone(), (s.weight - 0.1).max(0.1)));
+                    }
+                    if ui.small_button("+").on_hover_text("weight +0.1").clicked() {
+                        nudges.push((s.name.clone(), (s.weight + 0.1).min(10.0)));
+                    }
+                    if ui.small_button("1.0").on_hover_text("reset to 1.0").clicked() {
+                        nudges.push((s.name.clone(), 1.0));
+                    }
                 });
             }
         });
+        for (name, w) in nudges {
+            if self.kernel.set_strategy_weight(&name, w) {
+                self.status_msg = format!("weight {name} → {w:.2}");
+                let _ = self.kernel.save();
+            }
+        }
     }
 
     fn ui_settings(&mut self, ui: &mut egui::Ui) {
@@ -581,6 +675,44 @@ impl DashboardApp {
             ui.label(format!("last config: {}", p.display()));
         }
 
+        ui.add_space(14.0);
+        ui.heading("Workspaces (multi-instance)");
+        ui.label(
+            RichText::new("Each workspace is a separate state.json. Switch without restarting.")
+                .weak()
+                .small(),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("New workspace…").clicked() {
+                self.new_workspace();
+            }
+            if ui.button("Open state").clicked() {
+                self.load_state_dialog();
+            }
+        });
+        ui.add_space(6.0);
+        let active = self.active_workspace;
+        let labels: Vec<(usize, String, String)> = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(i, w)| (i, w.label.clone(), w.path.display().to_string()))
+            .collect();
+        for (i, label, path) in labels {
+            ui.horizontal(|ui| {
+                let selected = i == active;
+                if ui
+                    .selectable_label(selected, format!("{label}"))
+                    .on_hover_text(&path)
+                    .clicked()
+                    && !selected
+                {
+                    self.switch_workspace(i);
+                }
+                ui.label(RichText::new(path).small().weak());
+            });
+        }
+
         ui.add_space(16.0);
         ui.separator();
         ui.label(
@@ -590,7 +722,7 @@ impl DashboardApp {
             .small(),
         );
         ui.label(
-            RichText::new("Omega Dashboard v0.5.1  ·  MIT")
+            RichText::new("Omega Dashboard v0.5.3  ·  MIT")
                 .weak()
                 .small(),
         );
@@ -600,13 +732,12 @@ impl DashboardApp {
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1080.0, 700.0])
-            .with_min_inner_size([800.0, 520.0])
-            .with_title("Omega Kernel — operator console"),
+            .with_inner_size([980.0, 700.0])
+            .with_title("Omega Kernel Dashboard"),
         ..Default::default()
     };
     eframe::run_native(
-        "Omega Dashboard",
+        "Omega Kernel Dashboard",
         options,
         Box::new(|cc| Ok(Box::new(DashboardApp::new(cc)))),
     )
