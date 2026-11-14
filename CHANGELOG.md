@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0] — 2026-11-14
+
+### Thin 0.5.0 — schema + replay
+
+- **State schema:** `CURRENT_SCHEMA_VERSION = 1`; load migrates missing/0 → 1; rejects newer versions
+- **KernelStatus:** additive field `schema_version`
+- **Replay:** `replay_trajectory_file` / `Kernel::replay_trajectory` + CLI `omega-kernel replay`
+- **Docs:** `docs/ROADMAP_0.5.md`, `docs/API_0.5.md` (0.4 freeze lifted for listed items)
+
+### Migration notes
+
+- Existing 0.4 `state.json` files load without manual conversion
+- Integrators deserializing `KernelStatus` must accept the new field (or ignore unknown fields)
+
 ## [0.4.9] — 2026-11-14
 
 ### Stability

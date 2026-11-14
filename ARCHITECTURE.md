@@ -1,6 +1,6 @@
 # Architecture — Omega Cognitive Kernel
 
-**Version:** 0.4.9  
+**Version:** 0.5.0  
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
 ```
@@ -14,6 +14,7 @@ World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
 - The only thing that changes runtime policy is a bounded **`RuleEffect`** (plus soft L2 nudges that still pass through the same sanitize/bounds path).
 - L1 patch commit is gated by **`self_modify_enabled`** (default **false**).
 - L2 fixed-point / “emergence” language is **heuristic**, not a formal fixed-point theorem.
+- On-disk state is **schema-versioned** (`CURRENT_SCHEMA_VERSION`); load migrates older files.
 
 ---
 
@@ -78,6 +79,8 @@ RuleEffect {
 3. **L2:** metrics → optional fixed-point → biases / soft nudge
 4. **Optional:** auto-checkpoint; audit; trajectory.jsonl
 
+Offline: `replay` summarizes trajectory.jsonl without re-executing the world.
+
 ---
 
 ## Safety summary
@@ -91,16 +94,16 @@ RuleEffect {
 | Patch cooldown | L1 Reflector |
 | Checkpoint before patch | Kernel API |
 | Rollback + audit | Kernel API |
-| Trajectory dump | Kernel API |
+| Trajectory dump + replay | Kernel API / CLI |
 
 ---
 
 ## Persistence layout
 
 ```
-state.json            # KernelSnapshot
+state.json            # KernelSnapshot (schema versioned)
 audit.jsonl           # append-only events
-trajectory.jsonl      # optional step dump
+trajectory.jsonl      # optional step dump (replay source)
 checkpoints/          # FIFO snapshots
 ```
 
@@ -111,7 +114,7 @@ checkpoints/          # FIFO snapshots
 | Supported for integrators | Treat as unstable |
 |---------------------------|-------------------|
 | `Kernel`, `KernelStatus`, `RunReport` | `kernel.inner.*` field layout |
-| Config / adapters / checkpoint / audit | Heuristic thresholds inside L2 |
+| Config / adapters / checkpoint / audit / replay | Heuristic thresholds inside L2 |
 | CLI + optional `omega-dashboard` | Example-only demos |
 
-See `docs/API_FREEZE_0.4.md` for the 0.4.x freeze list.
+See `docs/API_0.5.md` for the 0.5 surface list.

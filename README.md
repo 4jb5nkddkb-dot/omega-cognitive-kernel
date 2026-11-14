@@ -23,10 +23,9 @@ Omega takes a third path: **structured, reversible policy patches**.
 | **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
 | **[docs/CLOSED_LOOP.md](docs/CLOSED_LOOP.md)** | Safety switches + trajectory |
 | **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
-| **[docs/INBOX_VERTICAL.md](docs/INBOX_VERTICAL.md)** | Inbox vertical (events + audit) |
-| **[docs/TOOL_GATE.md](docs/TOOL_GATE.md)** | Tool-call gate (+ optional real `http_get`) |
-| **[docs/AUDIT_HTTP_SHIM.md](docs/AUDIT_HTTP_SHIM.md)** | Localhost read-only audit HTTP |
-| **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** | Integrator API freeze (**v0.4.0+**) |
+| **[docs/API_0.5.md](docs/API_0.5.md)** | 0.5 surface (schema + replay) |
+| **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
+| **[docs/API_FREEZE_0.4.md](docs/API_FREEZE_0.4.md)** | Historical 0.4 freeze notes |
 
 ---
 
@@ -39,7 +38,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 | Pluggable observe/execute + tool gate | NLP content moderation product |
 | Optional desktop dashboard | Production public API gateway |
 
-**Status:** research prototype (**v0.4.9**). Integrator API frozen for **0.4.x**.
+**Status:** research prototype (**v0.5.0**). Schema versioned; trajectory replay available.
 
 ---
 
@@ -47,10 +46,10 @@ Omega takes a third path: **structured, reversible policy patches**.
 
 ```bash
 # CLI
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.9 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.0 --locked
 
 # Optional GUI dashboard
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.4.9 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.0 --locked --features gui --bin omega-dashboard
 ```
 
 Or download binaries from the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page.
@@ -64,6 +63,7 @@ cargo run --release -- demo
 cargo run --release -- run --steps 20
 cargo run --release -- status
 cargo run --release -- audit --summary
+cargo run --release -- replay --tail 15
 
 # Desktop dashboard
 cargo run --release --features gui --bin omega-dashboard
@@ -94,6 +94,8 @@ fn main() -> omega_cognitive_kernel::Result<()> {
         "err {:.3} → {:.3} (decreased={})",
         report.early_avg_err, report.final_avg_err, report.error_decreased
     );
+    let replay = kernel.replay_trajectory(10)?;
+    println!("trajectory rows={} patches={}", replay.rows, replay.patches);
     kernel.save()?;
     Ok(())
 }
@@ -112,20 +114,12 @@ Adapters: `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecuto
 
 ---
 
-## Version map (0.4.x)
+## Version map
 
 | Version | Meaning |
 |---------|---------|
-| **0.4.0** | Integrator API freeze |
-| **0.4.1** | Inbox vertical |
-| **0.4.2** | Tool gate + audit panel + intervention |
-| **0.4.3** | Real `http_get` after ALLOW |
-| **0.4.4** | Localhost audit HTTP shim |
-| **0.4.5** | self_modify + trajectory (no public tag; folded forward) |
-| **0.4.6** | Dashboard introduced (GUI binary may be missing on that tag) |
-| **0.4.7** | Dashboard compile fix + doc alignment |
-| **0.4.8** | Case memory: prioritized experience replay |
-| **0.4.9** | Test/CI stability + docs alignment — **current** |
+| **0.4.0–0.4.9** | Integrator freeze line + PER / dashboard / CI stability |
+| **0.5.0** | Schema migrate + trajectory replay — **current** |
 
 See [CHANGELOG.md](CHANGELOG.md).
 

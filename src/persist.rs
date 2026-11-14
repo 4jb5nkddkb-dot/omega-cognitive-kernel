@@ -175,11 +175,7 @@ mod tests {
             patch_history: vec![],
         };
         // Bypass save_to stamping by writing raw.
-        fs::write(
-            &path,
-            serde_json::to_string(&snap).unwrap(),
-        )
-        .unwrap();
+        fs::write(&path, serde_json::to_string(&snap).unwrap()).unwrap();
         let err = KernelSnapshot::load_from(&path).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("newer") || msg.contains("99"), "{msg}");
