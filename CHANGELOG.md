@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### L1
+- `PatchGenerator` now uses `high_error_streak` more aggressively (extra damping on long streaks) and includes streak + recent mean error in the audit `code` comment and `expected_effect` string.
+
 ## [0.5.6] — 2026-11-14
 
 ### Packaging
