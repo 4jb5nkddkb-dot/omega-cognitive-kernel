@@ -232,6 +232,24 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
         }
         Ok(k)
     }
+
+    pub fn reset(&mut self) -> Result<()> {
+        let path = self.state_path.clone();
+        let autosave = self.autosave;
+        let auto_ckpt = self.auto_checkpoint_on_patch;
+        let dump = self.dump_trajectory;
+        let hook = self.event_hook.take();
+        *self = Self::with_state_path(path);
+        self.autosave = autosave;
+        self.auto_checkpoint_on_patch = auto_ckpt;
+        self.dump_trajectory = dump;
+        self.event_hook = hook;
+        if self.state_path.exists() {
+            std::fs::remove_file(&self.state_path)
+                .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 impl<O, E> Kernel<O, E>
@@ -529,7 +547,6 @@ where
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
         )?;
-        // Note: append_event needs &mut self; for checkpoint we emit via audit directly
         let _ = self.audit().append(AuditEvent::Checkpoint {
             checkpoint_id: meta.id,
             step: meta.step,
@@ -556,21 +573,12 @@ where
         Ok(())
     }
 
-    pub fn reset(&mut self) -> Result<()> {
-        let path = self.state_path.clone();
-        let autosave = self.autosave;
-        let auto_ckpt = self.auto_checkpoint_on_patch;
-        let dump = self.dump_trajectory;
-        let hook = self.event_hook.take();
-        *self = Self::with_state_path(path);
-        self.autosave = autosave;
-        self.auto_checkpoint_on_patch = auto_ckpt;
-        self.dump_trajectory = dump;
-        self.event_hook = hook;
-        if self.state_path.exists() {
-            std::fs::remove_file(&self.state_path)
-                .map_err(|e| crate::error::OmegaError::Persist(e.to_string()))?;
-        }
+    pub fn audit_task(&mut self, task: &str, reward: f64, steps: u32) -> Result<()> {
+        self.append_event(AuditEvent::TaskEpisode {
+            task: task.into(),
+            reward,
+            steps,
+        });
         Ok(())
     }
 }
@@ -584,8 +592,6 @@ impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::l0::executor::LoggingExecutor;
-    use crate::l0::observer::MultiModalObserver;
     use std::env::temp_dir;
     use std::io::Write;
 
