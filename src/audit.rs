@@ -57,6 +57,17 @@ pub enum AuditEvent {
         tool: String,
         reason: String,
     },
+    /// L2 entered the fixed-point regime.
+    FixedPointEntered {
+        step: u64,
+        alignment_score: f64,
+    },
+    /// L2 exited the fixed-point regime.
+    FixedPointExited {
+        step: u64,
+        alignment_score: f64,
+        dwell_steps: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +88,8 @@ pub struct AuditSummary {
     pub task_episodes: usize,
     pub tools_allowed: usize,
     pub tools_denied: usize,
+    pub fixed_point_enters: usize,
+    pub fixed_point_exits: usize,
     pub first_ts: Option<DateTime<Utc>>,
     pub last_ts: Option<DateTime<Utc>>,
     pub last_action: Option<String>,
@@ -126,6 +139,8 @@ impl AuditSummary {
                     s.tools_denied += 1;
                     *actions.entry(format!("deny:{tool}")).or_insert(0) += 1;
                 }
+                AuditEvent::FixedPointEntered { .. } => s.fixed_point_enters += 1,
+                AuditEvent::FixedPointExited { .. } => s.fixed_point_exits += 1,
             }
         }
         let mut counts: Vec<_> = actions.into_iter().collect();

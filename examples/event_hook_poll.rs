@@ -101,5 +101,7 @@ fn event_kind(ev: &AuditEvent) -> &'static str {
         AuditEvent::TaskEpisode { .. } => "task_episode",
         AuditEvent::ToolAllowed { .. } => "tool_allowed",
         AuditEvent::ToolDenied { .. } => "tool_denied",
+        AuditEvent::FixedPointEntered { .. } => "fixed_point_entered",
+        AuditEvent::FixedPointExited { .. } => "fixed_point_exited",
     }
 }
