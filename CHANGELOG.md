@@ -4,8 +4,10 @@
 
 ### Docs / examples
 - `examples/event_hook_poll.rs` — in-process `set_event_hook` + `AuditLog::poll_after`
+- `examples/audit_http_shim` — `GET /status` (read-only `KernelStatus`)
 - `docs/INTEGRATING.md`, `docs/API_0.5.md` aligned to v0.5.4
 - `NOTICE` trademark / open-core boundary; README + PRODUCT posture
+- `RELEASING.md` crates.io publish checklist
 
 ## [0.5.4] — 2026-11-14
 
