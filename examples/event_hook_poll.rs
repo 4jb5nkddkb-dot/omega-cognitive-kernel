@@ -8,9 +8,7 @@
 //! cargo run --example event_hook_poll
 //! ```
 
-use omega_cognitive_kernel::{
-    AuditEvent, AuditLog, Kernel, KernelEvent, Result,
-};
+use omega_cognitive_kernel::{AuditEvent, AuditLog, Kernel, KernelEvent, Result};
 use std::env::temp_dir;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
