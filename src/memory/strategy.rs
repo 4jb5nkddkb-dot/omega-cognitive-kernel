@@ -81,6 +81,18 @@ impl StrategyMemory {
         }
     }
 
+    /// Operator / integrator nudge: set weight for an existing strategy.
+    /// Returns false if the name is unknown.
+    pub fn set_weight(&mut self, name: &str, weight: f64) -> bool {
+        if let Some(s) = self.strategies.get_mut(name) {
+            s.weight = weight.clamp(0.1, 10.0);
+            s.idle_steps = 0;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Slowly decay weights of strategies that have been idle for a while.
     pub fn decay_idle(&mut self, idle_threshold: u32, factor: f64) {
         let factor = factor.clamp(0.5, 0.99);
@@ -194,6 +206,15 @@ mod tests {
         let strategies = sm.retrieve("any", 5);
         assert!(strategies[0].weight < 1.0);
         assert_eq!(strategies[0].fail_count, 1);
+    }
+
+    #[test]
+    fn set_weight_clamps() {
+        let mut sm = StrategyMemory::default();
+        sm.absorb(&traj_with_action("observe", true));
+        assert!(sm.set_weight("observe", 99.0));
+        assert!((sm.retrieve("", 1)[0].weight - 10.0).abs() < 1e-9);
+        assert!(!sm.set_weight("missing", 1.0));
     }
 
     #[test]

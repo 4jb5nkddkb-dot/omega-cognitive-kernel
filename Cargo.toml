@@ -1,6 +1,6 @@
 [package]
 name = "omega-cognitive-kernel"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.74"
 description = "Online strategy-patch runtime: training-free RuleEffect adaptation with audit and rollback"
@@ -39,7 +39,6 @@ clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 ureq = { version = "2", default-features = true }
 
-# GUI (optional)
 eframe = { version = "0.29", default-features = true, features = ["default_fonts", "glow"], optional = true }
 egui = { version = "0.29", optional = true }
 rfd = { version = "0.15", optional = true }
