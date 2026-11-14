@@ -1,34 +1,25 @@
-# crates.io readiness (Omega Cognitive Kernel)
+# crates.io — Omega Cognitive Kernel
 
-**Status:** packaging clean on **v0.5.6**.  
-The crate is **not** on crates.io until you run a real `cargo publish` with a token.
-
-Git install:
-
-```toml
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }
-```
-
-## Verified
-
-- `cargo package` / `cargo publish --dry-run` — no example exclusion warnings
-- `examples/**/*` in `package.include`
-- GitHub tag/Release **v0.5.6** is the intended first publish version
-
-## Pre-publish
+**Published:** [omega-cognitive-kernel **0.5.6**](https://crates.io/crates/omega-cognitive-kernel)
 
 ```bash
-git pull
-cargo package
-cargo publish --dry-run   # should be clean
-cargo publish             # only when intentional + logged in
+cargo add omega-cognitive-kernel
 ```
 
-## After publish
+```toml
+omega-cognitive-kernel = "0.5.6"
+```
 
-- https://crates.io/crates/omega-cognitive-kernel
-- docs.rs build
-- optional README switch to `cargo add omega-cognitive-kernel`
+Git tag install (CLI / GUI binaries) remains available — see README.
+
+## Publish checklist (next versions)
+
+1. Bump `Cargo.toml` version
+2. CI green
+3. `cargo publish --dry-run`
+4. `cargo publish` (verified email + token)
+5. Confirm crates.io + docs.rs
+6. Align README / INTEGRATING version pins if needed
 
 ## Brand
 
