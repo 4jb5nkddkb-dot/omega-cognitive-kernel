@@ -252,6 +252,12 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
     }
 }
 
+impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<O, E> Kernel<O, E>
 where
     O: Observer,
