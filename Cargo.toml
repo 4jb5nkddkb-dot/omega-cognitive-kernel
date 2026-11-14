@@ -1,6 +1,6 @@
 [package]
 name = "omega-cognitive-kernel"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 rust-version = "1.74"
 description = "Online strategy-patch runtime: training-free RuleEffect adaptation with audit and rollback"
