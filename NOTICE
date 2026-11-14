@@ -1,0 +1,39 @@
+Omega Cognitive Kernel
+Copyright (c) 2026 Omega Core Contributors
+
+This product includes software developed under the MIT License
+(see the LICENSE file in this repository).
+
+------------------------------------------------------------------------
+TRADEMARK AND BRAND NOTICE
+
+"Omega", "Omega Kernel", "Omega Cognitive Kernel", and related logos,
+names, and branding are trademarks or trade names of the copyright
+holder(s).
+
+The MIT License grants you rights to use, modify, and distribute the
+*source code* of this project. It does **not** grant any rights to use
+the above trademarks or branding in a way that suggests endorsement,
+affiliation, or that a derivative or competing product is an official
+"Omega" product.
+
+Commercial plugins, hosted services, managed policy packs, multi-tenant
+control planes, and other value-added offerings built on or around this
+code remain the exclusive commercial rights of the copyright holder(s),
+except as explicitly licensed otherwise in writing.
+
+When redistributing or forking this software, you must retain this
+NOTICE file and the LICENSE file. You may not use the Omega name or
+branding for your fork or commercial offering without prior written
+permission.
+
+------------------------------------------------------------------------
+OPEN-CORE POSTURE
+
+The core kernel, adapters, CLI, and dashboard shipped in this repository
+are intentionally permissively licensed to encourage adoption and
+integration. Features intended for commercial differentiation
+(multi-tenant orchestration, enterprise approval workflows, compliance
+reporting, managed policy packs, hosted audit stores, etc.) may be
+delivered under separate commercial or source-available terms in the
+future.
