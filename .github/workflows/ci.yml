@@ -27,12 +27,9 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
-        continue-on-error: true
 
-      # Print full output so agents can debug; still fail on hard errors.
-      # Warnings allowed temporarily during productization phase-1.
       - name: Clippy
-        run: cargo clippy --all-targets --message-format=short 2>&1
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --verbose
