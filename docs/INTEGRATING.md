@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.5.1+**
+Target version: **v0.5.4+**
 
 ---
 
@@ -11,7 +11,7 @@ Target version: **v0.5.1+**
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.1" }
+omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.4" }
 ```
 
 Or path / main branch while iterating.
@@ -63,7 +63,30 @@ k.apply_config(&cfg);
 
 ## 4. Event stream (KernelEvent)
 
-`KernelEvent` is an alias of `AuditEvent`. Tail new records without re-reading the whole file:
+`KernelEvent` is a type alias of `AuditEvent`. Two complementary ways to consume it:
+
+### 4a. In-process hook (same process as the kernel)
+
+```rust
+use omega_cognitive_kernel::{AuditEvent, Kernel};
+
+let mut k = Kernel::open(Some("./agent-state.json"))?;
+k.set_event_hook(|ev: &AuditEvent| {
+    match ev {
+        AuditEvent::Step { action, avg_err, .. } => {
+            println!("step action={action} err={avg_err:.3}");
+        }
+        AuditEvent::PatchAccepted { damping, .. } => {
+            println!("patch accepted damping={damping:.2}");
+        }
+        _ => {}
+    }
+});
+// ... run steps ...
+k.clear_event_hook();
+```
+
+### 4b. File tail (another process / language / long-lived reader)
 
 ```rust
 use omega_cognitive_kernel::AuditLog;
@@ -80,6 +103,14 @@ loop {
 }
 ```
 
+CLI equivalent: `omega-kernel audit-poll --offset N`.
+
+Runnable demo covering both paths:
+
+```bash
+cargo run --example event_hook_poll
+```
+
 Offline trajectory summary (no world re-exec):
 
 ```rust
@@ -89,7 +120,19 @@ println!("rows={} patches={}", sum.rows, sum.patches);
 
 ---
 
-## 5. Real observe / act adapters
+## 5. Operator strategy weight nudge
+
+```rust
+// Returns false if the strategy name is unknown.
+let ok = k.set_strategy_weight("explore", 1.25);
+```
+
+CLI: `omega-kernel strategy-weight explore 1.25`  
+Dashboard Strategies tab also exposes `+` / `−` / reset controls.
+
+---
+
+## 6. Real observe / act adapters
 
 | Type | Role |
 |------|------|
@@ -99,7 +142,7 @@ println!("rows={} patches={}", sum.rows, sum.patches);
 
 ---
 
-## 6. Safety contract
+## 7. Safety contract
 
 - Runtime policy surface is **`RuleEffect` only**
 - L0 actions should stay on a **whitelist**
@@ -108,7 +151,7 @@ println!("rows={} patches={}", sum.rows, sum.patches);
 
 ---
 
-## 7. Persistence layout
+## 8. Persistence layout
 
 - `state.json` — schema-versioned snapshot
 - `audit.jsonl` — event stream (`KernelEvent`)
@@ -117,9 +160,10 @@ println!("rows={} patches={}", sum.rows, sum.patches);
 
 ---
 
-## 8. Further reading
+## 9. Further reading
 
 - [PRODUCT.md](./PRODUCT.md)
 - [API_0.5.md](./API_0.5.md)
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
+- [NOTICE](../NOTICE) — trademark / open-core boundary
