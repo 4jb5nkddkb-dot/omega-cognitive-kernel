@@ -74,6 +74,19 @@ enum Commands {
         #[arg(long, default_value_t = 4)]
         steps: u32,
     },
+    /// Operator nudge: set strategy weight (0.1–10).
+    StrategyWeight {
+        /// Strategy name (e.g. observe, explore).
+        name: String,
+        /// New weight in [0.1, 10].
+        weight: f64,
+    },
+    /// Incremental audit poll (byte cursor). Prints new events and next offset.
+    AuditPoll {
+        /// Byte offset from a previous poll (0 = from start / resync).
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+    },
 }
 
 fn state_path(cli: &Cli) -> Option<String> {
@@ -351,6 +364,26 @@ fn main() -> anyhow::Result<()> {
             println!("max_idle_steps    : {}", report.max_idle_steps);
             println!("mean_idle_weight  : {:.3}", report.mean_idle_weight);
             println!("mean_active_weight: {:.3}", report.mean_active_weight);
+        }
+        Commands::StrategyWeight { name, weight } => {
+            let mut kernel = open_kernel(&cli)?;
+            if kernel.set_strategy_weight(name, *weight) {
+                kernel.save()?;
+                println!("ok  {name} weight -> {weight:.3}");
+            } else {
+                anyhow::bail!("unknown strategy: {name}");
+            }
+        }
+        Commands::AuditPoll { offset } => {
+            let kernel = open_kernel(&cli)?;
+            let log = AuditLog::beside_state(&kernel.state_path);
+            let (rows, next) = log.poll_after(*offset)?;
+            println!("offset_in  : {offset}");
+            println!("offset_out : {next}");
+            println!("new_events : {}", rows.len());
+            for r in &rows {
+                println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+            }
         }
     }
     Ok(())
