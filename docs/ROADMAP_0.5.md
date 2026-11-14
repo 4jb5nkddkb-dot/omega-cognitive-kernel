@@ -1,27 +1,19 @@
 # Roadmap — Omega Cognitive Kernel 0.5
 
-**Status:** **v0.5.1** shipped; **0.5.2** event-stream helpers on main.
+**Status:** **v0.5.2** — event hooks + strategy weight nudge.
 
 ## Shipped
 
-### 0.5.0
-- [x] Schema version + migrate
-- [x] Trajectory replay API + CLI
-- [x] `KernelStatus.schema_version`
-- [x] Docs: ROADMAP / API_0.5
+### 0.5.0–0.5.1
+- Schema, replay, dashboard Replay tab, hard GUI release
 
-### 0.5.1
-- [x] Dashboard Replay tab
-- [x] Dashboard schema_version display
-- [x] Release: hard-require GUI artifacts (Linux + Windows)
-
-### 0.5.2 (main)
-- [x] `KernelEvent` = `AuditEvent` public alias
-- [x] `AuditLog::byte_len` / `poll_after` for integrator tailing
-- [x] PRODUCT / INTEGRATING aligned to 0.5.x
+### 0.5.2
+- [x] `KernelEvent` + `poll_after`
+- [x] `Kernel::set_event_hook`
+- [x] `set_strategy_weight` operator nudge
 
 ## Still deferred
 
-- [ ] In-process callback sinks on `Kernel::step` (today: poll audit.jsonl)
-- [ ] Multi-instance / workspace layout
-- [ ] Deeper dashboard strategy editing
+- [ ] Full multi-tenant control plane
+- [ ] Richer dashboard strategy editor (beyond weight nudge)
+- [ ] Workspace multi-kernel orchestration service

@@ -1,37 +1,32 @@
 # Changelog
 
-## [0.5.2] — unreleased (main)
+## [0.5.2] — 2026-11-14
 
 ### Events
 
 - Public alias `KernelEvent` = `AuditEvent`
-- `AuditLog::byte_len` and `AuditLog::poll_after` for incremental tailing
+- `AuditLog::byte_len` / `poll_after` for incremental tailing
+- In-process `Kernel::set_event_hook` / `clear_event_hook`
+
+### Strategies
+
+- `StrategyMemory::set_weight` + `Kernel::set_strategy_weight`
 
 ### Docs
 
-- PRODUCT / INTEGRATING / API_0.5 / ROADMAP aligned to 0.5.1+ and event stream
+- PRODUCT / INTEGRATING / API_0.5 / ROADMAP aligned to event stream
 
 ## [0.5.1] — 2026-11-14
 
-### Dashboard
-
-- **Replay** tab; schema_version in status chrome
-
-### Release
-
-- GUI build required on Linux and Windows
+- Dashboard Replay tab; required GUI release artifacts
 
 ## [0.5.0] — 2026-11-14
 
-### Schema + replay
-
-- `CURRENT_SCHEMA_VERSION = 1` with migrate; trajectory replay API/CLI
+- Schema migrate + trajectory replay
 
 ## [0.4.9] — 2026-11-14
 
-### Stability
-
-- Case memory / orchestrator test de-flake; strict CI fmt/clippy
+- CI stability
 
 ## Earlier
 
