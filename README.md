@@ -25,15 +25,27 @@ Omega takes a third path: **structured, reversible policy patches**.
 | **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
 | **[docs/API_0.5.md](docs/API_0.5.md)** | 0.5 surface (schema + replay + events) |
 | **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
-| **[docs/CRATES_IO.md](docs/CRATES_IO.md)** | Optional crates.io publish |
+| **[docs/CRATES_IO.md](docs/CRATES_IO.md)** | crates.io notes |
 
 ---
 
-**Status:** research prototype (**v0.5.6**). Schema versioned; trajectory replay; event stream; strategy weight; multi-workspace dashboard; `status --json`; examples in crate package.
+**Status:** research prototype (**v0.5.6** on [crates.io](https://crates.io/crates/omega-cognitive-kernel)). Schema versioned; trajectory replay; event stream; strategy weight; multi-workspace dashboard; `status --json`.
 
 ---
 
 ## Install
+
+**Library (crates.io):**
+
+```bash
+cargo add omega-cognitive-kernel
+```
+
+```toml
+omega-cognitive-kernel = "0.5.6"
+```
+
+**CLI / dashboard from git tag:**
 
 ```bash
 cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked
@@ -41,14 +53,6 @@ cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --t
 ```
 
 Or download binaries from [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases).
-
-Library dependency (git):
-
-```toml
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }
-```
-
-crates.io publish is optional; see [docs/CRATES_IO.md](docs/CRATES_IO.md).
 
 ---
 
@@ -98,7 +102,7 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **0.5.1** | Dashboard Replay tab + required GUI release artifacts |
 | **0.5.2–0.5.4** | Event hooks / poll_after, strategy weight, multi-workspace, CLI parity |
 | **0.5.5** | `status --json` + HTTP `/status` example |
-| **0.5.6** | examples in crate package (crates.io-ready) — **current** |
+| **0.5.6** | examples in crate package; **on crates.io** — **current** |
 
 See [CHANGELOG.md](CHANGELOG.md).
 
