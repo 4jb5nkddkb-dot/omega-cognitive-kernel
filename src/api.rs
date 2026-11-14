@@ -572,6 +572,10 @@ where
         Ok(meta)
     }
 
+    pub fn list_checkpoints(&self) -> Result<Vec<CheckpointMeta>> {
+        self.checkpoints().list()
+    }
+
     pub fn rollback(&mut self, checkpoint_id: Uuid) -> Result<()> {
         let snap = self.checkpoints().load_snapshot(checkpoint_id)?;
         self.apply_snapshot(snap);
