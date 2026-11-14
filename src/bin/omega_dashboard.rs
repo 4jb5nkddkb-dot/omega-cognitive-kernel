@@ -467,10 +467,8 @@ impl DashboardApp {
     fn ui_replay(&mut self, ui: &mut egui::Ui) {
         ui.heading("Trajectory replay");
         ui.label(
-            RichText::new(
-                "Offline summary of trajectory.jsonl (same as CLI omega-kernel replay).",
-            )
-            .weak(),
+            RichText::new("Offline summary of trajectory.jsonl (same as CLI omega-kernel replay).")
+                .weak(),
         );
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -545,10 +543,7 @@ impl DashboardApp {
         ui.heading("Settings");
         ui.add_space(8.0);
 
-        ui.checkbox(
-            &mut self.self_modify,
-            "self_modify_enabled (default off)",
-        );
+        ui.checkbox(&mut self.self_modify, "self_modify_enabled (default off)");
         ui.checkbox(&mut self.dump_trajectory, "dump trajectory.jsonl");
         if ui.button("Apply flags to Kernel").clicked() {
             self.apply_flags_to_kernel();
@@ -594,7 +589,11 @@ impl DashboardApp {
             )
             .small(),
         );
-        ui.label(RichText::new("Omega Dashboard v0.5.1  ·  MIT").weak().small());
+        ui.label(
+            RichText::new("Omega Dashboard v0.5.1  ·  MIT")
+                .weak()
+                .small(),
+        );
     }
 }
 
