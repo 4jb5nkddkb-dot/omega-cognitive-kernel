@@ -11,8 +11,17 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
+/// Current on-disk schema. Bump only with a migration path.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+fn default_schema_version() -> u32 {
+    0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
+    /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated to 1.
+    #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
     pub biases: HashMap<String, f64>,
@@ -29,19 +38,42 @@ pub struct KernelSnapshot {
 }
 
 impl KernelSnapshot {
+    /// Migrate older snapshots into `CURRENT_SCHEMA_VERSION`.
+    pub fn migrate(mut self) -> Result<Self> {
+        if self.version > CURRENT_SCHEMA_VERSION {
+            return Err(OmegaError::Persist(format!(
+                "state schema version {} is newer than supported {}",
+                self.version, CURRENT_SCHEMA_VERSION
+            )));
+        }
+        if self.version < 1 {
+            // v0 → v1: case.priority backfill happens in CaseMemory::restore;
+            // ensure capacity is sane and stamp version.
+            if self.case_capacity == 0 {
+                self.case_capacity = 256;
+            }
+            self.version = 1;
+        }
+        Ok(self)
+    }
+
     pub fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
+        let mut snap = self.clone();
+        snap.version = CURRENT_SCHEMA_VERSION;
         let json =
-            serde_json::to_string_pretty(self).map_err(|e| OmegaError::Persist(e.to_string()))?;
+            serde_json::to_string_pretty(&snap).map_err(|e| OmegaError::Persist(e.to_string()))?;
         fs::write(path, json).map_err(|e| OmegaError::Persist(e.to_string()))?;
         Ok(())
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
         let data = fs::read_to_string(path).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        serde_json::from_str(&data).map_err(|e| OmegaError::Persist(e.to_string()))
+        let snap: Self =
+            serde_json::from_str(&data).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        snap.migrate()
     }
 }
 
@@ -84,10 +116,73 @@ mod tests {
         };
         snap.save_to(&path).unwrap();
         let loaded = KernelSnapshot::load_from(&path).unwrap();
+        assert_eq!(loaded.version, CURRENT_SCHEMA_VERSION);
         assert_eq!(loaded.total_steps, 7);
         assert!((loaded.cognitive_effect.error_damping - 0.7).abs() < 1e-9);
         assert!((loaded.cognitive_effect.explore_bonus + 0.2).abs() < 1e-9);
         assert!((loaded.cognitive_effect.risk_tolerance - 0.4).abs() < 1e-9);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrates_version_zero() {
+        let path = temp_dir().join(format!("omega-mig-{}.json", Uuid::new_v4()));
+        // Pre-0.5 style: omit version field entirely.
+        let raw = r#"{
+            "total_steps": 3,
+            "biases": {},
+            "constraints": {"max_risk": 0.65},
+            "cas_total_steps": 3,
+            "cas_avg_prediction_error": 0.2,
+            "cas_adaptation_score": 0.5,
+            "cognitive_effect": {
+                "error_damping": 1.0,
+                "action_preference": {},
+                "min_uncertainty": 0.05,
+                "explore_bonus": 0.0,
+                "risk_tolerance": 0.5
+            },
+            "cases": [],
+            "case_capacity": 0,
+            "strategies": {},
+            "active_modules": {},
+            "patch_history": []
+        }"#;
+        fs::write(&path, raw).unwrap();
+        let loaded = KernelSnapshot::load_from(&path).unwrap();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.case_capacity, 256);
+        assert_eq!(loaded.total_steps, 3);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_future_schema() {
+        let path = temp_dir().join(format!("omega-future-{}.json", Uuid::new_v4()));
+        let snap = KernelSnapshot {
+            version: 99,
+            total_steps: 0,
+            biases: HashMap::new(),
+            constraints: HashMap::new(),
+            cas_total_steps: 0,
+            cas_avg_prediction_error: 0.0,
+            cas_adaptation_score: 0.0,
+            cognitive_effect: RuleEffect::default(),
+            cases: vec![],
+            case_capacity: 256,
+            strategies: HashMap::new(),
+            active_modules: HashMap::new(),
+            patch_history: vec![],
+        };
+        // Bypass save_to stamping by writing raw.
+        fs::write(
+            &path,
+            serde_json::to_string(&snap).unwrap(),
+        )
+        .unwrap();
+        let err = KernelSnapshot::load_from(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("newer") || msg.contains("99"), "{msg}");
         let _ = fs::remove_file(&path);
     }
 }
