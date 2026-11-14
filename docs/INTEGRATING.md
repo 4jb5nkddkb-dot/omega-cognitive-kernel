@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.5.4+**
+Target version: **v0.5.5+**
 
 ---
 
@@ -11,10 +11,10 @@ Target version: **v0.5.4+**
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.4" }
+omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.5" }
 ```
 
-Or path / main branch while iterating.
+Or path / main branch while iterating. crates.io publish is optional — see [RELEASING.md](../RELEASING.md).
 
 ---
 
@@ -120,7 +120,24 @@ println!("rows={} patches={}", sum.rows, sum.patches);
 
 ---
 
-## 5. Operator strategy weight nudge
+## 5. Status export
+
+```rust
+let st = k.status(); // KernelStatus (serde)
+```
+
+CLI:
+
+```bash
+omega-kernel status           # human text
+omega-kernel status --json    # machine-readable
+```
+
+Localhost HTTP demo: `cargo run --example audit_http_shim` → `GET /status`.
+
+---
+
+## 6. Operator strategy weight nudge
 
 ```rust
 // Returns false if the strategy name is unknown.
@@ -132,7 +149,7 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 
 ---
 
-## 6. Real observe / act adapters
+## 7. Real observe / act adapters
 
 | Type | Role |
 |------|------|
@@ -142,7 +159,7 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 
 ---
 
-## 7. Safety contract
+## 8. Safety contract
 
 - Runtime policy surface is **`RuleEffect` only**
 - L0 actions should stay on a **whitelist**
@@ -151,7 +168,7 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 
 ---
 
-## 8. Persistence layout
+## 9. Persistence layout
 
 - `state.json` — schema-versioned snapshot
 - `audit.jsonl` — event stream (`KernelEvent`)
@@ -160,10 +177,11 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 
 ---
 
-## 9. Further reading
+## 10. Further reading
 
 - [PRODUCT.md](./PRODUCT.md)
 - [API_0.5.md](./API_0.5.md)
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
 - [NOTICE](../NOTICE) — trademark / open-core boundary
+- [RELEASING.md](../RELEASING.md) — GitHub release + optional crates.io
