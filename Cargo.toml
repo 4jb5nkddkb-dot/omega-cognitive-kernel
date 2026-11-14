@@ -14,6 +14,7 @@ keywords = ["cognitive", "agent", "runtime", "patch", "adaptive"]
 categories = ["algorithms", "command-line-utilities"]
 include = [
   "src/**/*",
+  "examples/**/*",
   "Cargo.toml",
   "README.md",
   "LICENSE",
