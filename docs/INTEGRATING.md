@@ -4,6 +4,8 @@ Practical guide for embedding the kernel in another process or service.
 
 Target version: **v0.5.6+** ([crates.io](https://crates.io/crates/omega-cognitive-kernel))
 
+**Recommended first run:** [examples/README.md](../examples/README.md) → `cargo run --example drop_inbox_loop` then open the dashboard.
+
 ---
 
 ## 1. Add the dependency
@@ -149,7 +151,7 @@ let ok = k.set_strategy_weight("explore", 1.25);
 ```
 
 CLI: `omega-kernel strategy-weight explore 1.25`  
-Dashboard Strategies tab also exposes `+` / `−` / reset controls.
+Dashboard Strategies tab also exposes `+` / `−` / reset controls. See [DASHBOARD.md](./DASHBOARD.md).
 
 ---
 
@@ -160,6 +162,8 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 | `Observer` | Feed world state each step |
 | `Executor` | Apply chosen actions |
 | Built-ins | `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, `SandboxedExecutor`, `ToolGateExecutor` |
+
+Full list and quick-start path: [examples/README.md](../examples/README.md).
 
 ---
 
@@ -184,6 +188,8 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 ## 10. Further reading
 
 - [PRODUCT.md](./PRODUCT.md)
+- [DASHBOARD.md](./DASHBOARD.md)
+- [examples/README.md](../examples/README.md)
 - [API_0.5.md](./API_0.5.md)
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
