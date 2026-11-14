@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.9] — 2026-11-14
+
+### Stability
+
+- Case memory sampling: counter-seeded LCG + relaxed `retrieve_prefers_high_error` threshold
+- Orchestrator patch test: assert accepted patch + damping, drop flaky error-decrease assert
+- CI: formatting + clippy enforced; scheduled quality workflow opens PRs instead of direct push
+
+### Docs
+
+- Version headers aligned to 0.4.9 across Cargo / README / ARCHITECTURE
+
 ## [0.4.8] — 2026-11-12
 
 ### Case memory: prioritized experience replay

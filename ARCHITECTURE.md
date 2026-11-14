@@ -1,6 +1,6 @@
 # Architecture — Omega Cognitive Kernel
 
-**Version:** 0.4.7  
+**Version:** 0.4.9  
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
 ```
