@@ -1,6 +1,7 @@
 # crates.io readiness (Omega Cognitive Kernel)
 
-**Status:** checklist only — the crate is **not** published to crates.io until you run `cargo publish` with a token.
+**Status:** `cargo package` / `cargo publish --dry-run` verified for **v0.5.5**.  
+The crate is **not** on crates.io until you run a real `cargo publish` with a token.
 
 Git install remains the supported path:
 
@@ -8,7 +9,14 @@ Git install remains the supported path:
 omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.5" }
 ```
 
-## Why wait
+## Dry-run result (2026-11-14)
+
+- Packaged successfully (~374 KiB / ~94 KiB compressed)
+- Compile-from-package OK
+- Upload aborted as expected under `--dry-run`
+- Early dry-runs warned that `examples/*` were excluded; **`examples/**/*` is now in `package.include`** — re-run `cargo package` after pull to clear those warnings
+
+## Why wait on a real publish
 
 - API is additive on 0.5.x but still a research prototype
 - Yanking mistakes is possible but noisy; prefer deliberate first publish
@@ -19,11 +27,12 @@ omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognit
 1. **Account** — crates.io account + `cargo login`
 2. **Version** — `Cargo.toml` version not already on crates.io
 3. **Metadata** — `license`, `description`, `repository`, `readme`, `keywords`, `categories` present
-4. **Include** — `LICENSE`, `NOTICE`, `README.md`, `docs/**/*` in `package.include`
+4. **Include** — `LICENSE`, `NOTICE`, `README.md`, `docs/**/*`, `examples/**/*`
 5. **CI green** on the commit you will publish
 6. **Dry run**
 
 ```bash
+git pull
 cargo package
 # inspect target/package/omega-cognitive-kernel-*
 cargo publish --dry-run
