@@ -14,7 +14,9 @@ use crate::l1::L1CognitiveLayer;
 use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
 use crate::orchestrator::{OmegaOrchestrator, StepResult};
-use crate::persist::{resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
+use crate::persist::{
+    resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH,
+};
 use crate::safety;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -630,16 +632,22 @@ mod tests {
     fn replay_trajectory_counts_patches() {
         let path = temp_dir().join(format!("omega-traj-{}.jsonl", Uuid::new_v4()));
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"step":1,"action":"explore","patched":false,"avg_err":0.5,"goal":"g"}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"step":2,"action":"stabilize","patched":true,"avg_err":0.3,"goal":"g"}}"#
-        )
-        .unwrap();
+        let line1 = serde_json::json!({
+            "step": 1,
+            "action": "explore",
+            "patched": false,
+            "avg_err": 0.5,
+            "goal": "g"
+        });
+        let line2 = serde_json::json!({
+            "step": 2,
+            "action": "stabilize",
+            "patched": true,
+            "avg_err": 0.3,
+            "goal": "g"
+        });
+        writeln!(f, "{line1}").unwrap();
+        writeln!(f, "{line2}").unwrap();
         let sum = replay_trajectory_file(&path, 10).unwrap();
         assert_eq!(sum.rows, 2);
         assert_eq!(sum.patches, 1);
