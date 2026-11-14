@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.6] — 2026-11-14
+
+### Packaging
+- `package.include` now ships `examples/**/*` (clears crates.io dry-run warnings)
+- crates.io dry-run verified; intentional first publish target
+
+No API or schema change vs 0.5.5.
+
 ## [0.5.5] — 2026-11-14
 
 ### CLI
@@ -8,7 +16,7 @@
 ### Examples / docs
 - `audit_http_shim` `GET /status` (read-only)
 - `event_hook_poll` example; INTEGRATING / API docs aligned
-- `NOTICE` + open-core posture; crates.io checklist in RELEASING.md
+- `NOTICE` + open-core posture; crates.io checklist in RELEASING.md / CRATES_IO.md
 
 ## [0.5.4] — 2026-11-14
 
