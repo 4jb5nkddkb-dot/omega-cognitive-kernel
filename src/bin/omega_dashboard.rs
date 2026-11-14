@@ -324,7 +324,7 @@ impl DashboardApp {
                 &format!("{:.3}", st.error_damping),
                 Color32::from_rgb(100, 200, 140),
             );
-            ui.add_space(10.0);
+            ui.add__space(10.0);
             self.stat_card(
                 ui,
                 "策略数",
@@ -467,8 +467,10 @@ impl DashboardApp {
     fn ui_replay(&mut self, ui: &mut egui::Ui) {
         ui.heading("轨迹回放");
         ui.label(
-            RichText::new("离线汇总 trajectory.jsonl，不重跑世界循环。与 CLI `omega-kernel replay` 同源。")
-                .weak(),
+            RichText::new(
+                "离线汇总 trajectory.jsonl，不重跑世界循环。与 CLI `omega-kernel replay` 同源。",
+            )
+            .weak(),
         );
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -486,10 +488,7 @@ impl DashboardApp {
             }
             Some(sum) => {
                 ui.label(format!("path: {}", sum.path));
-                ui.label(format!(
-                    "rows={}  patches={}",
-                    sum.rows, sum.patches
-                ));
+                ui.label(format!("rows={}  patches={}", sum.rows, sum.patches));
                 if let (Some(a), Some(b)) = (sum.first_avg_err, sum.last_avg_err) {
                     ui.label(format!("avg_err: {a:.4} → {b:.4}"));
                 }
@@ -583,7 +582,7 @@ impl DashboardApp {
             if ui.button("另存 state…").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_title("保存 state")
-                    .set_file_name("state.json")
+_name("state.json")
                     .save_file()
                 {
                     self.kernel.state_path = path.clone();
