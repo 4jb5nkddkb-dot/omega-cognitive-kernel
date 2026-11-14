@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.5.5+**
+Target version: **v0.5.6+**
 
 ---
 
@@ -11,10 +11,10 @@ Target version: **v0.5.5+**
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.5" }
+omega-cognitive-kernel = { git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }
 ```
 
-Or path / main branch while iterating. crates.io publish is optional — see [RELEASING.md](../RELEASING.md).
+Or path / main branch while iterating. Optional crates.io: see [CRATES_IO.md](./CRATES_IO.md).
 
 ---
 
@@ -184,4 +184,4 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls.
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
 - [NOTICE](../NOTICE) — trademark / open-core boundary
-- [RELEASING.md](../RELEASING.md) — GitHub release + optional crates.io
+- [CRATES_IO.md](./CRATES_IO.md) — optional crates.io
