@@ -7,7 +7,7 @@
 #![windows_subsystem = "windows"]
 
 use eframe::egui::{self, Color32, RichText};
-use omega_cognitive_kernel::api::Kernel;
+use omega_cognitive_kernel::api::{Kernel, TrajectoryReplaySummary};
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::KernelConfig;
 use std::path::PathBuf;
@@ -67,6 +67,7 @@ enum Tab {
     Dashboard,
     Run,
     Audit,
+    Replay,
     Strategies,
     Settings,
 }
@@ -82,6 +83,8 @@ struct DashboardApp {
     config_path: Option<PathBuf>,
     self_modify: bool,
     dump_trajectory: bool,
+    replay_tail: usize,
+    replay_summary: Option<TrajectoryReplaySummary>,
 }
 
 impl DashboardApp {
@@ -112,6 +115,8 @@ impl DashboardApp {
             config_path: None,
             self_modify: false,
             dump_trajectory: true,
+            replay_tail: 20,
+            replay_summary: None,
         }
     }
 
@@ -162,6 +167,20 @@ impl DashboardApp {
         self.refresh_flags_from_kernel();
     }
 
+    fn load_replay(&mut self) {
+        match self.kernel.replay_trajectory(self.replay_tail) {
+            Ok(sum) => {
+                self.status_msg = format!("回放 {} 行", sum.rows);
+                self.replay_summary = Some(sum);
+                self.error = None;
+            }
+            Err(e) => {
+                self.replay_summary = None;
+                self.error = Some(format!("回放失败: {e}"));
+            }
+        }
+    }
+
     fn load_state_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("打开 state.json")
@@ -173,6 +192,7 @@ impl DashboardApp {
                     k.autosave = true;
                     self.kernel = k;
                     self.refresh_flags_from_kernel();
+                    self.replay_summary = None;
                     self.status_msg = format!("已加载 {}", path.display());
                     self.error = None;
                 }
@@ -221,6 +241,7 @@ impl eframe::App for DashboardApp {
                 ui.selectable_value(&mut self.tab, Tab::Dashboard, "📊 仪表盘");
                 ui.selectable_value(&mut self.tab, Tab::Run, "▶ 运行");
                 ui.selectable_value(&mut self.tab, Tab::Audit, "📜 审计");
+                ui.selectable_value(&mut self.tab, Tab::Replay, "🔁 回放");
                 ui.selectable_value(&mut self.tab, Tab::Strategies, "🎯 策略");
                 ui.selectable_value(&mut self.tab, Tab::Settings, "⚙️ 设置");
             });
@@ -233,8 +254,11 @@ impl eframe::App for DashboardApp {
                 ui.separator();
                 let st = self.kernel.status();
                 ui.label(format!(
-                    "steps={}  err={:.3}  self_modify={}",
-                    st.total_steps, st.avg_prediction_error, st.self_modify_enabled
+                    "schema={}  steps={}  err={:.3}  self_modify={}",
+                    st.schema_version,
+                    st.total_steps,
+                    st.avg_prediction_error,
+                    st.self_modify_enabled
                 ));
                 if let Some(ref e) = self.error {
                     ui.colored_label(Color32::from_rgb(255, 120, 120), e);
@@ -246,6 +270,7 @@ impl eframe::App for DashboardApp {
             Tab::Dashboard => self.ui_dashboard(ui),
             Tab::Run => self.ui_run(ui),
             Tab::Audit => self.ui_audit(ui),
+            Tab::Replay => self.ui_replay(ui),
             Tab::Strategies => self.ui_strategies(ui),
             Tab::Settings => self.ui_settings(ui),
         });
@@ -259,10 +284,10 @@ impl DashboardApp {
             .rounding(8.0)
             .inner_margin(14.0)
             .show(ui, |ui| {
-                ui.set_min_width(130.0);
+                ui.set_min_width(120.0);
                 ui.vertical(|ui| {
                     ui.label(RichText::new(title).small().weak());
-                    ui.label(RichText::new(value).size(24.0).color(accent).strong());
+                    ui.label(RichText::new(value).size(22.0).color(accent).strong());
                 });
             });
     }
@@ -274,32 +299,39 @@ impl DashboardApp {
         ui.horizontal(|ui| {
             self.stat_card(
                 ui,
+                "Schema",
+                &st.schema_version.to_string(),
+                Color32::from_rgb(160, 200, 255),
+            );
+            ui.add_space(10.0);
+            self.stat_card(
+                ui,
                 "总步数",
                 &st.total_steps.to_string(),
                 Color32::from_rgb(80, 160, 255),
             );
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             self.stat_card(
                 ui,
                 "预测误差",
                 &format!("{:.3}", st.avg_prediction_error),
                 Color32::from_rgb(255, 180, 80),
             );
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             self.stat_card(
                 ui,
                 "阻尼",
                 &format!("{:.3}", st.error_damping),
                 Color32::from_rgb(100, 200, 140),
             );
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             self.stat_card(
                 ui,
                 "策略数",
                 &st.strategy_count.to_string(),
                 Color32::from_rgb(180, 140, 255),
             );
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             self.stat_card(
                 ui,
                 "自修改",
@@ -337,6 +369,9 @@ impl DashboardApp {
             }
             if ui.button("去运行 →").clicked() {
                 self.tab = Tab::Run;
+            }
+            if ui.button("去回放 →").clicked() {
+                self.tab = Tab::Replay;
             }
         });
     }
@@ -429,6 +464,62 @@ impl DashboardApp {
         }
     }
 
+    fn ui_replay(&mut self, ui: &mut egui::Ui) {
+        ui.heading("轨迹回放");
+        ui.label(
+            RichText::new("离线汇总 trajectory.jsonl，不重跑世界循环。与 CLI `omega-kernel replay` 同源。")
+                .weak(),
+        );
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("tail:");
+            ui.add(egui::DragValue::new(&mut self.replay_tail).range(5..=200));
+            if ui.button(RichText::new("加载回放").strong()).clicked() {
+                self.load_replay();
+            }
+        });
+
+        ui.add_space(12.0);
+        match &self.replay_summary {
+            None => {
+                ui.label("(尚未加载 — 先运行若干步并确保 dump_trajectory 开启)");
+            }
+            Some(sum) => {
+                ui.label(format!("path: {}", sum.path));
+                ui.label(format!(
+                    "rows={}  patches={}",
+                    sum.rows, sum.patches
+                ));
+                if let (Some(a), Some(b)) = (sum.first_avg_err, sum.last_avg_err) {
+                    ui.label(format!("avg_err: {a:.4} → {b:.4}"));
+                }
+                if !sum.action_counts.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label("动作分布:");
+                    for (name, n) in &sum.action_counts {
+                        ui.label(format!("  {name:<12} {n}"));
+                    }
+                }
+                ui.add_space(10.0);
+                ui.heading("尾部步骤");
+                egui::ScrollArea::vertical()
+                    .max_height(300.0)
+                    .show(ui, |ui| {
+                        for r in &sum.tail {
+                            let err = r
+                                .avg_err
+                                .map(|e| format!("{e:.3}"))
+                                .unwrap_or_else(|| "-".into());
+                            ui.monospace(format!(
+                                "step {:>4}  act={:<10}  patched={:<5}  avg_err={}",
+                                r.step, r.action, r.patched, err
+                            ));
+                        }
+                    });
+            }
+        }
+    }
+
     fn ui_strategies(&mut self, ui: &mut egui::Ui) {
         ui.heading("策略记忆");
         let strategies = self.kernel.inner.l0.memory.strategy.retrieve("", 50);
@@ -515,13 +606,13 @@ impl DashboardApp {
                 "说明：\n\
 • Dashboard 只操作本地 Kernel，不上传数据。\n\
 • 自修改关闭时 L1 不会提交规则补丁。\n\
-• 轨迹与审计写在 state 同目录。\n\
+• 轨迹与审计写在 state 同目录；回放页读取 trajectory.jsonl。\n\
 • 完整产品化前请保持 self_modify=false。",
             )
             .small(),
         );
         ui.label(
-            RichText::new("Omega Dashboard v0.4.6  ·  MIT")
+            RichText::new("Omega Dashboard v0.5.1  ·  MIT")
                 .weak()
                 .small(),
         );
