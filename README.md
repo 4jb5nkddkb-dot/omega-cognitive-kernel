@@ -28,15 +28,15 @@ Omega takes a third path: **structured, reversible policy patches**.
 
 ---
 
-**Status:** research prototype (**v0.5.1**). Schema versioned; trajectory replay (CLI + dashboard).
+**Status:** research prototype (**v0.5.4**). Schema versioned; trajectory replay; event stream helpers; operator strategy weight + multi-workspace dashboard.
 
 ---
 
 ## Install
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.1 --locked
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.1 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.4 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.4 --locked --features gui --bin omega-dashboard
 ```
 
 Or download binaries from [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases).
@@ -85,15 +85,20 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 |---------|---------|
 | **0.4.x** | Integrator freeze + PER + dashboard intro |
 | **0.5.0** | Schema migrate + trajectory replay |
-| **0.5.1** | Dashboard Replay tab + required GUI release artifacts — **current** |
+| **0.5.1** | Dashboard Replay tab + required GUI release artifacts |
+| **0.5.2–0.5.4** | Event hooks / poll_after, strategy weight, multi-workspace, CLI parity — **current** |
 
 See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## License
+## License & Brand
 
-MIT — see [LICENSE](LICENSE).
+This project is released under the **MIT License** — see [LICENSE](LICENSE).
+
+The names "Omega", "Omega Kernel", and "Omega Cognitive Kernel", together with related branding, are trademarks of the copyright holder(s). The MIT license grants rights to the *source code*; it does **not** grant trademark rights. See [NOTICE](NOTICE) for the full trademark and open-core posture statement.
+
+Commercial plugins, hosted multi-tenant services, managed policy packs, and enterprise control-plane features may be offered under separate terms in the future.
 
 ---
 
