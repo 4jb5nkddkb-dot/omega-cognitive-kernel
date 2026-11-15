@@ -43,7 +43,7 @@ The regression test `snapshot_json_roundtrips_l2_state_at_arbitrary_step` verifi
 
 ## No-std assessment
 
-The full product kernel is **not yet no_std**. The remaining blockers are deliberate host/product surfaces and standard-library assumptions:
+The kernel **core library now compiles as no_std + alloc**. The host/product facade remains std-only; this is an intentional boundary rather than a failed core build. Host surfaces include:
 
 - `std::collections::HashMap` / `HashSet` across core modules;
 - filesystem-backed persistence, checkpoints, audit logs, and directory observers;
@@ -52,7 +52,7 @@ The full product kernel is **not yet no_std**. The remaining blockers are delibe
 - `chrono`/`uuid` feature choices and error/reporting paths that currently assume `std`;
 - CLI/configuration/dashboard modules.
 
-The recommended next split is a `kernel-core` no-std-plus-alloc crate containing types, L0 decision/predictor, memory, L1/L2 state machines, and an allocation-free adapter trait boundary. The existing crate should remain the host facade implementing persistence, audit, networking, filesystem observers, and CLI. That split is safer than applying `no_std` conditionals throughout the current monolith and preserves the existing native API.
+The current crate now uses `std` as the default feature and `--no-default-features` as the embedded core build. The core uses `alloc`, `hashbrown`, and `libm`; filesystem, audit persistence, HTTP, CLI, TOML configuration, and GUI modules are gated behind `std`. A future `kernel-core` crate can still extract this boundary, but the current conditional split already provides a compiling embedded library surface.
 
 The current validation entry point is:
 
@@ -61,7 +61,7 @@ rustup target add thumbv7em-none-eabihf
 ./scripts/test-no-std.sh
 ```
 
-The script requires the standalone `no_std + alloc + serde` probe to compile, then probes the full kernel and prints its blockers. `ALLOW_NO_STD_GAP=1` converts the known full-kernel gap into a non-blocking report. `.github/workflows/no-std.yml` runs the probe as a required job and keeps a separate full-kernel boundary report with the compiler log as an artifact.
+The script requires both the standalone `no_std + alloc + serde` probe and the kernel core to compile. `.github/workflows/no-std.yml` and `.github/workflows/scheduled-portability.yml` run this as a blocking check and upload the compiler log as an artifact.
 
 ## Verification matrix
 
@@ -72,4 +72,5 @@ The script requires the standalone `no_std + alloc + serde` probe to compile, th
 | `wasm32-wasip1` library build | Passed |
 | `wasm32-unknown-unknown` library build | Passed |
 | JSON snapshot hot restore at arbitrary step | Passed |
-| Full product `no_std` build | Not yet supported; requires core/facade split |
+| Kernel core `no_std` build | Passed with `--no-default-features` |
+| Full host facade `no_std` build | Intentionally excluded; requires filesystem/network/CLI replacement |

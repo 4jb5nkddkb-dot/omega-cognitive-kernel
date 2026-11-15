@@ -1,9 +1,12 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::l0::L0WorldLayer;
 use crate::l1::{L1CognitiveLayer, L1Result};
 use crate::l2::{L2MetaLayer, L2Result};
 use crate::types::{Intent, SystemState, Trajectory};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub struct OmegaOrchestrator<O, P, D, E>
 where

@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod decision;
 pub mod executor;
 pub mod observer;
@@ -7,7 +10,7 @@ use crate::error::Result;
 use crate::l1::learner::Learner;
 use crate::memory::MemoryFacade;
 use crate::types::*;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub struct L0WorldLayer<O, P, D, E>
 where

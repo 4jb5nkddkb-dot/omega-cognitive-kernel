@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod emergence;
 pub mod fixed_point;
 pub mod modulator;
@@ -7,9 +10,9 @@ use crate::error::Result;
 use crate::types::{MetaMetrics, RuleEffect, SystemState};
 use emergence::EmergenceDetector;
 use fixed_point::{OmegaDayanFixedPoint, ScoreSignals};
+use hashbrown::HashMap;
 use modulator::MetaModulator;
 use monitor::MetaMonitor;
-use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct L2Result {
@@ -307,7 +310,7 @@ impl Default for L2MetaLayer {
 mod tests {
     use super::L2MetaLayer;
     use crate::types::{RuleEffect, SystemState};
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     #[test]
     fn defensive_mode_recovers_after_strong_positive_consequence() {

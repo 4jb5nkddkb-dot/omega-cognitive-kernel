@@ -1,5 +1,8 @@
 //! Named checkpoints for rollback (S3).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::{OmegaError, Result};
 use crate::persist::KernelSnapshot;
 use chrono::{DateTime, Utc};
@@ -50,10 +53,10 @@ impl CheckpointStore {
     ) -> Result<CheckpointMeta> {
         fs::create_dir_all(&self.dir).map_err(|e| OmegaError::Persist(e.to_string()))?;
         let meta = CheckpointMeta {
-            id: Uuid::new_v4(),
+            id: crate::new_uuid(),
             label: label.into(),
             step,
-            created_at: Utc::now(),
+            created_at: crate::now_utc(),
             avg_err,
             damping,
         };
@@ -113,12 +116,12 @@ impl CheckpointStore {
 mod tests {
     use super::*;
     use crate::types::RuleEffect;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
     use std::env::temp_dir;
 
     #[test]
     fn save_list_load() {
-        let dir = temp_dir().join(format!("omega-ckpt-{}", Uuid::new_v4()));
+        let dir = temp_dir().join(format!("omega-ckpt-{}", crate::new_uuid()));
         let store = CheckpointStore {
             dir: dir.clone(),
             max_keep: 32,

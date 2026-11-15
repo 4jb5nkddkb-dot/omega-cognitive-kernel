@@ -1,7 +1,13 @@
-use crate::error::{OmegaError, Result};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+#[cfg(feature = "std")]
+use crate::error::OmegaError;
+use crate::error::Result;
 use crate::types::{Modality, Observation};
-use chrono::Utc;
+#[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "std")]
 use std::time::Duration;
 
 /// External world observation interface.
@@ -32,12 +38,12 @@ impl Observer for MultiModalObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
         Ok(vec![Observation {
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             modality: Modality::Structured,
             content: serde_json::json!({
                 "step": self.step_counter,
                 "signal": "world_tick",
-                "value": (self.step_counter as f64 * 0.1).sin()
+                "value": libm::sin(self.step_counter as f64 * 0.1)
             }),
             confidence: 0.95,
             source: "sim_sensor".into(),
@@ -46,11 +52,13 @@ impl Observer for MultiModalObserver {
 }
 
 /// Reads a single JSON (or plain-text) file on each observe call.
+#[cfg(feature = "std")]
 pub struct FileObserver {
     path: PathBuf,
     step_counter: u64,
 }
 
+#[cfg(feature = "std")]
 impl FileObserver {
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
@@ -60,6 +68,7 @@ impl FileObserver {
     }
 }
 
+#[cfg(feature = "std")]
 impl Observer for FileObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
@@ -78,7 +87,7 @@ impl Observer for FileObserver {
         });
 
         Ok(vec![Observation {
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             modality: Modality::Structured,
             content,
             confidence: 0.9,
@@ -90,12 +99,14 @@ impl Observer for FileObserver {
 /// Snapshot of a directory: file names, sizes, modified times.
 ///
 /// Offline-friendly monitoring adapter — good for log folders or drop directories.
+#[cfg(feature = "std")]
 pub struct DirSnapshotObserver {
     path: PathBuf,
     step_counter: u64,
     max_entries: usize,
 }
 
+#[cfg(feature = "std")]
 impl DirSnapshotObserver {
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
@@ -111,6 +122,7 @@ impl DirSnapshotObserver {
     }
 }
 
+#[cfg(feature = "std")]
 impl Observer for DirSnapshotObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
@@ -138,7 +150,7 @@ impl Observer for DirSnapshotObserver {
         }
 
         Ok(vec![Observation {
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             modality: Modality::Structured,
             content: serde_json::json!({
                 "step": self.step_counter,
@@ -155,6 +167,7 @@ impl Observer for DirSnapshotObserver {
 /// GET a URL and treat the body as observation (JSON if possible, else raw text).
 ///
 /// Requires network. Timeout defaults to 5 seconds.
+#[cfg(feature = "std")]
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub struct HttpObserver {
     url: String,
@@ -162,6 +175,7 @@ pub struct HttpObserver {
     timeout: Duration,
 }
 
+#[cfg(feature = "std")]
 impl HttpObserver {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
@@ -177,7 +191,7 @@ impl HttpObserver {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "std")]
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
@@ -209,21 +223,12 @@ impl Observer for HttpObserver {
         };
 
         Ok(vec![Observation {
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             modality: Modality::Structured,
             content,
             confidence,
             source: format!("http:{}", self.url),
         }])
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Observer for HttpObserver {
-    fn observe(&mut self) -> Result<Vec<Observation>> {
-        Err(OmegaError::ExecutionBlocked(
-            "HttpObserver is unavailable in the wasm core build".into(),
-        ))
     }
 }
 
@@ -234,7 +239,7 @@ mod tests {
 
     #[test]
     fn dir_snapshot_sees_file() {
-        let dir = temp_dir().join(format!("omega-dir-{}", uuid::Uuid::new_v4()));
+        let dir = temp_dir().join(format!("omega-dir-{}", crate::new_uuid()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.txt"), b"hi").unwrap();
         let mut obs = DirSnapshotObserver::new(&dir);

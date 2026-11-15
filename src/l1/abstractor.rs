@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::Trajectory;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Abstraction {
@@ -31,7 +34,7 @@ impl Abstractor {
             let mean = mean_error;
             traj.prediction_errors
                 .iter()
-                .map(|e| (e - mean).powi(2))
+                .map(|e| libm::pow(e - mean, 2.0))
                 .sum::<f64>()
                 / (n - 1) as f64
         };
@@ -82,8 +85,7 @@ impl Abstractor {
 mod tests {
     use super::*;
     use crate::types::{Action, Observation, Trajectory};
-    use chrono::Utc;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn empty_traj() -> Trajectory {
         Trajectory {
@@ -121,7 +123,7 @@ mod tests {
             },
         ];
         traj.observations.push(Observation {
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             modality: crate::types::Modality::Structured,
             content: serde_json::json!({}),
             confidence: 1.0,

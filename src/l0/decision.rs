@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::{Action, Intent, Prediction, RuleEffect};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub trait DecisionMaker {
     fn decide(

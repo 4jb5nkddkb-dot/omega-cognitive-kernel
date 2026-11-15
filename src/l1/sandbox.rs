@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::CognitivePatch;
 use uuid::Uuid;
@@ -79,17 +82,16 @@ impl CodeSandbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
 
     fn make_patch(code: &str, risk: f64) -> CognitivePatch {
         CognitivePatch {
-            patch_id: Uuid::new_v4(),
+            patch_id: crate::new_uuid(),
             description: "test".into(),
             code: code.into(),
             target_module: "cognitive_rules".into(),
             expected_effect: "test".into(),
             risk_level: risk,
-            created_at: Utc::now(),
+            created_at: crate::now_utc(),
             effect: crate::types::RuleEffect::default(),
         }
     }

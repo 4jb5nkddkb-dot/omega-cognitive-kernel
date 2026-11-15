@@ -1,5 +1,8 @@
 //! Public product API (S2 + S3 hardening + adapter injection + config).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::config::KernelConfig;
@@ -18,8 +21,8 @@ use crate::persist::{
     resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH,
 };
 use crate::safety;
+use hashbrown::HashMap;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -384,7 +387,7 @@ where
         use std::io::Write;
         let path = self.trajectory_path();
         let rec = serde_json::json!({
-            "ts": chrono::Utc::now().to_rfc3339(),
+            "ts": crate::now_utc_string(),
             "step": self.inner.total_steps,
             "goal": goal,
             "action": result.trajectory.actions.first().map(|a| a.name.clone()),
@@ -709,11 +712,10 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
     use std::io::Write;
-    use uuid::Uuid;
 
     #[test]
     fn event_hook_fires() {
-        let path = temp_dir().join(format!("omega-hook-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-hook-{}.json", crate::new_uuid()));
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         let fired = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -728,8 +730,9 @@ mod tests {
 
     #[test]
     fn snapshot_json_roundtrips_l2_state_at_arbitrary_step() {
-        let source_path = temp_dir().join(format!("omega-hot-source-{}.json", Uuid::new_v4()));
-        let restored_path = temp_dir().join(format!("omega-hot-restored-{}.json", Uuid::new_v4()));
+        let source_path = temp_dir().join(format!("omega-hot-source-{}.json", crate::new_uuid()));
+        let restored_path =
+            temp_dir().join(format!("omega-hot-restored-{}.json", crate::new_uuid()));
         let mut source = Kernel::with_state_path(&source_path);
         source.autosave = false;
         source.dump_trajectory = false;
@@ -771,7 +774,7 @@ mod tests {
 
     #[test]
     fn replay_trajectory_file_works() {
-        let path = temp_dir().join(format!("omega-traj-{}.jsonl", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-traj-{}.jsonl", crate::new_uuid()));
         let mut f = std::fs::File::create(&path).unwrap();
         let line1 = serde_json::json!({
             "step": 1,

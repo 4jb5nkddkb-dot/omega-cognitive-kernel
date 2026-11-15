@@ -1,7 +1,8 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::types::{CognitivePatch, RuleEffect, Trajectory};
-use chrono::Utc;
-use std::collections::HashMap;
-use uuid::Uuid;
+use hashbrown::HashMap;
 
 /// Optional context the generator can use to make more targeted effects.
 #[derive(Debug, Clone, Default)]
@@ -71,7 +72,7 @@ impl PatchGenerator {
         if let Some((name, w)) = ctx
             .strategy_weights
             .iter()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(core::cmp::Ordering::Equal))
         {
             if *w > 2.0 {
                 let boost = action_preference.entry(name.clone()).or_insert(0.0);
@@ -105,11 +106,11 @@ fn adjust_bias(err: f64) -> f64 {{
             rt = risk_tolerance,
             streak = ctx.high_error_streak,
             rme = ctx.recent_mean_error,
-            ts = Utc::now().to_rfc3339()
+            ts = crate::now_utc_string()
         );
 
         CognitivePatch {
-            patch_id: Uuid::new_v4(),
+            patch_id: crate::new_uuid(),
             description: abstraction_summary.to_string(),
             code,
             target_module: "cognitive_rules".into(),
@@ -122,7 +123,7 @@ fn adjust_bias(err: f64) -> f64 {{
                 action_preference.keys().collect::<Vec<_>>()
             ),
             risk_level: risk,
-            created_at: Utc::now(),
+            created_at: crate::now_utc(),
             effect: RuleEffect {
                 error_damping,
                 action_preference,

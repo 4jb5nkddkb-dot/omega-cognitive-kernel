@@ -13,7 +13,7 @@ env:
 
 jobs:
   embedded-probe:
-    name: no_std serde/alloc probe
+    name: no_std probe and kernel core
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +28,10 @@ jobs:
 
       - name: Compile pure no_std probe
         run: ./scripts/test-no-std.sh
-        env:
-          ALLOW_NO_STD_GAP: "1"
 
-  full-kernel-boundary:
-    name: Report full kernel no_std boundary
+  core-no-std:
+    name: Full kernel core no_std check
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +43,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Probe full kernel and report blockers
+      - name: Compile kernel core
         run: ./scripts/test-no-std.sh
         env:
           NO_STD_LOG: no-std-kernel.log

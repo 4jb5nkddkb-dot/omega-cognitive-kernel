@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validates the currently supported no_std boundary and probes the full kernel.
-# The portable probe is required to pass. The full kernel check is expected to
-# fail until the planned kernel-core/host-facade split is implemented.
+# Validates the no_std core boundary and the standalone embedded probe. Host
+# persistence, filesystem, networking, CLI, and GUI surfaces are excluded by
+# --no-default-features and remain available through the std facade.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -27,26 +27,7 @@ echo "[no_std] compiling serde/alloc embedded probe"
   --manifest-path portable/no_std_probe/Cargo.toml \
   --target "$NO_STD_TARGET"
 
-echo "[no_std] probing complete kernel boundary"
-set +e
-"$CARGO" check --lib --no-default-features --target "$NO_STD_TARGET" >"$NO_STD_LOG" 2>&1
-status=$?
-set -e
-
-if [ "$status" -eq 0 ]; then
-  echo "full kernel no_std check: passed"
-  exit 0
-fi
-
-echo "full kernel no_std check: not yet supported (expected boundary gap)"
-echo "first blockers:"
-grep -E 'error\[|error:|not found|cannot find crate' "$NO_STD_LOG" | head -20 || true
-
-auto_accept=${ALLOW_NO_STD_GAP:-0}
-if [ "$auto_accept" = "1" ]; then
-  echo "ALLOW_NO_STD_GAP=1: reporting the known gap without failing"
-  exit 0
-fi
-
-echo "set ALLOW_NO_STD_GAP=1 only for a non-blocking compatibility report" >&2
-exit "$status"
+echo "[no_std] compiling kernel core boundary"
+"$CARGO" check --lib --no-default-features --target "$NO_STD_TARGET" \
+  >"$NO_STD_LOG" 2>&1
+echo "kernel core no_std check: passed"

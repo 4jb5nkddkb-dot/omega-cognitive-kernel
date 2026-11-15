@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use omega_cognitive_kernel::prelude::*;
+
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
 use omega_cognitive_kernel::audit::AuditLog;
@@ -278,8 +281,10 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Demo { steps } => {
             println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
-            let demo_path =
-                std::env::temp_dir().join(format!("omega-demo-{}.json", Uuid::new_v4()));
+            let demo_path = std::env::temp_dir().join(format!(
+                "omega-demo-{}.json",
+                omega_cognitive_kernel::new_uuid()
+            ));
             let mut kernel = Kernel::with_state_path(&demo_path);
             kernel.autosave = true;
             kernel.dump_trajectory = true;

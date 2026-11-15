@@ -1,10 +1,16 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+#[cfg(feature = "std")]
 use crate::audit::{AuditEvent, AuditLog};
 use crate::error::{OmegaError, Result};
 use crate::types::Action;
-use std::collections::HashSet;
+use hashbrown::HashSet;
+#[cfg(feature = "std")]
 use std::io::Write;
+#[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "std")]
 use std::time::Duration;
 
 /// External world execution interface.
@@ -52,12 +58,14 @@ impl Executor for SandboxedExecutor {
 }
 
 /// Records intended actions to a log file (and optionally stdout).
+#[cfg(feature = "std")]
 pub struct LoggingExecutor {
     allowed: HashSet<String>,
     log_path: Option<PathBuf>,
     echo_stdout: bool,
 }
 
+#[cfg(feature = "std")]
 impl LoggingExecutor {
     pub fn new(allowed: impl IntoIterator<Item = String>) -> Self {
         Self {
@@ -78,6 +86,7 @@ impl LoggingExecutor {
     }
 }
 
+#[cfg(feature = "std")]
 impl Executor for LoggingExecutor {
     fn execute(&mut self, actions: &[Action]) -> Result<Vec<serde_json::Value>> {
         let mut results = Vec::new();
@@ -96,7 +105,7 @@ impl Executor for LoggingExecutor {
                 "status": "logged",
                 "action": act.name,
                 "params": act.params,
-                "ts": chrono::Utc::now().to_rfc3339()
+                "ts": crate::now_utc_string()
             });
 
             if self.echo_stdout {
@@ -119,11 +128,11 @@ impl Executor for LoggingExecutor {
 }
 
 /// Max response body bytes kept for `http_get` (truncate after this).
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "std")]
 const HTTP_GET_BODY_LIMIT: usize = 2048;
 
 /// Safe GET-only fetch for tool-gate. No redirects beyond ureq defaults; HTTPS/HTTP only.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "std")]
 fn safe_http_get(url: &str) -> Result<serde_json::Value> {
     let url = url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -160,17 +169,11 @@ fn safe_http_get(url: &str) -> Result<serde_json::Value> {
     }))
 }
 
-#[cfg(target_arch = "wasm32")]
-fn safe_http_get(_url: &str) -> Result<serde_json::Value> {
-    Err(OmegaError::ExecutionBlocked(
-        "http_get is unavailable in the wasm core build".into(),
-    ))
-}
-
 /// Tool-call gate: allow-list + deny-list, optional audit, optional real `http_get`.
 ///
 /// Denied tools never touch the network. When `enable_http_get` is true and the
 /// tool name is `http_get` on the allow-list, a GET is performed (response truncated).
+#[cfg(feature = "std")]
 pub struct ToolGateExecutor {
     allowed: HashSet<String>,
     denied: HashSet<String>,
@@ -181,6 +184,7 @@ pub struct ToolGateExecutor {
     enable_http_get: bool,
 }
 
+#[cfg(feature = "std")]
 impl ToolGateExecutor {
     pub fn new(allowed: impl IntoIterator<Item = String>) -> Self {
         Self {
@@ -224,6 +228,7 @@ impl ToolGateExecutor {
     }
 }
 
+#[cfg(feature = "std")]
 impl Executor for ToolGateExecutor {
     fn execute(&mut self, actions: &[Action]) -> Result<Vec<serde_json::Value>> {
         let mut results = Vec::new();
@@ -303,9 +308,8 @@ impl Executor for ToolGateExecutor {
 mod tests {
     use super::*;
     use crate::types::Action;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
     use std::env::temp_dir;
-    use uuid::Uuid;
 
     fn action(name: &str, checked: bool) -> Action {
         Action {
@@ -347,7 +351,7 @@ mod tests {
 
     #[test]
     fn tool_gate_denies_dangerous_tool() {
-        let path = temp_dir().join(format!("omega-gate-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-gate-{}.json", crate::new_uuid()));
         let audit = AuditLog::beside_state(&path);
         let mut gate = ToolGateExecutor::new(["search_docs".into(), "http_get".into()])
             .deny(["delete_database".into(), "shell_exec".into()])

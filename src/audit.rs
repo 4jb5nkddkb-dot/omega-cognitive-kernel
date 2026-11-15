@@ -3,6 +3,9 @@
 //! `AuditEvent` is the kernel's public event stream. Prefer the alias
 //! [`KernelEvent`] at the crate root when wiring integrators.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::{OmegaError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -111,7 +114,7 @@ pub struct AuditSummary {
 
 impl AuditSummary {
     pub fn from_records(rows: &[AuditRecord]) -> Self {
-        use std::collections::HashMap;
+        use hashbrown::HashMap;
         let mut s = AuditSummary {
             total_events: rows.len(),
             ..AuditSummary::default()
@@ -181,7 +184,7 @@ impl AuditLog {
             fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
         let rec = AuditRecord {
-            ts: Utc::now(),
+            ts: crate::now_utc(),
             event,
         };
         let line = serde_json::to_string(&rec).map_err(|e| OmegaError::Persist(e.to_string()))?;
@@ -282,7 +285,7 @@ mod tests {
 
     #[test]
     fn append_and_tail() {
-        let path = temp_dir().join(format!("omega-audit-{}.jsonl", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-audit-{}.jsonl", crate::new_uuid()));
         let log = AuditLog { path: path.clone() };
         log.append(AuditEvent::Step {
             step: 1,
@@ -302,7 +305,7 @@ mod tests {
 
     #[test]
     fn poll_after_reads_only_new_lines() {
-        let path = temp_dir().join(format!("omega-poll-{}.jsonl", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-poll-{}.jsonl", crate::new_uuid()));
         let log = AuditLog { path: path.clone() };
         log.append(AuditEvent::Step {
             step: 1,

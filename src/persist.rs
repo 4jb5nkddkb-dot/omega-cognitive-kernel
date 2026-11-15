@@ -1,11 +1,14 @@
 //! Disk persistence for kernel state (S2 product surface).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::{OmegaError, Result};
 use crate::memory::case::Case;
 use crate::memory::strategy::Strategy;
 use crate::types::{CognitivePatch, MetaMetrics, RuleEffect};
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -216,11 +219,10 @@ mod tests {
     use super::*;
     use crate::types::RuleEffect;
     use std::env::temp_dir;
-    use uuid::Uuid;
 
     #[test]
     fn roundtrip_snapshot_file() {
-        let path = temp_dir().join(format!("omega-s2-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-s2-{}.json", crate::new_uuid()));
         let snap = KernelSnapshot {
             version: 1,
             total_steps: 7,
@@ -255,7 +257,7 @@ mod tests {
 
     #[test]
     fn migrates_version_zero() {
-        let path = temp_dir().join(format!("omega-mig-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-mig-{}.json", crate::new_uuid()));
         // Pre-0.5 style: omit version field entirely.
         let raw = r#"{
             "total_steps": 3,
@@ -287,7 +289,7 @@ mod tests {
 
     #[test]
     fn rejects_future_schema() {
-        let path = temp_dir().join(format!("omega-future-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-future-{}.json", crate::new_uuid()));
         let snap = KernelSnapshot {
             version: 99,
             total_steps: 0,

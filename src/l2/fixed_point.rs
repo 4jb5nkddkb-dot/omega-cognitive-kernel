@@ -1,7 +1,10 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::SystemState;
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixedPointResult {
@@ -112,7 +115,7 @@ impl OmegaDayanFixedPoint {
                 alignment += 0.14;
             }
 
-            let omega_chars: std::collections::HashSet<char> = omega.chars().collect();
+            let omega_chars: hashbrown::HashSet<char> = omega.chars().collect();
             let overlap = base.chars().filter(|c| omega_chars.contains(c)).count() as f64;
             let denom = omega.len().max(base.len()).max(1) as f64;
             alignment += (overlap / denom) * 0.18;
@@ -158,7 +161,7 @@ impl OmegaDayanFixedPoint {
 mod tests {
     use super::*;
     use crate::types::SystemState;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn state(
         omega: &str,

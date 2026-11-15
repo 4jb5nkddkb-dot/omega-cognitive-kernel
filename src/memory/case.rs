@@ -5,11 +5,14 @@
 //! - `retrieve`: sample without replacement ∝ priority^α
 //! - Optional IS weights for bias correction when training-style consumers need them
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::types::Trajectory;
+use alloc::collections::VecDeque;
 use chrono::Utc;
+use core::sync::atomic::{AtomicU32, Ordering};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Floor so zero-error cases still get tiny sample chance.
 const PRIORITY_EPS: f64 = 1e-3;
@@ -36,7 +39,7 @@ fn default_priority() -> f64 {
 impl Case {
     pub fn priority_from_error(error_mean: f64) -> f64 {
         let e = error_mean.abs().max(PRIORITY_EPS);
-        e.powf(PRIORITY_ALPHA)
+        libm::pow(e, PRIORITY_ALPHA)
     }
 }
 
@@ -117,7 +120,7 @@ impl CaseMemory {
                 .unwrap_or("unknown")
                 .to_string(),
             error_mean,
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             priority,
         };
 
@@ -157,11 +160,11 @@ impl CaseMemory {
 
         let mut out = Vec::with_capacity(n);
         // Lightweight LCG for reproducible-enough sampling without new deps.
-        static SAMPLE_COUNTER: AtomicU64 = AtomicU64::new(0);
+        static SAMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
         let counter = SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let mut seed = (self.cases.len() as u64)
             .wrapping_mul(0x9E37_79B9)
-            .wrapping_add(counter.wrapping_mul(0x85EB_CA6B))
+            .wrapping_add((counter as u64).wrapping_mul(0x85EB_CA6B))
             .wrapping_add(
                 self.cases
                     .back()
@@ -270,7 +273,7 @@ impl Default for CaseMemory {
 mod tests {
     use super::*;
     use crate::types::Trajectory;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn sample_traj(goal: &str, err: f64) -> Trajectory {
         let mut meta = HashMap::new();
@@ -343,7 +346,7 @@ mod tests {
             summary: "x".into(),
             goal: "g".into(),
             error_mean: 0.5,
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
             priority: 0.0, // legacy
         };
         let mem = CaseMemory::restore(vec![c], 8);

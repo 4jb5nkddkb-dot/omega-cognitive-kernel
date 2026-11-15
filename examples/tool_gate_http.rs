@@ -7,9 +7,9 @@
 //! cargo run --example tool_gate_http
 //! ```
 
+use hashbrown::HashMap;
 use omega_cognitive_kernel::types::Action;
 use omega_cognitive_kernel::{AuditLog, Executor, Result, ToolGateExecutor};
-use std::collections::HashMap;
 use std::env::temp_dir;
 use std::path::PathBuf;
 

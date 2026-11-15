@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::types::MetaMetrics;
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +84,6 @@ impl EmergenceDetector {
 mod tests {
     use super::*;
     use crate::types::MetaMetrics;
-    use chrono::Utc;
 
     fn metrics(pred: f64, self_ref: f64) -> MetaMetrics {
         MetaMetrics {
@@ -89,7 +91,7 @@ mod tests {
             consistency: 0.7,
             predictive_power: pred,
             self_ref_stability: self_ref,
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
         }
     }
 

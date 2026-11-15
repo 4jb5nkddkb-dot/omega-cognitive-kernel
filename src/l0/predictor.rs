@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::{Observation, Prediction, RuleEffect};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub trait Predictor {
     fn predict(

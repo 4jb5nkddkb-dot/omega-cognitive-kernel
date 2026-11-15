@@ -1,8 +1,11 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::l1::abstractor::Abstraction;
 use crate::l1::patch::{PatchContext, PatchGenerator};
 use crate::types::{CognitivePatch, Trajectory};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub struct Reflector {
     pub error_threshold: f64,
@@ -81,7 +84,7 @@ mod tests {
     use super::*;
     use crate::l1::abstractor::Abstraction;
     use crate::types::Trajectory;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn abs(mean: f64, var: f64, success: f64) -> Abstraction {
         Abstraction {

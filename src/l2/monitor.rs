@@ -1,6 +1,8 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::types::{MetaMetrics, SystemState};
-use chrono::Utc;
 
 pub struct MetaMonitor;
 
@@ -33,7 +35,7 @@ impl MetaMonitor {
             consistency,
             predictive_power,
             self_ref_stability,
-            timestamp: Utc::now(),
+            timestamp: crate::now_utc(),
         })
     }
 }
@@ -41,7 +43,7 @@ impl MetaMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn state(err: f64, has_base: bool, has_rules: bool) -> SystemState {
         let mut active = HashMap::new();

@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::l2::fixed_point::FixedPointResult;
 use crate::types::RuleEffect;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub struct MetaModulator;
 

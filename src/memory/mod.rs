@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod cas;
 pub mod case;
 pub mod strategy;
@@ -6,7 +9,7 @@ use crate::error::Result;
 use crate::types::{RuleEffect, Trajectory};
 use cas::CasState;
 use case::CaseMemory;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use strategy::StrategyMemory;
 
 #[derive(Debug, Default)]
@@ -66,7 +69,7 @@ impl MemoryFacade {
 mod tests {
     use super::*;
     use crate::types::{Action, Trajectory};
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn sample_traj() -> Trajectory {
         let mut meta = HashMap::new();

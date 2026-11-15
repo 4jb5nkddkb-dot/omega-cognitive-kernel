@@ -1,5 +1,8 @@
 //! TOML configuration for product-facing Kernel knobs.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::{OmegaError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

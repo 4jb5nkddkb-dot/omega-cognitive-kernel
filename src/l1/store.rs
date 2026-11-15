@@ -1,7 +1,10 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::l1::sandbox::ValidationReport;
 use crate::types::CognitivePatch;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub const MAX_HISTORY: usize = 64;
 
@@ -55,18 +58,16 @@ impl Default for VersionedStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
-    use uuid::Uuid;
 
     fn make_patch(id: u8) -> CognitivePatch {
         CognitivePatch {
-            patch_id: Uuid::new_v4(),
+            patch_id: crate::new_uuid(),
             description: format!("p{id}"),
             code: format!("// {id}"),
             target_module: "cognitive_rules".into(),
             expected_effect: "test".into(),
             risk_level: 0.1,
-            created_at: Utc::now(),
+            created_at: crate::now_utc(),
             effect: crate::types::RuleEffect::default(),
         }
     }
@@ -77,7 +78,7 @@ mod tests {
         let report = ValidationReport {
             accepted: true,
             message: "ok".into(),
-            patch_id: Uuid::new_v4(),
+            patch_id: crate::new_uuid(),
         };
         for i in 0..80 {
             store.commit(make_patch(i as u8), &report).unwrap();

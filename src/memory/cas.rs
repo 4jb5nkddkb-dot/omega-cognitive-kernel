@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::types::Trajectory;
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +30,7 @@ impl CasState {
 mod tests {
     use super::*;
     use crate::types::Trajectory;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn traj_with_errors(errors: Vec<f64>) -> Trajectory {
         Trajectory {

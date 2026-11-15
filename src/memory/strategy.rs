@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::types::Trajectory;
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Strategy {
@@ -153,7 +156,7 @@ impl StrategyMemory {
         v.sort_by(|a, b| {
             b.weight
                 .partial_cmp(&a.weight)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(core::cmp::Ordering::Equal)
         });
         v.into_iter().take(k).collect()
     }
@@ -171,7 +174,7 @@ impl StrategyMemory {
 mod tests {
     use super::*;
     use crate::types::{Action, Trajectory};
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn traj_with_action(name: &str, low_error: bool) -> Trajectory {
         Trajectory {

@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::memory::MemoryFacade;
 use crate::types::Trajectory;
@@ -38,7 +41,7 @@ impl Learner {
 mod tests {
     use super::*;
     use crate::types::{Action, Trajectory};
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn traj(name: &str) -> Trajectory {
         Trajectory {

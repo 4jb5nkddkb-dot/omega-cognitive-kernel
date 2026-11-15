@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod abstractor;
 pub mod learner;
 pub mod patch;
@@ -9,10 +12,10 @@ use crate::error::Result;
 use crate::memory::MemoryFacade;
 use crate::types::Trajectory;
 use abstractor::Abstractor;
+use hashbrown::HashMap;
 use learner::Learner;
 use reflector::{build_patch_context, Reflector};
 use sandbox::CodeSandbox;
-use std::collections::HashMap;
 use store::VersionedStore;
 
 #[derive(Debug)]

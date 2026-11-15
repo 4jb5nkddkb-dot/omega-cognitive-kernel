@@ -1,12 +1,14 @@
 //! Minimal task environment: nonstationary 2-armed bandit.
 //! External reward is written back into strategy memory so the task loop is closed.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::api::Kernel;
 use crate::error::Result;
+use hashbrown::HashMap;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::env::temp_dir;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BanditReport {
@@ -392,9 +394,12 @@ pub fn run_l2_benchmark_scenario_with_gate(
 
     for i in 0..runs {
         let run_seed = seed.wrapping_add(i as u64);
-        let base_path = temp_dir().join(format!("omega-l2-benchmark-{}-base.json", Uuid::new_v4()));
+        let base_path = temp_dir().join(format!(
+            "omega-l2-benchmark-{}-base.json",
+            crate::new_uuid()
+        ));
         let treatment_path =
-            temp_dir().join(format!("omega-l2-benchmark-{}-l2.json", Uuid::new_v4()));
+            temp_dir().join(format!("omega-l2-benchmark-{}-l2.json", crate::new_uuid()));
 
         let mut base = Kernel::with_state_path(&base_path);
         base.autosave = false;
@@ -467,11 +472,10 @@ pub fn run_l2_benchmark_scenario_with_gate(
 mod tests {
     use super::*;
     use std::env::temp_dir;
-    use uuid::Uuid;
 
     #[test]
     fn bandit_runs() {
-        let path = temp_dir().join(format!("omega-bandit-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-bandit-{}.json", crate::new_uuid()));
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         let report = run_bandit_task_seeded(&mut k, 4, 3, 42).unwrap();
@@ -483,7 +487,7 @@ mod tests {
 
     #[test]
     fn reward_feeds_strategy_memory() {
-        let path = temp_dir().join(format!("omega-rw-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-rw-{}.json", crate::new_uuid()));
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         k.auto_checkpoint_on_patch = false;
@@ -498,8 +502,8 @@ mod tests {
 
     #[test]
     fn seeded_bandit_is_deterministic() {
-        let p1 = temp_dir().join(format!("omega-d1-{}.json", Uuid::new_v4()));
-        let p2 = temp_dir().join(format!("omega-d2-{}.json", Uuid::new_v4()));
+        let p1 = temp_dir().join(format!("omega-d1-{}.json", crate::new_uuid()));
+        let p2 = temp_dir().join(format!("omega-d2-{}.json", crate::new_uuid()));
         let mut k1 = Kernel::with_state_path(&p1);
         let mut k2 = Kernel::with_state_path(&p2);
         k1.autosave = false;
@@ -517,7 +521,7 @@ mod tests {
 
     #[test]
     fn bandit_reports_strategy_decay_metrics() {
-        let path = temp_dir().join(format!("omega-decay-{}.json", Uuid::new_v4()));
+        let path = temp_dir().join(format!("omega-decay-{}.json", crate::new_uuid()));
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         k.auto_checkpoint_on_patch = false;

@@ -1,0 +1,71 @@
+name: Scheduled Portability Validation
+
+on:
+  schedule:
+    # Sunday 04:30 UTC. Keep separate from the existing 03:00 runtime report.
+    - cron: '30 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NO_STD_TARGET: thumbv7em-none-eabihf
+  WASMTIME_VERSION: v50.0.1
+
+jobs:
+  no-std:
+    name: no_std embedded probe and kernel core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and embedded target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run no_std validation
+        env:
+          NO_STD_LOG: no-std-kernel.log
+        run: ./scripts/test-no-std.sh
+
+      - name: Upload no_std boundary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-no-std-report
+          path: no-std-kernel.log
+          if-no-files-found: ignore
+
+  wasi-runtime:
+    name: WASI build and runtime smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and WASI target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned Wasmtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/wasmtime-${WASMTIME_VERSION}-x86_64-linux.tar.xz"
+          curl --fail --location --retry 3 "$url" -o /tmp/wasmtime.tar.xz
+          mkdir -p "$RUNNER_TEMP/wasmtime"
+          tar -xJf /tmp/wasmtime.tar.xz -C "$RUNNER_TEMP/wasmtime" --strip-components=1
+          echo "$RUNNER_TEMP/wasmtime" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/wasmtime/wasmtime" --version
+
+      - name: Run WASM runtime integration test
+        run: ./scripts/test-wasm-runtime.sh
