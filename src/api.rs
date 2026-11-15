@@ -67,6 +67,8 @@ pub struct KernelStatus {
     pub l2_enabled: bool,
     pub l2_commit_cooldown: u64,
     pub last_l2_consequence_score: f64,
+    pub l2_defensive_mode: bool,
+    pub l2_negative_consequence_streak: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -336,6 +338,9 @@ where
         self.inner
             .l2
             .observe_consequence(reward_delta, error_delta, risk_delta);
+        if let Some(effect) = self.inner.l2.take_rollback_effect() {
+            self.inner.l0.memory.cognitive_effect = effect;
+        }
     }
 
     fn emit_event(&mut self, event: &AuditEvent) {
@@ -389,10 +394,13 @@ where
             "effect_damping": result.l1.effect_damping,
             "l2_in_fp": result.l2.in_fixed_point,
             "l2_align": result.l2.alignment_score,
+            "l2_candidate_alignment": result.l2.candidate_alignment_score,
+            "l2_dwell_steps": result.l2.dwell_steps,
             "l2_candidate_score": result.l2.candidate_score,
             "l2_modulation_proposed": result.l2.modulation_proposed,
             "l2_modulation_committed": result.l2.modulation_committed,
             "l2_modulation_gain": result.l2.modulation_gain,
+            "l2_score_breakdown": result.l2.score_breakdown,
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
@@ -551,6 +559,8 @@ where
             l2_enabled: self.inner.l2.enabled,
             l2_commit_cooldown: self.inner.l2.commit_cooldown_remaining,
             last_l2_consequence_score: self.inner.l2.last_consequence_score,
+            l2_defensive_mode: self.inner.l2.defensive_mode,
+            l2_negative_consequence_streak: self.inner.l2.negative_consequence_streak,
         }
     }
 

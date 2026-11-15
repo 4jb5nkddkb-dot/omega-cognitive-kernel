@@ -73,7 +73,9 @@ mod tests {
         let fp = FixedPointResult {
             mode: "t".into(),
             aligned: true,
+            alignment_score: 0.9,
             score: 0.9,
+            breakdown: HashMap::new(),
             modulation: Modulation {
                 bias_delta: HashMap::new(),
                 constraint_delta: HashMap::new(),

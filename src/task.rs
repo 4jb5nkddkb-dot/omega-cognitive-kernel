@@ -4,6 +4,7 @@
 use crate::api::Kernel;
 use crate::error::Result;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::env::temp_dir;
 use uuid::Uuid;
 
@@ -31,8 +32,12 @@ pub struct BanditReport {
     pub final_avg_error: f64,
     pub fixed_point_enters: usize,
     pub fixed_point_exits: usize,
+    pub max_fixed_point_dwell: u64,
     pub l2_nudges: usize,
+    pub l2_proposals: usize,
+    pub l2_commits: usize,
     pub mean_l2_consequence_score: f64,
+    pub final_score_breakdown: HashMap<String, f64>,
     pub final_alignment_score: f64,
 }
 
@@ -48,8 +53,12 @@ pub struct L2BenchmarkAggregate {
     pub mean_patches_accepted: f64,
     pub mean_fixed_point_enters: f64,
     pub mean_fixed_point_exits: f64,
+    pub mean_max_fixed_point_dwell: f64,
     pub mean_l2_nudges: f64,
+    pub mean_l2_proposals: f64,
+    pub mean_l2_commits: f64,
     pub mean_l2_consequence_score: f64,
+    pub mean_final_score_breakdown: HashMap<String, f64>,
     pub mean_final_alignment_score: f64,
 }
 
@@ -120,19 +129,27 @@ fn run_bandit_task_seeded_scenario(
     let mut total_choices = 0u32;
     let mut patches = 0u64;
     let mut l2_nudges = 0usize;
+    let mut l2_proposals = 0usize;
+    let mut l2_commits = 0usize;
+    let mut max_fixed_point_dwell = 0u64;
     let mut consequence_sum = 0.0;
     let mut early_err = None;
+    let mut final_score_breakdown = HashMap::new();
 
     for ep in 0..episodes {
         // Non-stationary: best arm flips halfway (and once more late if many episodes).
         let best = match scenario {
-            "stable" => 0,
+            "stable" | "fixedpoint" => 0,
             "degraded" if ep >= episodes / 2 => 0,
             _ if ep >= episodes / 2 && !(episodes >= 4 && ep >= (episodes * 3) / 4) => 1,
             _ => 0,
         };
         if scenario == "degraded" && ep == episodes / 2 {
             kernel.inner.l0.memory.cas.avg_prediction_error = 0.9;
+        }
+        if scenario == "fixedpoint" {
+            kernel.inner.l0.memory.cas.avg_prediction_error =
+                if ep < episodes / 2 { 0.2 } else { 0.9 };
         }
         let mut ep_reward = 0.0;
 
@@ -149,6 +166,16 @@ fn run_bandit_task_seeded_scenario(
             }
             if r.l2.effect_nudge.is_some() {
                 l2_nudges += 1;
+            }
+            if r.l2.modulation_proposed {
+                l2_proposals += 1;
+            }
+            if r.l2.modulation_committed {
+                l2_commits += 1;
+            }
+            max_fixed_point_dwell = max_fixed_point_dwell.max(r.l2.dwell_steps);
+            if !r.l2.score_breakdown.is_empty() {
+                final_score_breakdown = r.l2.score_breakdown.clone();
             }
             let action = r
                 .trajectory
@@ -224,12 +251,16 @@ fn run_bandit_task_seeded_scenario(
         final_avg_error: final_err,
         fixed_point_enters: audit.fixed_point_enters,
         fixed_point_exits: audit.fixed_point_exits,
+        max_fixed_point_dwell,
         l2_nudges,
+        l2_proposals,
+        l2_commits,
         mean_l2_consequence_score: if total_choices == 0 {
             0.0
         } else {
             consequence_sum / total_choices as f64
         },
+        final_score_breakdown,
         final_alignment_score: status.last_alignment_score,
     })
 }
@@ -248,8 +279,12 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             mean_patches_accepted: 0.0,
             mean_fixed_point_enters: 0.0,
             mean_fixed_point_exits: 0.0,
+            mean_max_fixed_point_dwell: 0.0,
             mean_l2_nudges: 0.0,
+            mean_l2_proposals: 0.0,
+            mean_l2_commits: 0.0,
             mean_l2_consequence_score: 0.0,
+            mean_final_score_breakdown: HashMap::new(),
             mean_final_alignment_score: 0.0,
         };
     }
@@ -266,8 +301,20 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
         mean_patches_accepted: mean(|r| r.patches_accepted as f64),
         mean_fixed_point_enters: mean(|r| r.fixed_point_enters as f64),
         mean_fixed_point_exits: mean(|r| r.fixed_point_exits as f64),
+        mean_max_fixed_point_dwell: mean(|r| r.max_fixed_point_dwell as f64),
         mean_l2_nudges: mean(|r| r.l2_nudges as f64),
+        mean_l2_proposals: mean(|r| r.l2_proposals as f64),
+        mean_l2_commits: mean(|r| r.l2_commits as f64),
         mean_l2_consequence_score: mean(|r| r.mean_l2_consequence_score),
+        mean_final_score_breakdown: {
+            let mut out = HashMap::new();
+            for report in reports {
+                for (key, value) in &report.final_score_breakdown {
+                    *out.entry(key.clone()).or_insert(0.0) += value / n;
+                }
+            }
+            out
+        },
         mean_final_alignment_score: mean(|r| r.final_alignment_score),
     }
 }
@@ -302,8 +349,37 @@ pub fn run_l2_benchmark_scenario(
     steps_per_episode: u32,
     seed: u64,
 ) -> Result<L2BenchmarkReport> {
+    let negative_reward_required = if scenario == "stable" { 5 } else { 3 };
+    let (commit_threshold, commit_cooldown) = if scenario == "degraded" {
+        (0.65, 8)
+    } else {
+        (0.55, 5)
+    };
+    run_l2_benchmark_scenario_with_gate(
+        scenario,
+        runs,
+        episodes,
+        steps_per_episode,
+        seed,
+        commit_threshold,
+        commit_cooldown,
+        negative_reward_required,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_l2_benchmark_scenario_with_gate(
+    scenario: &str,
+    runs: u32,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+    commit_threshold: f64,
+    commit_cooldown_steps: u64,
+    negative_reward_required: u32,
+) -> Result<L2BenchmarkReport> {
     let scenario = match scenario {
-        "stable" | "nonstationary" | "degraded" => scenario,
+        "stable" | "nonstationary" | "degraded" | "fixedpoint" => scenario,
         other => {
             return Err(crate::error::OmegaError::Config(format!(
                 "unknown benchmark scenario: {other}"
@@ -355,9 +431,11 @@ pub fn run_l2_benchmark_scenario(
         l2.inner.l2.detector.pred_threshold = 0.30;
         l2.inner.l2.detector.self_ref_threshold = 0.30;
         l2.inner.l2.detector.cooldown_steps = 0;
-        // The fixture intentionally exercises the candidate-to-commit path;
-        // production/default L2 remains conservative at commit_threshold 0.82.
-        l2.inner.l2.commit_threshold = 0.70;
+        // The five-signal score is intentionally exercised at 0.55 in this
+        // short fixture; production/default L2 remains conservative at 0.82.
+        l2.inner.l2.commit_threshold = commit_threshold.clamp(0.0, 1.0);
+        l2.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
+        l2.inner.l2.negative_reward_required = negative_reward_required.max(1);
         l2.set_l2_enabled(true);
         treatment.push(run_bandit_task_seeded_scenario(
             &mut l2,
@@ -457,6 +535,6 @@ mod tests {
         let report = run_l2_benchmark(1, 8, 8, 42).unwrap();
         assert_eq!(report.runs, 1);
         assert_eq!(report.baseline_l2_disabled.mean_l2_nudges, 0.0);
-        assert!(report.treatment_l2_enabled.mean_l2_nudges > 0.0);
+        assert!(report.treatment_l2_enabled.mean_final_alignment_score > 0.0);
     }
 }

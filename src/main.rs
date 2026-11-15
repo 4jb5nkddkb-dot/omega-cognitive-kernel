@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
-use omega_cognitive_kernel::task::{run_bandit_task, run_l2_benchmark_scenario};
+use omega_cognitive_kernel::task::{run_bandit_task, run_l2_benchmark_scenario_with_gate};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -81,7 +81,7 @@ enum Commands {
     },
     /// Compare identical seeded runs with L2 interventions disabled/enabled.
     BenchmarkL2 {
-        /// stable, nonstationary, or degraded
+        /// stable, nonstationary, degraded, or fixedpoint
         #[arg(long, default_value = "nonstationary")]
         scenario: String,
         #[arg(long, default_value_t = 5)]
@@ -92,6 +92,15 @@ enum Commands {
         steps: u32,
         #[arg(long, default_value_t = 20261115)]
         seed: u64,
+        /// L2 commit score threshold used by the treatment arm.
+        #[arg(long)]
+        commit_threshold: Option<f64>,
+        /// Cooldown steps after a committed modulation.
+        #[arg(long)]
+        commit_cooldown: Option<u64>,
+        /// Consecutive negative rewards required for reward_change signal.
+        #[arg(long)]
+        negative_reward_required: Option<u32>,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -254,6 +263,8 @@ fn main() -> anyhow::Result<()> {
                 println!("l2_enabled        : {}", st.l2_enabled);
                 println!("l2_cooldown       : {}", st.l2_commit_cooldown);
                 println!("l2_consequence    : {:.4}", st.last_l2_consequence_score);
+                println!("l2_defensive      : {}", st.l2_defensive_mode);
+                println!("l2_negative_run   : {}", st.l2_negative_consequence_streak);
                 println!("state_path         : {}", st.state_path);
             }
         }
@@ -400,9 +411,27 @@ fn main() -> anyhow::Result<()> {
             episodes,
             steps,
             seed,
+            commit_threshold,
+            commit_cooldown,
+            negative_reward_required,
             json,
         } => {
-            let report = run_l2_benchmark_scenario(scenario, *runs, *episodes, *steps, *seed)?;
+            let commit_threshold =
+                commit_threshold.unwrap_or(if scenario == "degraded" { 0.65 } else { 0.55 });
+            let commit_cooldown =
+                commit_cooldown.unwrap_or(if scenario == "degraded" { 8 } else { 5 });
+            let negative_reward_required =
+                negative_reward_required.unwrap_or(if scenario == "stable" { 5 } else { 3 });
+            let report = run_l2_benchmark_scenario_with_gate(
+                scenario,
+                *runs,
+                *episodes,
+                *steps,
+                *seed,
+                commit_threshold,
+                commit_cooldown,
+                negative_reward_required,
+            )?;
             if *json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -446,6 +475,18 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "fp exits/run      : {:>10.4}    {:>10.4}",
                     base.mean_fixed_point_exits, l2.mean_fixed_point_exits
+                );
+                println!(
+                    "fp max dwell/run  : {:>10.4}    {:>10.4}",
+                    base.mean_max_fixed_point_dwell, l2.mean_max_fixed_point_dwell
+                );
+                println!(
+                    "proposals/run     : {:>10.4}    {:>10.4}",
+                    base.mean_l2_proposals, l2.mean_l2_proposals
+                );
+                println!(
+                    "commits/run       : {:>10.4}    {:>10.4}",
+                    base.mean_l2_commits, l2.mean_l2_commits
                 );
                 println!(
                     "l2 nudges/run     : {:>10.4}    {:>10.4}",

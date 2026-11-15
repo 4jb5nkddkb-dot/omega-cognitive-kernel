@@ -6,7 +6,7 @@ pub mod monitor;
 use crate::error::Result;
 use crate::types::{MetaMetrics, RuleEffect, SystemState};
 use emergence::EmergenceDetector;
-use fixed_point::OmegaDayanFixedPoint;
+use fixed_point::{OmegaDayanFixedPoint, ScoreSignals};
 use modulator::MetaModulator;
 use monitor::MetaMonitor;
 use std::collections::HashMap;
@@ -20,10 +20,13 @@ pub struct L2Result {
     pub entered_fixed_point: bool,
     pub exited_fixed_point: bool,
     pub alignment_score: f64,
+    pub candidate_alignment_score: f64,
+    pub dwell_steps: u64,
     pub candidate_score: f64,
     pub modulation_proposed: bool,
     pub modulation_committed: bool,
     pub modulation_gain: f64,
+    pub score_breakdown: HashMap<String, f64>,
     /// Soft-updated RuleEffect after L2 modulation (if any).
     pub effect_nudge: Option<RuleEffect>,
 }
@@ -45,6 +48,16 @@ pub struct L2MetaLayer {
     pub commit_cooldown_steps: u64,
     pub commit_cooldown_remaining: u64,
     pub last_consequence_score: f64,
+    pub defensive_mode: bool,
+    pub negative_consequence_streak: u32,
+    pub rollback_effect: Option<RuleEffect>,
+    pub external_attention: bool,
+    pub stable_consequence_steps: u32,
+    pub reward_change_score: f64,
+    pub error_change_score: f64,
+    pub awaiting_consequence: bool,
+    pub negative_reward_streak: u32,
+    pub negative_reward_required: u32,
 }
 
 impl L2MetaLayer {
@@ -62,6 +75,16 @@ impl L2MetaLayer {
             commit_cooldown_steps: 5,
             commit_cooldown_remaining: 0,
             last_consequence_score: 0.0,
+            defensive_mode: false,
+            negative_consequence_streak: 0,
+            rollback_effect: None,
+            external_attention: false,
+            stable_consequence_steps: 0,
+            reward_change_score: 0.0,
+            error_change_score: 0.0,
+            awaiting_consequence: false,
+            negative_reward_streak: 0,
+            negative_reward_required: 3,
         }
     }
 
@@ -79,13 +102,17 @@ impl L2MetaLayer {
         let mut entered = false;
         let mut exited = false;
         let mut alignment_score = self.last_alignment_score;
+        let mut candidate_alignment_score = 0.0;
         let mut effect_nudge = None;
         let mut candidate_score = 0.0;
         let mut modulation_proposed = false;
         let mut modulation_committed = false;
         let mut modulation_gain = 0.0;
+        let mut score_breakdown = HashMap::new();
 
         self.commit_cooldown_remaining = self.commit_cooldown_remaining.saturating_sub(1);
+        let attention = self.external_attention;
+        self.external_attention = false;
 
         if !self.enabled {
             self.in_fixed_point = false;
@@ -98,10 +125,13 @@ impl L2MetaLayer {
                 entered_fixed_point: false,
                 exited_fixed_point: false,
                 alignment_score: 0.0,
+                candidate_alignment_score,
+                dwell_steps: 0,
                 candidate_score,
                 modulation_proposed,
                 modulation_committed,
                 modulation_gain,
+                score_breakdown,
                 effect_nudge: None,
             });
         }
@@ -113,12 +143,25 @@ impl L2MetaLayer {
                 self.dwell_steps = 0;
                 exited = true;
             } else if self.dwell_steps % 6 == 0 {
-                let fp = self.fixed_point.enter(state)?;
+                let fp = self.fixed_point.enter_with_signals(
+                    state,
+                    ScoreSignals {
+                        reward_change_score: self.reward_change_score,
+                        error_change_score: self.error_change_score,
+                        stability_score: metrics.self_ref_stability,
+                    },
+                )?;
                 alignment_score = fp.score;
+                candidate_alignment_score = fp.alignment_score;
                 self.last_alignment_score = fp.score;
                 candidate_score = fp.score;
+                score_breakdown = fp.breakdown.clone();
                 modulation_proposed = true;
-                if fp.score >= self.commit_threshold && self.commit_cooldown_remaining == 0 {
+                if fp.score >= self.commit_threshold
+                    && self.commit_cooldown_remaining == 0
+                    && !self.defensive_mode
+                    && (self.stable_consequence_steps < 8 || attention)
+                {
                     modulation_committed = true;
                     modulation_gain = ((fp.score - self.commit_threshold)
                         / (1.0 - self.commit_threshold))
@@ -137,15 +180,34 @@ impl L2MetaLayer {
                         current_effect,
                     ));
                     self.commit_cooldown_remaining = self.commit_cooldown_steps;
+                    self.awaiting_consequence = true;
                 }
             }
-        } else if self.detector.should_trigger(&metrics) {
-            let fp = self.fixed_point.enter(state)?;
+        } else if self.detector.should_trigger(&metrics) || attention {
+            let fp = self.fixed_point.enter_with_signals(
+                state,
+                ScoreSignals {
+                    reward_change_score: self.reward_change_score,
+                    error_change_score: self.error_change_score,
+                    stability_score: metrics.self_ref_stability,
+                },
+            )?;
             candidate_score = fp.score;
+            score_breakdown = fp.breakdown.clone();
             modulation_proposed = true;
             alignment_score = fp.score;
+            candidate_alignment_score = fp.alignment_score;
             self.last_alignment_score = fp.score;
-            if fp.score >= self.commit_threshold && self.commit_cooldown_remaining == 0 {
+            entered = fp.aligned;
+            self.in_fixed_point = fp.aligned;
+            if fp.aligned {
+                self.dwell_steps = 1;
+            }
+            if fp.score >= self.commit_threshold
+                && self.commit_cooldown_remaining == 0
+                && !self.defensive_mode
+                && (self.stable_consequence_steps < 8 || attention)
+            {
                 modulation_committed = true;
                 modulation_gain = ((fp.score - self.commit_threshold)
                     / (1.0 - self.commit_threshold))
@@ -160,12 +222,9 @@ impl L2MetaLayer {
                     modulation_gain,
                     current_effect,
                 ));
+                self.rollback_effect = Some(current_effect.clone());
                 self.commit_cooldown_remaining = self.commit_cooldown_steps;
-                entered = fp.aligned;
-                self.in_fixed_point = fp.aligned;
-                if fp.aligned {
-                    self.dwell_steps = 1;
-                }
+                self.awaiting_consequence = true;
             }
         }
 
@@ -177,10 +236,13 @@ impl L2MetaLayer {
             entered_fixed_point: entered,
             exited_fixed_point: exited,
             alignment_score,
+            candidate_alignment_score,
+            dwell_steps: self.dwell_steps,
             candidate_score,
             modulation_proposed,
             modulation_committed,
             modulation_gain,
+            score_breakdown,
             effect_nudge,
         })
     }
@@ -190,12 +252,47 @@ impl L2MetaLayer {
     pub fn observe_consequence(&mut self, reward_delta: f64, error_delta: f64, risk_delta: f64) {
         let score = 0.60 * reward_delta - 0.25 * error_delta - 0.15 * risk_delta;
         self.last_consequence_score = score;
+        if reward_delta < -0.05 {
+            self.negative_reward_streak = self.negative_reward_streak.saturating_add(1);
+        } else {
+            self.negative_reward_streak = 0;
+        }
+        self.reward_change_score = if self.negative_reward_streak >= self.negative_reward_required {
+            ((-reward_delta) / 0.5).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.error_change_score = (error_delta / 0.15).clamp(0.0, 1.0);
+        if !self.awaiting_consequence {
+            return;
+        }
+        self.awaiting_consequence = false;
         if score < -0.05 {
+            self.external_attention = true;
+            self.stable_consequence_steps = 0;
+            self.negative_consequence_streak = self.negative_consequence_streak.saturating_add(1);
             self.commit_cooldown_remaining = self
                 .commit_cooldown_remaining
                 .max(self.commit_cooldown_steps.saturating_mul(2));
             self.in_fixed_point = false;
             self.dwell_steps = 0;
+            if self.negative_consequence_streak >= 2 {
+                self.defensive_mode = true;
+            }
+        } else if score > 0.05 {
+            self.stable_consequence_steps = self.stable_consequence_steps.saturating_add(1);
+            self.negative_consequence_streak = 0;
+            if self.defensive_mode && score > 0.15 {
+                self.defensive_mode = false;
+            }
+        }
+    }
+
+    pub fn take_rollback_effect(&mut self) -> Option<RuleEffect> {
+        if self.last_consequence_score < -0.05 {
+            self.rollback_effect.take()
+        } else {
+            None
         }
     }
 }

@@ -23,8 +23,8 @@ pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
 pub use persist::{KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
 pub use task::{
-    run_bandit_task, run_l2_benchmark, run_l2_benchmark_scenario, BanditReport,
-    L2BenchmarkAggregate, L2BenchmarkReport,
+    run_bandit_task, run_l2_benchmark, run_l2_benchmark_scenario,
+    run_l2_benchmark_scenario_with_gate, BanditReport, L2BenchmarkAggregate, L2BenchmarkReport,
 };
 pub use types::*;
 

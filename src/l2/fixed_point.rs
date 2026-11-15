@@ -7,7 +7,9 @@ use std::collections::HashMap;
 pub struct FixedPointResult {
     pub mode: String,
     pub aligned: bool,
+    pub alignment_score: f64,
     pub score: f64,
+    pub breakdown: HashMap<String, f64>,
     pub modulation: Modulation,
 }
 
@@ -21,20 +23,36 @@ pub struct Modulation {
     pub risk_tolerance_delta: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScoreSignals {
+    pub reward_change_score: f64,
+    pub error_change_score: f64,
+    pub stability_score: f64,
+}
+
 pub struct OmegaDayanFixedPoint;
 
 impl OmegaDayanFixedPoint {
     pub fn enter(&self, state: &SystemState) -> Result<FixedPointResult> {
-        let score = self.align(
+        self.enter_with_signals(state, ScoreSignals::default())
+    }
+
+    pub fn enter_with_signals(
+        &self,
+        state: &SystemState,
+        signals: ScoreSignals,
+    ) -> Result<FixedPointResult> {
+        let (alignment_score, score, breakdown) = self.align(
             &state.highest_attractor,
             state.generative_base.as_deref(),
             &state.active_code,
             state.avg_prediction_error,
             state.total_steps,
+            signals,
         );
 
         let mut modulation = Modulation::default();
-        if score > 0.82 {
+        if alignment_score > 0.82 {
             modulation.bias_delta.insert("self_ref".into(), 0.18);
             modulation.bias_delta.insert("coherence".into(), 0.12);
             modulation.constraint_delta.insert("max_risk".into(), -0.04);
@@ -57,8 +75,10 @@ impl OmegaDayanFixedPoint {
 
         Ok(FixedPointResult {
             mode: "observation_equals_observed".into(),
-            aligned: score > 0.82,
+            aligned: alignment_score > 0.82,
+            alignment_score,
             score,
+            breakdown,
             modulation,
         })
     }
@@ -70,8 +90,9 @@ impl OmegaDayanFixedPoint {
         active_code: &HashMap<String, String>,
         avg_error: f64,
         total_steps: u64,
-    ) -> f64 {
-        let mut score = 0.30;
+        signals: ScoreSignals,
+    ) -> (f64, f64, HashMap<String, f64>) {
+        let mut alignment = 0.30;
 
         let omega_l = omega.to_lowercase();
         if omega_l.contains("self")
@@ -79,7 +100,7 @@ impl OmegaDayanFixedPoint {
             || omega_l.contains("omega")
             || omega_l.contains("dayan")
         {
-            score += 0.18;
+            alignment += 0.18;
         }
 
         if let Some(base) = dayan {
@@ -88,36 +109,48 @@ impl OmegaDayanFixedPoint {
                 || base_l.contains("cognitive_rules")
                 || base_l.contains("dayan")
             {
-                score += 0.14;
+                alignment += 0.14;
             }
 
             let omega_chars: std::collections::HashSet<char> = omega.chars().collect();
             let overlap = base.chars().filter(|c| omega_chars.contains(c)).count() as f64;
             let denom = omega.len().max(base.len()).max(1) as f64;
-            score += (overlap / denom) * 0.18;
+            alignment += (overlap / denom) * 0.18;
         }
 
         if active_code.contains_key("cognitive_rules") {
-            score += 0.14;
+            alignment += 0.14;
             if let Some(code) = active_code.get("cognitive_rules") {
                 let cl = code.to_lowercase();
                 if cl.contains("self") || cl.contains("bias") || cl.contains("damp") {
-                    score += 0.06;
+                    alignment += 0.06;
                 }
             }
         }
 
         if !active_code.is_empty() {
-            score += 0.05;
+            alignment += 0.05;
         }
 
         if total_steps > 8 && avg_error < 0.35 {
-            score += 0.08;
+            alignment += 0.08;
         } else if avg_error > 0.6 {
-            score -= 0.06;
+            alignment -= 0.06;
         }
 
-        score.clamp(0.0, 1.0)
+        let alignment = alignment.clamp(0.0, 1.0);
+        let reward = signals.reward_change_score.clamp(0.0, 1.0);
+        let error = signals.error_change_score.clamp(0.0, 1.0);
+        let stability = signals.stability_score.clamp(0.0, 1.0);
+        let score =
+            (alignment * 0.45 + reward * 0.30 + error * 0.15 + stability * 0.10).clamp(0.0, 1.0);
+        let mut breakdown = HashMap::new();
+        breakdown.insert("alignment".into(), alignment * 0.45);
+        breakdown.insert("reward_change".into(), reward * 0.30);
+        breakdown.insert("error_change".into(), error * 0.15);
+        breakdown.insert("stability".into(), stability * 0.10);
+        breakdown.insert("total".into(), score);
+        (alignment, score, breakdown)
     }
 }
 
@@ -203,5 +236,30 @@ mod tests {
         );
         let r = fp.enter(&s).unwrap();
         assert!(r.score >= 0.0 && r.score <= 1.0);
+    }
+
+    #[test]
+    fn external_change_signals_raise_candidate_score() {
+        let fp = OmegaDayanFixedPoint;
+        let s = state(
+            "coherent self omega",
+            Some("dayan generative"),
+            true,
+            0.2,
+            20,
+        );
+        let calm = fp.enter(&s).unwrap();
+        let alarm = fp
+            .enter_with_signals(
+                &s,
+                ScoreSignals {
+                    reward_change_score: 1.0,
+                    error_change_score: 1.0,
+                    stability_score: 0.6,
+                },
+            )
+            .unwrap();
+        assert!(alarm.score > calm.score);
+        assert!(alarm.breakdown.contains_key("reward_change"));
     }
 }
