@@ -21,12 +21,43 @@ impl MetaModulator {
         (biases, constraints)
     }
 
+    pub fn apply_scaled(
+        &self,
+        fp: &FixedPointResult,
+        gain: f64,
+        mut biases: HashMap<String, f64>,
+        mut constraints: HashMap<String, f64>,
+    ) -> (HashMap<String, f64>, HashMap<String, f64>) {
+        let gain = gain.clamp(0.0, 1.0);
+        for (k, v) in &fp.modulation.bias_delta {
+            *biases.entry(k.clone()).or_insert(0.0) += *v * gain;
+        }
+        for (k, v) in &fp.modulation.constraint_delta {
+            let entry = constraints.entry(k.clone()).or_insert(0.65);
+            *entry = (*entry + *v * gain).clamp(0.1, 0.95);
+        }
+        (biases, constraints)
+    }
+
     /// Soft-merge fixed-point deltas into a RuleEffect, then sanitize.
     /// Deltas are intentionally small so L1 patches remain the primary policy writer.
     pub fn apply_to_effect(&self, fp: &FixedPointResult, effect: &RuleEffect) -> RuleEffect {
         let mut e = effect.clone();
         e.explore_bonus += fp.modulation.explore_bonus_delta;
         e.risk_tolerance += fp.modulation.risk_tolerance_delta;
+        e.sanitize()
+    }
+
+    pub fn apply_to_effect_scaled(
+        &self,
+        fp: &FixedPointResult,
+        gain: f64,
+        effect: &RuleEffect,
+    ) -> RuleEffect {
+        let mut e = effect.clone();
+        let gain = gain.clamp(0.0, 1.0);
+        e.explore_bonus += fp.modulation.explore_bonus_delta * gain;
+        e.risk_tolerance += fp.modulation.risk_tolerance_delta * gain;
         e.sanitize()
     }
 }

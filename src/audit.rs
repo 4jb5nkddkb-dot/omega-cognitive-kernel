@@ -68,6 +68,15 @@ pub enum AuditEvent {
         alignment_score: f64,
         dwell_steps: u64,
     },
+    L2ModulationProposed {
+        step: u64,
+        score: f64,
+    },
+    L2ModulationCommitted {
+        step: u64,
+        score: f64,
+        gain: f64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +99,8 @@ pub struct AuditSummary {
     pub tools_denied: usize,
     pub fixed_point_enters: usize,
     pub fixed_point_exits: usize,
+    pub l2_modulation_proposals: usize,
+    pub l2_modulation_commits: usize,
     pub first_ts: Option<DateTime<Utc>>,
     pub last_ts: Option<DateTime<Utc>>,
     pub last_action: Option<String>,
@@ -141,6 +152,8 @@ impl AuditSummary {
                 }
                 AuditEvent::FixedPointEntered { .. } => s.fixed_point_enters += 1,
                 AuditEvent::FixedPointExited { .. } => s.fixed_point_exits += 1,
+                AuditEvent::L2ModulationProposed { .. } => s.l2_modulation_proposals += 1,
+                AuditEvent::L2ModulationCommitted { .. } => s.l2_modulation_commits += 1,
             }
         }
         let mut counts: Vec<_> = actions.into_iter().collect();

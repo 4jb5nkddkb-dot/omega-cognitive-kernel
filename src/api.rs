@@ -64,6 +64,9 @@ pub struct KernelStatus {
     pub last_alignment_score: f64,
     pub max_risk: f64,
     pub self_modify_enabled: bool,
+    pub l2_enabled: bool,
+    pub l2_commit_cooldown: u64,
+    pub last_l2_consequence_score: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -318,6 +321,23 @@ where
         self.event_hook = None;
     }
 
+    /// Enable or disable L2 interventions while keeping metric evaluation
+    /// available. Primarily useful for controlled baseline comparisons.
+    pub fn set_l2_enabled(&mut self, enabled: bool) {
+        self.inner.l2.enabled = enabled;
+        if !enabled {
+            self.inner.l2.in_fixed_point = false;
+            self.inner.l2.dwell_steps = 0;
+        }
+    }
+
+    /// Feed back the short-term consequence of the latest L2 modulation.
+    pub fn observe_l2_consequence(&mut self, reward_delta: f64, error_delta: f64, risk_delta: f64) {
+        self.inner
+            .l2
+            .observe_consequence(reward_delta, error_delta, risk_delta);
+    }
+
     fn emit_event(&mut self, event: &AuditEvent) {
         if let Some(hook) = self.event_hook.as_mut() {
             hook(event);
@@ -369,6 +389,10 @@ where
             "effect_damping": result.l1.effect_damping,
             "l2_in_fp": result.l2.in_fixed_point,
             "l2_align": result.l2.alignment_score,
+            "l2_candidate_score": result.l2.candidate_score,
+            "l2_modulation_proposed": result.l2.modulation_proposed,
+            "l2_modulation_committed": result.l2.modulation_committed,
+            "l2_modulation_gain": result.l2.modulation_gain,
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
@@ -416,6 +440,19 @@ where
                 step: self.inner.total_steps,
                 alignment_score: result.l2.alignment_score,
                 dwell_steps: self.inner.l2.dwell_steps,
+            });
+        }
+        if result.l2.modulation_proposed {
+            self.append_event(AuditEvent::L2ModulationProposed {
+                step: self.inner.total_steps,
+                score: result.l2.candidate_score,
+            });
+        }
+        if result.l2.modulation_committed {
+            self.append_event(AuditEvent::L2ModulationCommitted {
+                step: self.inner.total_steps,
+                score: result.l2.candidate_score,
+                gain: result.l2.modulation_gain,
             });
         }
 
@@ -511,6 +548,9 @@ where
             last_alignment_score: self.inner.l2.last_alignment_score,
             max_risk,
             self_modify_enabled: self.inner.l1.self_modify_enabled,
+            l2_enabled: self.inner.l2.enabled,
+            l2_commit_cooldown: self.inner.l2.commit_cooldown_remaining,
+            last_l2_consequence_score: self.inner.l2.last_consequence_score,
         }
     }
 

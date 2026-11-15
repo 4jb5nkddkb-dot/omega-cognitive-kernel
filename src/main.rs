@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
-use omega_cognitive_kernel::task::run_bandit_task;
+use omega_cognitive_kernel::task::{run_bandit_task, run_l2_benchmark_scenario};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -78,6 +78,23 @@ enum Commands {
         episodes: u32,
         #[arg(long, default_value_t = 4)]
         steps: u32,
+    },
+    /// Compare identical seeded runs with L2 interventions disabled/enabled.
+    BenchmarkL2 {
+        /// stable, nonstationary, or degraded
+        #[arg(long, default_value = "nonstationary")]
+        scenario: String,
+        #[arg(long, default_value_t = 5)]
+        runs: u32,
+        #[arg(long, default_value_t = 8)]
+        episodes: u32,
+        #[arg(long, default_value_t = 8)]
+        steps: u32,
+        #[arg(long, default_value_t = 20261115)]
+        seed: u64,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Operator nudge: set strategy weight (0.1–10).
     StrategyWeight {
@@ -234,6 +251,9 @@ fn main() -> anyhow::Result<()> {
                 println!("last_alignment     : {:.4}", st.last_alignment_score);
                 println!("max_risk           : {:.2}", st.max_risk);
                 println!("self_modify        : {}", st.self_modify_enabled);
+                println!("l2_enabled        : {}", st.l2_enabled);
+                println!("l2_cooldown       : {}", st.l2_commit_cooldown);
+                println!("l2_consequence    : {:.4}", st.last_l2_consequence_score);
                 println!("state_path         : {}", st.state_path);
             }
         }
@@ -373,6 +393,73 @@ fn main() -> anyhow::Result<()> {
             println!("max_idle_steps    : {}", report.max_idle_steps);
             println!("mean_idle_weight  : {:.3}", report.mean_idle_weight);
             println!("mean_active_weight: {:.3}", report.mean_active_weight);
+        }
+        Commands::BenchmarkL2 {
+            scenario,
+            runs,
+            episodes,
+            steps,
+            seed,
+            json,
+        } => {
+            let report = run_l2_benchmark_scenario(scenario, *runs, *episodes, *steps, *seed)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let base = &report.baseline_l2_disabled;
+                let l2 = &report.treatment_l2_enabled;
+                println!("L2 benchmark (same seeds, baseline vs treatment)");
+                println!("runs              : {}", report.runs);
+                println!("scenario          : {}", report.scenario);
+                println!(
+                    "episodes/steps    : {}/{}",
+                    report.episodes, report.steps_per_episode
+                );
+                println!("seed              : {}", report.seed);
+                println!("                    baseline      L2 enabled     delta");
+                println!(
+                    "mean_reward       : {:>10.4}    {:>10.4}    {:+.4}",
+                    base.mean_reward, l2.mean_reward, report.delta_mean_reward
+                );
+                println!(
+                    "best_arm_rate     : {:>10.4}    {:>10.4}    {:+.4}",
+                    base.best_arm_rate, l2.best_arm_rate, report.delta_best_arm_rate
+                );
+                println!(
+                    "error_delta       : {:>10.4}    {:>10.4}",
+                    base.mean_error_delta, l2.mean_error_delta
+                );
+                println!(
+                    "error_decrease_rt  : {:>10.4}    {:>10.4}    {:+.4}",
+                    base.error_decrease_rate,
+                    l2.error_decrease_rate,
+                    report.delta_error_decrease_rate
+                );
+                println!(
+                    "patches/run       : {:>10.4}    {:>10.4}",
+                    base.mean_patches_accepted, l2.mean_patches_accepted
+                );
+                println!(
+                    "fp enters/run     : {:>10.4}    {:>10.4}",
+                    base.mean_fixed_point_enters, l2.mean_fixed_point_enters
+                );
+                println!(
+                    "fp exits/run      : {:>10.4}    {:>10.4}",
+                    base.mean_fixed_point_exits, l2.mean_fixed_point_exits
+                );
+                println!(
+                    "l2 nudges/run     : {:>10.4}    {:>10.4}",
+                    base.mean_l2_nudges, l2.mean_l2_nudges
+                );
+                println!(
+                    "consequence       : {:>10.4}    {:>10.4}",
+                    base.mean_l2_consequence_score, l2.mean_l2_consequence_score
+                );
+                println!(
+                    "final alignment   : {:>10.4}    {:>10.4}",
+                    base.mean_final_alignment_score, l2.mean_final_alignment_score
+                );
+            }
         }
         Commands::StrategyWeight { name, weight } => {
             let mut kernel = open_kernel(&cli)?;

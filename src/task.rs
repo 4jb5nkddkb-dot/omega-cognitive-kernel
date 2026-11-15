@@ -4,6 +4,8 @@
 use crate::api::Kernel;
 use crate::error::Result;
 use serde::Serialize;
+use std::env::temp_dir;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BanditReport {
@@ -25,6 +27,44 @@ pub struct BanditReport {
     pub max_idle_steps: u32,
     pub mean_idle_weight: f64,
     pub mean_active_weight: f64,
+    pub initial_avg_error: f64,
+    pub final_avg_error: f64,
+    pub fixed_point_enters: usize,
+    pub fixed_point_exits: usize,
+    pub l2_nudges: usize,
+    pub mean_l2_consequence_score: f64,
+    pub final_alignment_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2BenchmarkAggregate {
+    pub runs: u32,
+    pub mean_reward: f64,
+    pub best_arm_rate: f64,
+    pub error_decrease_rate: f64,
+    pub mean_initial_error: f64,
+    pub mean_final_error: f64,
+    pub mean_error_delta: f64,
+    pub mean_patches_accepted: f64,
+    pub mean_fixed_point_enters: f64,
+    pub mean_fixed_point_exits: f64,
+    pub mean_l2_nudges: f64,
+    pub mean_l2_consequence_score: f64,
+    pub mean_final_alignment_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2BenchmarkReport {
+    pub scenario: String,
+    pub episodes: u32,
+    pub steps_per_episode: u32,
+    pub runs: u32,
+    pub seed: u64,
+    pub baseline_l2_disabled: L2BenchmarkAggregate,
+    pub treatment_l2_enabled: L2BenchmarkAggregate,
+    pub delta_mean_reward: f64,
+    pub delta_best_arm_rate: f64,
+    pub delta_error_decrease_rate: f64,
 }
 
 struct Rng {
@@ -64,26 +104,51 @@ pub fn run_bandit_task_seeded(
     steps_per_episode: u32,
     seed: u64,
 ) -> Result<BanditReport> {
+    run_bandit_task_seeded_scenario(kernel, episodes, steps_per_episode, seed, "nonstationary")
+}
+
+fn run_bandit_task_seeded_scenario(
+    kernel: &mut Kernel,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+    scenario: &str,
+) -> Result<BanditReport> {
     let mut rng = Rng::new(seed);
     let mut total_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;
     let mut patches = 0u64;
-    let early_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+    let mut l2_nudges = 0usize;
+    let mut consequence_sum = 0.0;
+    let mut early_err = None;
 
     for ep in 0..episodes {
         // Non-stationary: best arm flips halfway (and once more late if many episodes).
-        let best = if ep >= episodes / 2 && !(episodes >= 4 && ep >= (episodes * 3) / 4) {
-            1
-        } else {
-            0
+        let best = match scenario {
+            "stable" => 0,
+            "degraded" if ep >= episodes / 2 => 0,
+            _ if ep >= episodes / 2 && !(episodes >= 4 && ep >= (episodes * 3) / 4) => 1,
+            _ => 0,
         };
+        if scenario == "degraded" && ep == episodes / 2 {
+            kernel.inner.l0.memory.cas.avg_prediction_error = 0.9;
+        }
         let mut ep_reward = 0.0;
 
         for _ in 0..steps_per_episode {
-            let r = kernel.step("maximize bandit reward under uncertainty")?;
+            let before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+            let r = kernel
+                .step("maintain coherent self-model omega dayan while maximizing bandit reward")?;
+            let after_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+            if early_err.is_none() {
+                early_err = Some(after_err);
+            }
             if r.l1.patched {
                 patches += 1;
+            }
+            if r.l2.effect_nudge.is_some() {
+                l2_nudges += 1;
             }
             let action = r
                 .trajectory
@@ -92,10 +157,23 @@ pub fn run_bandit_task_seeded(
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| "observe".into());
             let arm = arm_for_action(&action);
-            let p = if arm == best { 0.85 } else { 0.25 };
+            let p = if scenario == "degraded" && ep >= episodes / 2 {
+                if arm == best {
+                    0.45
+                } else {
+                    0.35
+                }
+            } else if arm == best {
+                0.85
+            } else {
+                0.25
+            };
             let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
 
             kernel.inner.l0.memory.record_reward(&action, reward);
+            let consequence_score = 0.60 * (reward - 0.5) - 0.25 * (after_err - before_err);
+            consequence_sum += consequence_score;
+            kernel.observe_l2_consequence(reward - 0.5, after_err - before_err, 0.0);
 
             ep_reward += reward;
             total_reward += reward;
@@ -109,9 +187,12 @@ pub fn run_bandit_task_seeded(
     }
 
     let final_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+    let initial_err = early_err.unwrap_or(final_err);
     let effect = &kernel.inner.l0.memory.cognitive_effect;
     let idle_threshold = kernel.inner.l0.learner.decay_idle_threshold;
     let st = kernel.inner.l0.memory.strategy.stats(idle_threshold);
+    let audit = kernel.audit_summary()?;
+    let status = kernel.status();
 
     Ok(BanditReport {
         episodes,
@@ -129,7 +210,7 @@ pub fn run_bandit_task_seeded(
         final_damping: effect.error_damping,
         final_explore_bonus: effect.explore_bonus,
         final_risk_tolerance: effect.risk_tolerance,
-        error_decreased: final_err < early_err || early_err == 0.0,
+        error_decreased: final_err < initial_err,
         patches_accepted: patches,
         seed,
         strategy_count: st.strategy_count,
@@ -139,6 +220,168 @@ pub fn run_bandit_task_seeded(
         max_idle_steps: st.max_idle_steps,
         mean_idle_weight: st.mean_idle_weight,
         mean_active_weight: st.mean_active_weight,
+        initial_avg_error: initial_err,
+        final_avg_error: final_err,
+        fixed_point_enters: audit.fixed_point_enters,
+        fixed_point_exits: audit.fixed_point_exits,
+        l2_nudges,
+        mean_l2_consequence_score: if total_choices == 0 {
+            0.0
+        } else {
+            consequence_sum / total_choices as f64
+        },
+        final_alignment_score: status.last_alignment_score,
+    })
+}
+
+fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
+    let runs = reports.len() as u32;
+    if reports.is_empty() {
+        return L2BenchmarkAggregate {
+            runs,
+            mean_reward: 0.0,
+            best_arm_rate: 0.0,
+            error_decrease_rate: 0.0,
+            mean_initial_error: 0.0,
+            mean_final_error: 0.0,
+            mean_error_delta: 0.0,
+            mean_patches_accepted: 0.0,
+            mean_fixed_point_enters: 0.0,
+            mean_fixed_point_exits: 0.0,
+            mean_l2_nudges: 0.0,
+            mean_l2_consequence_score: 0.0,
+            mean_final_alignment_score: 0.0,
+        };
+    }
+    let n = reports.len() as f64;
+    let mean = |f: fn(&BanditReport) -> f64| reports.iter().map(f).sum::<f64>() / n;
+    L2BenchmarkAggregate {
+        runs,
+        mean_reward: mean(|r| r.mean_reward),
+        best_arm_rate: mean(|r| r.best_arm_rate),
+        error_decrease_rate: reports.iter().filter(|r| r.error_decreased).count() as f64 / n,
+        mean_initial_error: mean(|r| r.initial_avg_error),
+        mean_final_error: mean(|r| r.final_avg_error),
+        mean_error_delta: mean(|r| r.final_avg_error - r.initial_avg_error),
+        mean_patches_accepted: mean(|r| r.patches_accepted as f64),
+        mean_fixed_point_enters: mean(|r| r.fixed_point_enters as f64),
+        mean_fixed_point_exits: mean(|r| r.fixed_point_exits as f64),
+        mean_l2_nudges: mean(|r| r.l2_nudges as f64),
+        mean_l2_consequence_score: mean(|r| r.mean_l2_consequence_score),
+        mean_final_alignment_score: mean(|r| r.final_alignment_score),
+    }
+}
+
+fn cleanup_benchmark_files(state_path: &std::path::Path) {
+    let parent = state_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let _ = std::fs::remove_file(state_path);
+    let _ = std::fs::remove_file(parent.join("audit.jsonl"));
+    let _ = std::fs::remove_file(parent.join("trajectory.jsonl"));
+    let _ = std::fs::remove_dir_all(parent.join("checkpoints"));
+}
+
+/// Compare identical seeded bandit runs with L2 interventions disabled/enabled.
+/// The benchmark is deterministic and reports deltas rather than treating a
+/// single successful run as evidence of improvement.
+pub fn run_l2_benchmark(
+    runs: u32,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+) -> Result<L2BenchmarkReport> {
+    run_l2_benchmark_scenario("nonstationary", runs, episodes, steps_per_episode, seed)
+}
+
+/// Run the paired L2 benchmark under a named deterministic environment.
+pub fn run_l2_benchmark_scenario(
+    scenario: &str,
+    runs: u32,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+) -> Result<L2BenchmarkReport> {
+    let scenario = match scenario {
+        "stable" | "nonstationary" | "degraded" => scenario,
+        other => {
+            return Err(crate::error::OmegaError::Config(format!(
+                "unknown benchmark scenario: {other}"
+            )))
+        }
+    };
+    let runs = runs.max(1);
+    let mut baseline = Vec::with_capacity(runs as usize);
+    let mut treatment = Vec::with_capacity(runs as usize);
+
+    for i in 0..runs {
+        let run_seed = seed.wrapping_add(i as u64);
+        let base_path = temp_dir().join(format!("omega-l2-benchmark-{}-base.json", Uuid::new_v4()));
+        let treatment_path =
+            temp_dir().join(format!("omega-l2-benchmark-{}-l2.json", Uuid::new_v4()));
+
+        let mut base = Kernel::with_state_path(&base_path);
+        base.autosave = false;
+        base.auto_checkpoint_on_patch = false;
+        base.dump_trajectory = false;
+        // Both arms start from the same coherent policy context. This makes
+        // fixed-point entry observable while preserving a fair intervention
+        // comparison: only L2 is disabled in the baseline.
+        base.inner
+            .l1
+            .store
+            .active
+            .insert("cognitive_rules".into(), "self-model bias damp rule".into());
+        base.set_l2_enabled(false);
+        baseline.push(run_bandit_task_seeded_scenario(
+            &mut base,
+            episodes,
+            steps_per_episode,
+            run_seed,
+            scenario,
+        )?);
+        cleanup_benchmark_files(&base_path);
+
+        let mut l2 = Kernel::with_state_path(&treatment_path);
+        l2.autosave = false;
+        l2.auto_checkpoint_on_patch = false;
+        l2.dump_trajectory = false;
+        l2.inner
+            .l1
+            .store
+            .active
+            .insert("cognitive_rules".into(), "self-model bias damp rule".into());
+        l2.inner.l2.detector.window = 2;
+        l2.inner.l2.detector.pred_threshold = 0.30;
+        l2.inner.l2.detector.self_ref_threshold = 0.30;
+        l2.inner.l2.detector.cooldown_steps = 0;
+        // The fixture intentionally exercises the candidate-to-commit path;
+        // production/default L2 remains conservative at commit_threshold 0.82.
+        l2.inner.l2.commit_threshold = 0.70;
+        l2.set_l2_enabled(true);
+        treatment.push(run_bandit_task_seeded_scenario(
+            &mut l2,
+            episodes,
+            steps_per_episode,
+            run_seed,
+            scenario,
+        )?);
+        cleanup_benchmark_files(&treatment_path);
+    }
+
+    let baseline = aggregate(&baseline);
+    let treatment = aggregate(&treatment);
+    Ok(L2BenchmarkReport {
+        scenario: scenario.into(),
+        episodes,
+        steps_per_episode,
+        runs,
+        seed,
+        delta_mean_reward: treatment.mean_reward - baseline.mean_reward,
+        delta_best_arm_rate: treatment.best_arm_rate - baseline.best_arm_rate,
+        delta_error_decrease_rate: treatment.error_decrease_rate - baseline.error_decrease_rate,
+        baseline_l2_disabled: baseline,
+        treatment_l2_enabled: treatment,
     })
 }
 
@@ -207,5 +450,13 @@ mod tests {
         // max_idle_steps should be tracked (may be 0 if all actions stay hot)
         let _ = report.max_idle_steps;
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn l2_benchmark_reports_intervention_delta() {
+        let report = run_l2_benchmark(1, 8, 8, 42).unwrap();
+        assert_eq!(report.runs, 1);
+        assert_eq!(report.baseline_l2_disabled.mean_l2_nudges, 0.0);
+        assert!(report.treatment_l2_enabled.mean_l2_nudges > 0.0);
     }
 }

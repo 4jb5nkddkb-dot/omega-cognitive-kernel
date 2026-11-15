@@ -765,7 +765,7 @@ impl DashboardApp {
             ui.horizontal(|ui| {
                 let selected = i == active;
                 if ui
-                    .selectable_label(selected, format!("{label}"))
+                    .selectable_label(selected, label)
                     .on_hover_text(&path)
                     .clicked()
                     && !selected

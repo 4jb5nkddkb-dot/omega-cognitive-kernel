@@ -103,5 +103,7 @@ fn event_kind(ev: &AuditEvent) -> &'static str {
         AuditEvent::ToolDenied { .. } => "tool_denied",
         AuditEvent::FixedPointEntered { .. } => "fixed_point_entered",
         AuditEvent::FixedPointExited { .. } => "fixed_point_exited",
+        AuditEvent::L2ModulationProposed { .. } => "l2_modulation_proposed",
+        AuditEvent::L2ModulationCommitted { .. } => "l2_modulation_committed",
     }
 }

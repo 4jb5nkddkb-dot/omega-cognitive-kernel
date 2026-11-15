@@ -25,6 +25,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 | **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
 | **[docs/API_0.5.md](docs/API_0.5.md)** | 0.5 surface (schema + replay + events) |
 | **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
+| **[docs/L2_BENCHMARK.md](docs/L2_BENCHMARK.md)** | Reproducible L2 baseline comparison |
 | **[docs/CRATES_IO.md](docs/CRATES_IO.md)** | crates.io notes |
 
 ---
@@ -65,6 +66,7 @@ cargo run --release -- status
 cargo run --release -- status --json
 cargo run --release -- audit --summary
 cargo run --release -- replay --tail 15
+cargo run --release -- benchmark-l2 --runs 20 --json
 cargo run --release --features gui --bin omega-dashboard
 ```
 
