@@ -581,6 +581,28 @@ where
             strategies: self.inner.l0.memory.strategy.snapshot(),
             active_modules: active,
             patch_history: history,
+            l2_enabled: self.inner.l2.enabled,
+            l2_in_fixed_point: self.inner.l2.in_fixed_point,
+            l2_dwell_steps: self.inner.l2.dwell_steps,
+            l2_last_alignment_score: self.inner.l2.last_alignment_score,
+            l2_commit_threshold: self.inner.l2.commit_threshold,
+            l2_commit_cooldown_steps: self.inner.l2.commit_cooldown_steps,
+            l2_commit_cooldown_remaining: self.inner.l2.commit_cooldown_remaining,
+            l2_last_consequence_score: self.inner.l2.last_consequence_score,
+            l2_defensive_mode: self.inner.l2.defensive_mode,
+            l2_negative_consequence_streak: self.inner.l2.negative_consequence_streak,
+            l2_stable_consequence_steps: self.inner.l2.stable_consequence_steps,
+            l2_reward_change_score: self.inner.l2.reward_change_score,
+            l2_error_change_score: self.inner.l2.error_change_score,
+            l2_awaiting_consequence: self.inner.l2.awaiting_consequence,
+            l2_negative_reward_streak: self.inner.l2.negative_reward_streak,
+            l2_negative_reward_required: self.inner.l2.negative_reward_required,
+            l2_detector_history: self.inner.l2.detector.history.clone(),
+            l2_detector_window: self.inner.l2.detector.window,
+            l2_detector_pred_threshold: self.inner.l2.detector.pred_threshold,
+            l2_detector_self_ref_threshold: self.inner.l2.detector.self_ref_threshold,
+            l2_detector_cooldown_steps: self.inner.l2.detector.cooldown_steps,
+            l2_detector_cooldown_remaining: self.inner.l2.detector.cooldown_remaining,
         }
     }
 
@@ -598,6 +620,38 @@ where
             crate::memory::strategy::StrategyMemory::restore(snap.strategies);
         self.inner.l1.store =
             crate::l1::store::VersionedStore::restore(snap.active_modules, snap.patch_history);
+        self.inner.l2.enabled = snap.l2_enabled;
+        self.inner.l2.in_fixed_point = snap.l2_in_fixed_point;
+        self.inner.l2.dwell_steps = snap.l2_dwell_steps;
+        self.inner.l2.last_alignment_score = snap.l2_last_alignment_score;
+        self.inner.l2.commit_threshold = snap.l2_commit_threshold;
+        self.inner.l2.commit_cooldown_steps = snap.l2_commit_cooldown_steps;
+        self.inner.l2.commit_cooldown_remaining = snap.l2_commit_cooldown_remaining;
+        self.inner.l2.last_consequence_score = snap.l2_last_consequence_score;
+        self.inner.l2.defensive_mode = snap.l2_defensive_mode;
+        self.inner.l2.negative_consequence_streak = snap.l2_negative_consequence_streak;
+        self.inner.l2.stable_consequence_steps = snap.l2_stable_consequence_steps;
+        self.inner.l2.reward_change_score = snap.l2_reward_change_score;
+        self.inner.l2.error_change_score = snap.l2_error_change_score;
+        self.inner.l2.awaiting_consequence = snap.l2_awaiting_consequence;
+        self.inner.l2.negative_reward_streak = snap.l2_negative_reward_streak;
+        self.inner.l2.negative_reward_required = snap.l2_negative_reward_required;
+        self.inner.l2.detector.history = snap.l2_detector_history;
+        self.inner.l2.detector.window = snap.l2_detector_window.max(1);
+        self.inner.l2.detector.pred_threshold = snap.l2_detector_pred_threshold;
+        self.inner.l2.detector.self_ref_threshold = snap.l2_detector_self_ref_threshold;
+        self.inner.l2.detector.cooldown_steps = snap.l2_detector_cooldown_steps;
+        self.inner.l2.detector.cooldown_remaining = snap.l2_detector_cooldown_remaining;
+    }
+
+    pub fn snapshot_json(&self) -> Result<String> {
+        self.snapshot().to_json()
+    }
+
+    pub fn apply_snapshot_json(&mut self, json: &str) -> Result<()> {
+        let snapshot = KernelSnapshot::from_json(json)?;
+        self.apply_snapshot(snapshot);
+        Ok(())
     }
 
     pub fn save(&self) -> Result<()> {
@@ -670,6 +724,49 @@ mod tests {
         let _ = k.step("test");
         assert!(fired.load(std::sync::atomic::Ordering::SeqCst) >= 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn snapshot_json_roundtrips_l2_state_at_arbitrary_step() {
+        let source_path = temp_dir().join(format!("omega-hot-source-{}.json", Uuid::new_v4()));
+        let restored_path = temp_dir().join(format!("omega-hot-restored-{}.json", Uuid::new_v4()));
+        let mut source = Kernel::with_state_path(&source_path);
+        source.autosave = false;
+        source.dump_trajectory = false;
+        for _ in 0..4 {
+            source
+                .step("maintain coherent self-model omega dayan")
+                .unwrap();
+        }
+        source.inner.l2.in_fixed_point = true;
+        source.inner.l2.dwell_steps = 7;
+        source.inner.l2.defensive_mode = true;
+        source.inner.l2.awaiting_consequence = true;
+        source.inner.l2.commit_cooldown_remaining = 3;
+        source.inner.l2.negative_reward_streak = 2;
+
+        let json = source.snapshot_json().unwrap();
+        let mut restored = Kernel::with_state_path(&restored_path);
+        restored.autosave = false;
+        restored.dump_trajectory = false;
+        restored.apply_snapshot_json(&json).unwrap();
+
+        assert_eq!(restored.inner.total_steps, source.inner.total_steps);
+        assert!(restored.inner.l2.in_fixed_point);
+        assert_eq!(restored.inner.l2.dwell_steps, 7);
+        assert!(restored.inner.l2.defensive_mode);
+        assert!(restored.inner.l2.awaiting_consequence);
+        assert_eq!(restored.inner.l2.commit_cooldown_remaining, 3);
+        assert_eq!(
+            restored.inner.l2.detector.history.len(),
+            source.inner.l2.detector.history.len()
+        );
+
+        restored.step("continue after hot restore").unwrap();
+        assert_eq!(restored.inner.total_steps, source.inner.total_steps + 1);
+
+        let _ = std::fs::remove_file(&source_path);
+        let _ = std::fs::remove_file(&restored_path);
     }
 
     #[test]

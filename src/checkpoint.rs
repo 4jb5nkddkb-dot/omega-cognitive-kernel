@@ -137,6 +137,7 @@ mod tests {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: vec![],
+            ..KernelSnapshot::default()
         };
         let meta = store.save("before-patch", 3, 0.4, 1.0, &snap).unwrap();
         assert_eq!(store.list().unwrap().len(), 1);

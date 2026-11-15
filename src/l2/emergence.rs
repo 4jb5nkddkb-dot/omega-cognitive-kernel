@@ -1,5 +1,7 @@
 use crate::types::MetaMetrics;
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmergenceDetector {
     pub history: Vec<MetaMetrics>,
     pub window: usize,

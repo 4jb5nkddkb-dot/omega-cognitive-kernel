@@ -3,7 +3,7 @@
 use crate::error::{OmegaError, Result};
 use crate::memory::case::Case;
 use crate::memory::strategy::Strategy;
-use crate::types::{CognitivePatch, RuleEffect};
+use crate::types::{CognitivePatch, MetaMetrics, RuleEffect};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -16,6 +16,38 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 fn default_schema_version() -> u32 {
     0
+}
+
+fn default_l2_enabled() -> bool {
+    true
+}
+
+fn default_l2_commit_threshold() -> f64 {
+    0.82
+}
+
+fn default_l2_commit_cooldown() -> u64 {
+    5
+}
+
+fn default_l2_negative_reward_required() -> u32 {
+    3
+}
+
+fn default_l2_detector_window() -> usize {
+    4
+}
+
+fn default_l2_detector_pred_threshold() -> f64 {
+    0.58
+}
+
+fn default_l2_detector_self_ref_threshold() -> f64 {
+    0.50
+}
+
+fn default_l2_detector_cooldown() -> usize {
+    5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +67,92 @@ pub struct KernelSnapshot {
     pub strategies: HashMap<String, Strategy>,
     pub active_modules: HashMap<String, String>,
     pub patch_history: Vec<(CognitivePatch, String)>,
+    #[serde(default = "default_l2_enabled")]
+    pub l2_enabled: bool,
+    #[serde(default)]
+    pub l2_in_fixed_point: bool,
+    #[serde(default)]
+    pub l2_dwell_steps: u64,
+    #[serde(default)]
+    pub l2_last_alignment_score: f64,
+    #[serde(default = "default_l2_commit_threshold")]
+    pub l2_commit_threshold: f64,
+    #[serde(default = "default_l2_commit_cooldown")]
+    pub l2_commit_cooldown_steps: u64,
+    #[serde(default)]
+    pub l2_commit_cooldown_remaining: u64,
+    #[serde(default)]
+    pub l2_last_consequence_score: f64,
+    #[serde(default)]
+    pub l2_defensive_mode: bool,
+    #[serde(default)]
+    pub l2_negative_consequence_streak: u32,
+    #[serde(default)]
+    pub l2_stable_consequence_steps: u32,
+    #[serde(default)]
+    pub l2_reward_change_score: f64,
+    #[serde(default)]
+    pub l2_error_change_score: f64,
+    #[serde(default)]
+    pub l2_awaiting_consequence: bool,
+    #[serde(default)]
+    pub l2_negative_reward_streak: u32,
+    #[serde(default = "default_l2_negative_reward_required")]
+    pub l2_negative_reward_required: u32,
+    #[serde(default)]
+    pub l2_detector_history: Vec<MetaMetrics>,
+    #[serde(default = "default_l2_detector_window")]
+    pub l2_detector_window: usize,
+    #[serde(default = "default_l2_detector_pred_threshold")]
+    pub l2_detector_pred_threshold: f64,
+    #[serde(default = "default_l2_detector_self_ref_threshold")]
+    pub l2_detector_self_ref_threshold: f64,
+    #[serde(default = "default_l2_detector_cooldown")]
+    pub l2_detector_cooldown_steps: usize,
+    #[serde(default)]
+    pub l2_detector_cooldown_remaining: usize,
+}
+
+impl Default for KernelSnapshot {
+    fn default() -> Self {
+        Self {
+            version: CURRENT_SCHEMA_VERSION,
+            total_steps: 0,
+            biases: HashMap::new(),
+            constraints: HashMap::new(),
+            cas_total_steps: 0,
+            cas_avg_prediction_error: 0.0,
+            cas_adaptation_score: 0.0,
+            cognitive_effect: RuleEffect::default(),
+            cases: Vec::new(),
+            case_capacity: 256,
+            strategies: HashMap::new(),
+            active_modules: HashMap::new(),
+            patch_history: Vec::new(),
+            l2_enabled: true,
+            l2_in_fixed_point: false,
+            l2_dwell_steps: 0,
+            l2_last_alignment_score: 0.0,
+            l2_commit_threshold: default_l2_commit_threshold(),
+            l2_commit_cooldown_steps: default_l2_commit_cooldown(),
+            l2_commit_cooldown_remaining: 0,
+            l2_last_consequence_score: 0.0,
+            l2_defensive_mode: false,
+            l2_negative_consequence_streak: 0,
+            l2_stable_consequence_steps: 0,
+            l2_reward_change_score: 0.0,
+            l2_error_change_score: 0.0,
+            l2_awaiting_consequence: false,
+            l2_negative_reward_streak: 0,
+            l2_negative_reward_required: default_l2_negative_reward_required(),
+            l2_detector_history: Vec::new(),
+            l2_detector_window: 4,
+            l2_detector_pred_threshold: 0.58,
+            l2_detector_self_ref_threshold: 0.50,
+            l2_detector_cooldown_steps: 5,
+            l2_detector_cooldown_remaining: 0,
+        }
+    }
 }
 
 impl KernelSnapshot {
@@ -75,6 +193,16 @@ impl KernelSnapshot {
             serde_json::from_str(&data).map_err(|e| OmegaError::Persist(e.to_string()))?;
         snap.migrate()
     }
+
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string(self).map_err(|e| OmegaError::Persist(e.to_string()))
+    }
+
+    pub fn from_json(json: &str) -> Result<Self> {
+        let snap: Self =
+            serde_json::from_str(json).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        snap.migrate()
+    }
 }
 
 pub fn resolve_state_path(explicit: Option<&str>) -> PathBuf {
@@ -113,6 +241,7 @@ mod tests {
             strategies: HashMap::new(),
             active_modules: HashMap::from([("cognitive_rules".into(), "fn x() {}".into())]),
             patch_history: vec![],
+            ..KernelSnapshot::default()
         };
         snap.save_to(&path).unwrap();
         let loaded = KernelSnapshot::load_from(&path).unwrap();
@@ -173,6 +302,7 @@ mod tests {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: vec![],
+            ..KernelSnapshot::default()
         };
         // Bypass save_to stamping by writing raw.
         fs::write(&path, serde_json::to_string(&snap).unwrap()).unwrap();

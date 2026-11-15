@@ -155,6 +155,7 @@ impl Observer for DirSnapshotObserver {
 /// GET a URL and treat the body as observation (JSON if possible, else raw text).
 ///
 /// Requires network. Timeout defaults to 5 seconds.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub struct HttpObserver {
     url: String,
     step_counter: u64,
@@ -176,6 +177,7 @@ impl HttpObserver {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;
@@ -213,6 +215,15 @@ impl Observer for HttpObserver {
             confidence,
             source: format!("http:{}", self.url),
         }])
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Observer for HttpObserver {
+    fn observe(&mut self) -> Result<Vec<Observation>> {
+        Err(OmegaError::ExecutionBlocked(
+            "HttpObserver is unavailable in the wasm core build".into(),
+        ))
     }
 }
 

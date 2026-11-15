@@ -1,0 +1,60 @@
+name: no_std portability
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NO_STD_TARGET: thumbv7em-none-eabihf
+
+jobs:
+  embedded-probe:
+    name: no_std serde/alloc probe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and embedded target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Compile pure no_std probe
+        run: ./scripts/test-no-std.sh
+        env:
+          ALLOW_NO_STD_GAP: "1"
+
+  full-kernel-boundary:
+    name: Report full kernel no_std boundary
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and embedded target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Probe full kernel and report blockers
+        run: ./scripts/test-no-std.sh
+        env:
+          NO_STD_LOG: no-std-kernel.log
+
+      - name: Upload no_std blocker log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: no-std-kernel-report
+          path: no-std-kernel.log
+          if-no-files-found: ignore

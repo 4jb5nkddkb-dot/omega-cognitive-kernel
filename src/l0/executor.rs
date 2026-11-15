@@ -4,6 +4,7 @@ use crate::types::Action;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 /// External world execution interface.
@@ -118,9 +119,11 @@ impl Executor for LoggingExecutor {
 }
 
 /// Max response body bytes kept for `http_get` (truncate after this).
+#[cfg(not(target_arch = "wasm32"))]
 const HTTP_GET_BODY_LIMIT: usize = 2048;
 
 /// Safe GET-only fetch for tool-gate. No redirects beyond ureq defaults; HTTPS/HTTP only.
+#[cfg(not(target_arch = "wasm32"))]
 fn safe_http_get(url: &str) -> Result<serde_json::Value> {
     let url = url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -155,6 +158,13 @@ fn safe_http_get(url: &str) -> Result<serde_json::Value> {
         "truncated": truncated,
         "effect": "network_get",
     }))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn safe_http_get(_url: &str) -> Result<serde_json::Value> {
+    Err(OmegaError::ExecutionBlocked(
+        "http_get is unavailable in the wasm core build".into(),
+    ))
 }
 
 /// Tool-call gate: allow-list + deny-list, optional audit, optional real `http_get`.
