@@ -16,8 +16,10 @@ fn main() -> Result<()> {
     let state = match arg {
         Some(p) => PathBuf::from(p),
         None => {
-            let path =
-                env::temp_dir().join(format!("omega-audit-panel-{}.json", uuid::Uuid::new_v4()));
+            let path = env::temp_dir().join(format!(
+                "omega-audit-panel-{}.json",
+                omega_cognitive_kernel::new_uuid()
+            ));
             let mut k = Kernel::with_state_path(&path);
             k.autosave = true;
             k.auto_checkpoint_on_patch = true;

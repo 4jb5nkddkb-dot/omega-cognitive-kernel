@@ -8,7 +8,10 @@ use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingE
 use std::env::temp_dir;
 
 fn main() -> Result<()> {
-    let work = temp_dir().join(format!("omega-phase1-{}", uuid::Uuid::new_v4()));
+    let work = temp_dir().join(format!(
+        "omega-phase1-{}",
+        omega_cognitive_kernel::new_uuid()
+    ));
     std::fs::create_dir_all(&work).expect("mkdir");
     std::fs::write(work.join("signal.txt"), b"load=0.4").expect("write signal");
 

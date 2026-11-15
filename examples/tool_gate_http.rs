@@ -26,7 +26,10 @@ fn tool(name: &str, url: Option<&str>) -> Action {
 }
 
 fn main() -> Result<()> {
-    let root: PathBuf = temp_dir().join(format!("omega-tool-http-{}", uuid::Uuid::new_v4()));
+    let root: PathBuf = temp_dir().join(format!(
+        "omega-tool-http-{}",
+        omega_cognitive_kernel::new_uuid()
+    ));
     std::fs::create_dir_all(&root).ok();
     let state_marker = root.join("state.json");
     let audit_path = AuditLog::beside_state(&state_marker).path;

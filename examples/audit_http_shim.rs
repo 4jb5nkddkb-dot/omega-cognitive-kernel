@@ -125,7 +125,10 @@ fn resolve_state_path() -> Result<PathBuf> {
         return Ok(PathBuf::from(p));
     }
     // Generate a short trail so /audit/summary and /status are non-empty out of the box.
-    let path = env::temp_dir().join(format!("omega-shim-state-{}.json", uuid::Uuid::new_v4()));
+    let path = env::temp_dir().join(format!(
+        "omega-shim-state-{}.json",
+        omega_cognitive_kernel::new_uuid()
+    ));
     let mut k = Kernel::with_state_path(&path);
     k.autosave = true;
     k.auto_checkpoint_on_patch = true;

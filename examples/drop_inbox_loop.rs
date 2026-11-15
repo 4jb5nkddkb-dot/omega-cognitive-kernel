@@ -17,7 +17,10 @@ use std::thread;
 use std::time::Duration;
 
 fn main() -> Result<()> {
-    let root = temp_dir().join(format!("omega-inbox-{}", uuid::Uuid::new_v4()));
+    let root = temp_dir().join(format!(
+        "omega-inbox-{}",
+        omega_cognitive_kernel::new_uuid()
+    ));
     let inbox = root.join("inbox");
     let cfg_path = root.join("omega.toml");
     let state_path = root.join("state.json");

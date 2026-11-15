@@ -219,7 +219,10 @@ fn main() -> Result<()> {
     let root = if keep {
         PathBuf::from("./omega-inbox-demo")
     } else {
-        env::temp_dir().join(format!("omega-inbox-demo-{}", uuid::Uuid::new_v4()))
+        env::temp_dir().join(format!(
+            "omega-inbox-demo-{}",
+            omega_cognitive_kernel::new_uuid()
+        ))
     };
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("mkdir");
