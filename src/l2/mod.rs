@@ -302,3 +302,26 @@ impl Default for L2MetaLayer {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::L2MetaLayer;
+
+    #[test]
+    fn defensive_mode_recovers_after_strong_positive_consequence() {
+        let mut l2 = L2MetaLayer::new();
+        l2.defensive_mode = true;
+        l2.negative_consequence_streak = 2;
+        l2.awaiting_consequence = true;
+
+        // Positive reward and slightly improving error produce a consequence
+        // score above the recovery threshold while representing a real
+        // post-commit observation.
+        l2.observe_consequence(0.5, -0.01, 0.0);
+
+        assert!(l2.last_consequence_score > 0.15);
+        assert!(!l2.defensive_mode);
+        assert_eq!(l2.negative_consequence_streak, 0);
+        assert!(!l2.awaiting_consequence);
+    }
+}
