@@ -306,6 +306,8 @@ impl Default for L2MetaLayer {
 #[cfg(test)]
 mod tests {
     use super::L2MetaLayer;
+    use crate::types::{RuleEffect, SystemState};
+    use std::collections::HashMap;
 
     #[test]
     fn defensive_mode_recovers_after_strong_positive_consequence() {
@@ -323,5 +325,53 @@ mod tests {
         assert!(!l2.defensive_mode);
         assert_eq!(l2.negative_consequence_streak, 0);
         assert!(!l2.awaiting_consequence);
+    }
+
+    #[test]
+    fn aligned_but_below_commit_threshold_does_not_nudge() {
+        let mut l2 = L2MetaLayer::new();
+        l2.detector.window = 2;
+        l2.detector.pred_threshold = 0.2;
+        l2.detector.self_ref_threshold = 0.2;
+        l2.detector.cooldown_steps = 0;
+        l2.commit_threshold = 0.90;
+
+        let mut active_code = HashMap::new();
+        active_code.insert(
+            "cognitive_rules".to_string(),
+            "self-model bias damp rule".to_string(),
+        );
+        let state = SystemState {
+            active_code,
+            highest_attractor: "maintain coherent self-model omega dayan".to_string(),
+            generative_base: Some("dayan_generative_base".to_string()),
+            last_trajectory_summary: Some("coherent fixed-point candidate".to_string()),
+            avg_prediction_error: 0.2,
+            total_steps: 20,
+        };
+
+        let mut entered = None;
+        for _ in 0..3 {
+            let result = l2
+                .step(
+                    &state,
+                    HashMap::new(),
+                    HashMap::new(),
+                    &RuleEffect::default(),
+                )
+                .expect("L2 step");
+            if result.entered_fixed_point {
+                entered = Some(result);
+                break;
+            }
+        }
+
+        let result = entered.expect("expected raw alignment to enter fixed-point");
+        assert!(result.candidate_alignment_score > 0.82);
+        assert!(result.candidate_score < l2.commit_threshold);
+        assert!(result.in_fixed_point);
+        assert!(result.dwell_steps >= 1);
+        assert!(!result.modulation_committed);
+        assert!(result.effect_nudge.is_none());
     }
 }
