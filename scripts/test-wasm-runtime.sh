@@ -16,7 +16,9 @@ fi
 : "${WASMTIME:=wasmtime}"
 
 "$CARGO" build --lib --no-default-features --target wasm32-unknown-unknown
-"$CARGO" build --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+# The browser library is no_std; the runtime smoke example uses the std-only
+# Kernel API and therefore needs the WASI std surface.
+"$CARGO" build --example wasm_runtime_smoke --target wasm32-wasip1
 
 if ! command -v "$WASMTIME" >/dev/null 2>&1 && [ ! -x "$WASMTIME" ]; then
   echo "error: Wasmtime is required to execute the WASI smoke binary" >&2

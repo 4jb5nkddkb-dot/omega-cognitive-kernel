@@ -70,7 +70,7 @@ jobs:
         run: cargo build --locked --lib --no-default-features --target wasm32-unknown-unknown
 
       - name: Build WASI smoke surface
-        run: cargo build --locked --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+        run: cargo build --locked --example wasm_runtime_smoke --target wasm32-wasip1
 
   msrv:
     name: MSRV Rust 1.74
