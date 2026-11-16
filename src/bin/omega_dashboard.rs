@@ -8,7 +8,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 use omega_cognitive_kernel::api::{Kernel, TrajectoryReplaySummary};
-use omega_cognitive_kernel::audit::{AuditEvent, AuditLog};
+use omega_cognitive_kernel::audit::{AuditEvent, AuditLog, AuditRecord};
 use omega_cognitive_kernel::config::KernelConfig;
 use std::path::PathBuf;
 
@@ -84,6 +84,35 @@ struct FixedPointEvent {
     step: u64,
     alignment_score: f64,
     dwell_steps: Option<u64>,
+}
+
+fn fixed_point_events_from_rows(rows: &[AuditRecord]) -> Vec<FixedPointEvent> {
+    rows.iter()
+        .filter_map(|r| match &r.event {
+            AuditEvent::FixedPointEntered {
+                step,
+                alignment_score,
+            } => Some(FixedPointEvent {
+                kind: "entered",
+                timestamp: r.ts.to_rfc3339(),
+                step: *step,
+                alignment_score: *alignment_score,
+                dwell_steps: None,
+            }),
+            AuditEvent::FixedPointExited {
+                step,
+                alignment_score,
+                dwell_steps,
+            } => Some(FixedPointEvent {
+                kind: "exited",
+                timestamp: r.ts.to_rfc3339(),
+                step: *step,
+                alignment_score: *alignment_score,
+                dwell_steps: Some(*dwell_steps),
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 struct DashboardApp {
@@ -164,35 +193,7 @@ impl DashboardApp {
 
     fn refresh_fixed_point_events(&mut self) {
         match self.kernel.audit_tail(100) {
-            Ok(rows) => {
-                self.fixed_point_events = rows
-                    .iter()
-                    .filter_map(|r| match &r.event {
-                        AuditEvent::FixedPointEntered {
-                            step,
-                            alignment_score,
-                        } => Some(FixedPointEvent {
-                            kind: "entered",
-                            timestamp: r.ts.to_rfc3339(),
-                            step: *step,
-                            alignment_score: *alignment_score,
-                            dwell_steps: None,
-                        }),
-                        AuditEvent::FixedPointExited {
-                            step,
-                            alignment_score,
-                            dwell_steps,
-                        } => Some(FixedPointEvent {
-                            kind: "exited",
-                            timestamp: r.ts.to_rfc3339(),
-                            step: *step,
-                            alignment_score: *alignment_score,
-                            dwell_steps: Some(*dwell_steps),
-                        }),
-                        _ => None,
-                    })
-                    .collect();
-            }
+            Ok(rows) => self.fixed_point_events = fixed_point_events_from_rows(&rows),
             Err(e) => self.error = Some(format!("fixed-point events: {e}")),
         }
     }
@@ -885,4 +886,51 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(DashboardApp::new(cc)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn parses_fixed_point_enter_and_exit_events() {
+        let rows = vec![
+            AuditRecord {
+                ts: Utc::now(),
+                event: AuditEvent::Step {
+                    step: 1,
+                    goal: "g".into(),
+                    action: "observe".into(),
+                    avg_err: 0.2,
+                    damping: 1.0,
+                },
+            },
+            AuditRecord {
+                ts: Utc::now(),
+                event: AuditEvent::FixedPointEntered {
+                    step: 4,
+                    alignment_score: 0.91,
+                },
+            },
+            AuditRecord {
+                ts: Utc::now(),
+                event: AuditEvent::FixedPointExited {
+                    step: 11,
+                    alignment_score: 0.43,
+                    dwell_steps: 7,
+                },
+            },
+        ];
+
+        let events = fixed_point_events_from_rows(&rows);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "entered");
+        assert_eq!(events[0].step, 4);
+        assert!((events[0].alignment_score - 0.91).abs() < f64::EPSILON);
+        assert_eq!(events[0].dwell_steps, None);
+        assert_eq!(events[1].kind, "exited");
+        assert_eq!(events[1].step, 11);
+        assert_eq!(events[1].dwell_steps, Some(7));
+    }
 }

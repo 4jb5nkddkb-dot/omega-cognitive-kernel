@@ -189,6 +189,7 @@ Full list and quick-start path: [examples/README.md](../examples/README.md).
 
 - [PRODUCT.md](./PRODUCT.md)
 - [DASHBOARD.md](./DASHBOARD.md)
+- [PORTABILITY.md](./PORTABILITY.md)
 - [examples/README.md](../examples/README.md)
 - [API_0.5.md](./API_0.5.md)
 - [ROADMAP_0.5.md](./ROADMAP_0.5.md)
