@@ -410,7 +410,7 @@ where
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)
+            .open(path)
         {
             let _ = writeln!(f, "{}", rec);
         }
