@@ -1,7 +1,0 @@
-state_path = "./omega-inbox-demo/state.json"
-autosave = true
-auto_checkpoint_on_patch = true
-error_threshold = 0.25
-min_steps_between_patches = 2
-max_risk = 0.5
-default_goal = "drain inbox under rising load; prefer stabilize when pressure high"
