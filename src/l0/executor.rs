@@ -12,14 +12,75 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "std")]
 use std::time::Duration;
+#[cfg(all(feature = "std", feature = "async"))]
+use std::future::Future;
 
-/// External world execution interface.
+#[cfg(all(feature = "std", feature = "async"))]
+use tokio::io::AsyncWriteExt;
+
+/// External world execution interface (synchronous).
 ///
 /// Implement this trait to apply kernel decisions to the real world.
 /// The default `SandboxedExecutor` only allows a fixed whitelist and returns
 /// synthetic success payloads (no side effects).
 pub trait Executor {
     fn execute(&mut self, actions: &[Action]) -> Result<Vec<serde_json::Value>>;
+}
+
+/// External world execution interface (asynchronous).
+///
+/// Async version of [`Executor`] for use with async runtimes (tokio, async-std).
+/// Requires the `async` feature (which implies `std`).
+#[cfg(all(feature = "std", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
+pub trait AsyncExecutor {
+    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send;
+}
+
+/// Adapter to use a synchronous [`Executor`] as an [`AsyncExecutor`] by running
+/// the blocking call on a thread pool (tokio).
+#[cfg(all(feature = "std", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
+pub struct AsyncExecutorAdapter<E> {
+    inner: Option<E>,
+}
+
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+impl<E> AsyncExecutorAdapter<E> {
+    pub fn new(executor: E) -> Self {
+        Self { inner: Some(executor) }
+    }
+
+    pub fn into_inner(mut self) -> E {
+        self.inner.take().expect("AsyncExecutorAdapter already consumed")
+    }
+}
+
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+impl<E: Executor + Send + 'static> AsyncExecutor for AsyncExecutorAdapter<E> {
+    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
+        let mut executor = self.inner.take().expect("AsyncExecutorAdapter already consumed");
+        let actions = actions.to_vec();
+        async move {
+            let result = tokio::task::spawn_blocking(move || executor.execute(&actions)).await;
+            match result {
+                Ok(r) => r,
+                Err(e) => Err(crate::error::OmegaError::Other(anyhow::anyhow!(e))),
+            }
+        }
+    }
+}
+
+/// Blanket implementation: any sync `Executor` can be used as an `AsyncExecutor`
+/// by wrapping it in `AsyncExecutorAdapter`.
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+impl<E: Executor + Send + 'static> From<E> for AsyncExecutorAdapter<E> {
+    fn from(executor: E) -> Self {
+        Self::new(executor)
+    }
 }
 
 pub struct SandboxedExecutor {
@@ -301,6 +362,88 @@ impl Executor for ToolGateExecutor {
             }));
         }
         Ok(results)
+    }
+}
+
+/// Async logging executor using tokio's async filesystem.
+#[cfg(all(feature = "std", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
+pub struct AsyncLoggingExecutor {
+    allowed: HashSet<String>,
+    log_path: Option<PathBuf>,
+    echo_stdout: bool,
+}
+
+#[cfg(all(feature = "std", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
+impl AsyncLoggingExecutor {
+    pub fn new(allowed: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            allowed: allowed.into_iter().collect(),
+            log_path: None,
+            echo_stdout: true,
+        }
+    }
+
+    pub fn with_log_file(mut self, path: impl AsRef<Path>) -> Self {
+        self.log_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn echo_stdout(mut self, enabled: bool) -> Self {
+        self.echo_stdout = enabled;
+        self
+    }
+}
+
+#[cfg(all(feature = "std", feature = "async"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
+impl AsyncExecutor for AsyncLoggingExecutor {
+    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
+        let allowed = self.allowed.clone();
+        let log_path = self.log_path.clone();
+        let echo_stdout = self.echo_stdout;
+        let actions = actions.to_vec();
+        async move {
+            let mut results = Vec::new();
+            for act in actions {
+                if !act.constraints_checked {
+                    return Err(OmegaError::ExecutionBlocked(format!(
+                        "{} (constraints not checked)",
+                        act.name
+                    )));
+                }
+                if !allowed.contains(&act.name) {
+                    return Err(OmegaError::ExecutionBlocked(act.name.clone()));
+                }
+
+                let entry = serde_json::json!({
+                    "status": "logged",
+                    "action": act.name,
+                    "params": act.params,
+                    "ts": crate::now_utc_string()
+                });
+
+                if echo_stdout {
+                    println!("[AsyncLoggingExecutor] {}", entry);
+                }
+
+                if let Some(path) = &log_path {
+                    if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                        .await
+                    {
+                        let line = format!("{}\n", entry);
+                        let _ = file.write_all(line.as_bytes()).await;
+                    }
+                }
+
+                results.push(entry);
+            }
+            Ok(results)
+        }
     }
 }
 

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "total_steps": 0,
+  "biases": {},
+  "constraints": {
+    "max_risk": 0.5,
+    "max_actions_per_step": 3.0
+  },
+  "cas_total_steps": 0,
+  "cas_avg_prediction_error": 0.0,
+  "cas_adaptation_score": 0.0,
+  "cognitive_effect": {
+    "error_damping": 1.0,
+    "action_preference": {},
+    "min_uncertainty": 0.05,
+    "explore_bonus": 0.0,
+    "risk_tolerance": 0.45
+  },
+  "cases": [],
+  "case_capacity": 256,
+  "strategies": {},
+  "active_modules": {},
+  "patch_history": []
+}

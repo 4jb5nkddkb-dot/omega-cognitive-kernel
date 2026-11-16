@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "total_steps": 10,
+  "biases": {
+    "explore_preference": 0.06,
+    "observation_depth": 0.14
+  },
+  "constraints": {
+    "max_risk": 0.53,
+    "max_actions_per_step": 3.0
+  },
+  "cas_total_steps": 10,
+  "cas_avg_prediction_error": 0.14754034911963487,
+  "cas_adaptation_score": 0.8524596508803651,
+  "cognitive_effect": {
+    "error_damping": 0.401,
+    "action_preference": {
+      "stabilize": 1.6,
+      "observe": 0.6,
+      "explore": -0.4
+    },
+    "min_uncertainty": 0.08,
+    "explore_bonus": -0.3,
+    "risk_tolerance": 0.4
+  },
+  "cases": [
+    {
+      "summary": "actions=1 errors_mean=0.675",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.675,
+      "timestamp": "2026-11-09T06:25:29.343374505Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.265",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.26528625000000006,
+      "timestamp": "2026-11-09T06:25:29.350448668Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.208",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.20778292518750008,
+      "timestamp": "2026-11-09T06:25:29.352596995Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.199",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.19852499761256565,
+      "timestamp": "2026-11-09T06:25:29.354170319Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.196",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.19591315568054862,
+      "timestamp": "2026-11-09T06:25:29.355659827Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.194",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.19416846727867126,
+      "timestamp": "2026-11-09T06:25:29.357531608Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.192",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.19247657805541307,
+      "timestamp": "2026-11-09T06:25:29.360026440Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.191",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.19071974808657133,
+      "timestamp": "2026-11-09T06:25:29.365007182Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.189",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.18887783501826916,
+      "timestamp": "2026-11-09T06:25:29.367791775Z"
+    },
+    {
+      "summary": "actions=1 errors_mean=0.187",
+      "goal": "drain inbox under rising load; prefer stabilize when pressure high",
+      "error_mean": 0.1869442134378489,
+      "timestamp": "2026-11-09T06:25:29.370801398Z"
+    }
+  ],
+  "case_capacity": 256,
+  "strategies": {
+    "stabilize": {
+      "name": "stabilize",
+      "weight": 1.4737618051795902,
+      "success_count": 9,
+      "fail_count": 1,
+      "idle_steps": 0
+    }
+  },
+  "active_modules": {
+    "cognitive_rules": "\n// auto-generated cognitive rule (audit trail only — runtime uses RuleEffect)\n// summary: obs=1 mean_err=0.675 var=0.000 actions=1 success=1.00\n// error_damping: 0.401  explore_bonus: -0.35  risk_tolerance: 0.38\n// generated_at: 2026-11-09T06:25:29.343410162+00:00\nfn adjust_bias(err: f64) -> f64 {\n    if err > 0.5 { 0.401 } else { 1.0 }\n}\n"
+  },
+  "patch_history": [
+    [
+      {
+        "patch_id": "dede8d39-d25d-4fef-9e3c-e60149dd293b",
+        "description": "obs=1 mean_err=0.675 var=0.000 actions=1 success=1.00",
+        "code": "\n// auto-generated cognitive rule (audit trail only — runtime uses RuleEffect)\n// summary: obs=1 mean_err=0.675 var=0.000 actions=1 success=1.00\n// error_damping: 0.401  explore_bonus: -0.35  risk_tolerance: 0.38\n// generated_at: 2026-11-09T06:25:29.343410162+00:00\nfn adjust_bias(err: f64) -> f64 {\n    if err > 0.5 { 0.401 } else { 1.0 }\n}\n",
+        "target_module": "cognitive_rules",
+        "expected_effect": "damp=0.40 explore_bonus=-0.35 risk_tol=0.38 prefs=[\"stabilize\", \"observe\", \"explore\"]",
+        "risk_level": 0.48,
+        "created_at": "2026-11-09T06:25:29.343436671Z",
+        "effect": {
+          "error_damping": 0.401,
+          "action_preference": {
+            "stabilize": 1.6,
+            "observe": 0.6,
+            "explore": -0.4
+          },
+          "min_uncertainty": 0.08,
+          "explore_bonus": -0.35,
+          "risk_tolerance": 0.38
+        }
+      },
+      "accepted"
+    ]
+  ]
+}

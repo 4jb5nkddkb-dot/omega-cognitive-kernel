@@ -9,6 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  WASMTIME_VERSION: v50.0.1
 
 jobs:
   test:
@@ -52,8 +53,11 @@ jobs:
       - name: Test Dashboard binary and fixed-point event parser
         run: cargo test --locked --features gui --bin omega-dashboard
 
+      - name: Build GUI release binary
+        run: cargo build --locked --release --features gui --bin omega-dashboard
+
   wasm:
-    name: WASM build surfaces
+    name: WASM portability
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,11 +70,36 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build browser library surface
+      # Browser target (wasm32-unknown-unknown): test no_std core library
+      - name: Build browser library surface (no_std core)
         run: cargo build --locked --lib --no-default-features --target wasm32-unknown-unknown
 
-      - name: Build WASI smoke surface
-        run: cargo build --locked --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+      # WASI target (wasm32-wasip1): test no_std core library and std library + example
+      # Note: async runtimes (tokio, async-std) don't yet support wasm32-wasip1
+      - name: Build WASI library surface (no_std core)
+        run: cargo build --locked --lib --no-default-features --target wasm32-wasip1
+
+      - name: Build WASI library surface (std, no async)
+        run: cargo build --locked --lib --features std --target wasm32-wasip1
+
+      - name: Build WASI smoke example (std)
+        run: cargo build --locked --example wasm_runtime_smoke --features std --target wasm32-wasip1
+
+      - name: Install pinned Wasmtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/wasmtime-${WASMTIME_VERSION}-x86_64-linux.tar.xz"
+          curl --fail --location --retry 3 "$url" -o /tmp/wasmtime.tar.xz
+          mkdir -p "$RUNNER_TEMP/wasmtime"
+          tar -xJf /tmp/wasmtime.tar.xz -C "$RUNNER_TEMP/wasmtime" --strip-components=1
+          echo "$RUNNER_TEMP/wasmtime" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/wasmtime/wasmtime" --version
+
+      - name: Run WASI runtime smoke test (std)
+        run: |
+          "$RUNNER_TEMP/wasmtime/wasmtime" run --dir=/tmp \
+            target/wasm32-wasip1/debug/examples/wasm_runtime_smoke.wasm
 
   msrv:
     name: MSRV Rust 1.74

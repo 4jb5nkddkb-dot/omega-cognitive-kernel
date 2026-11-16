@@ -6,6 +6,15 @@ pub mod executor;
 pub mod observer;
 pub mod predictor;
 
+// Re-export async traits and adapters when async feature is enabled
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub use observer::{AsyncObserver, AsyncObserverAdapter, AsyncFileObserver, AsyncDirSnapshotObserver, AsyncHttpObserver};
+
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub use executor::{AsyncExecutor, AsyncExecutorAdapter, AsyncLoggingExecutor};
+
 use crate::error::Result;
 use crate::l1::learner::Learner;
 use crate::memory::MemoryFacade;

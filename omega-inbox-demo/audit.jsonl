@@ -1,0 +1,12 @@
+{"ts":"2026-11-09T06:25:29.343478109Z","event":{"kind":"step","step":1,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.0675,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.347338488Z","event":{"kind":"checkpoint","checkpoint_id":"4543b1f9-3226-4e7a-a861-8bdbeb68bff1","step":0,"label":"pre-patch"}}
+{"ts":"2026-11-09T06:25:29.347424268Z","event":{"kind":"patch_accepted","step":1,"patch_id":"dede8d39-d25d-4fef-9e3c-e60149dd293b","damping":0.401,"description":"cognitive_rules"}}
+{"ts":"2026-11-09T06:25:29.350508570Z","event":{"kind":"step","step":2,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.08727862500000001,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.352643692Z","event":{"kind":"step","step":3,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.09932905501875001,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.354217778Z","event":{"kind":"step","step":4,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.10924864927813158,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.355894745Z","event":{"kind":"step","step":5,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.11791509991837329,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.357584877Z","event":{"kind":"step","step":6,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.1255404366544031,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.360080612Z","event":{"kind":"step","step":7,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.1322340507945041,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.365070560Z","event":{"kind":"step","step":8,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.13808262052371081,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.367843672Z","event":{"kind":"step","step":9,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.14316214197316665,"damping":0.401}}
+{"ts":"2026-11-09T06:25:29.370853725Z","event":{"kind":"step","step":10,"goal":"drain inbox under rising load; prefer stabilize when pressure high","action":"stabilize","avg_err":0.14754034911963487,"damping":0.401}}
