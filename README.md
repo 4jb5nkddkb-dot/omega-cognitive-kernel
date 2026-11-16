@@ -23,6 +23,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 | **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
 | **[docs/CLOSED_LOOP.md](docs/CLOSED_LOOP.md)** | Safety switches + trajectory |
 | **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
+| **[docs/PORTABILITY.md](docs/PORTABILITY.md)** | no_std / WASM / embedded portability |
 | **[docs/API_0.5.md](docs/API_0.5.md)** | 0.5 surface (schema + replay + events) |
 | **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
 | **[docs/L2_BENCHMARK.md](docs/L2_BENCHMARK.md)** | Reproducible L2 baseline comparison |

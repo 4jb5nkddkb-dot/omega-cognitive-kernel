@@ -29,10 +29,18 @@
 - HTTP adapter、tracing-subscriber 等仅在 `std` 下可用。
 - GUI（egui/eframe）不支持 no_std / WASM 桌面。
 
-## 最小接入示例（no_std 宿主）
+## 最小接入示例（no_std 宿主，拟议接口）
 
 ```rust
-/// 宿主必须实现的最小持久化接口（no_std 友好）
+extern crate alloc;
+use alloc::vec::Vec;
+
+#[derive(Debug)]
+pub struct StorageError;
+
+/// 宿主可实现的最小持久化接口（no_std 友好）。
+///
+/// 这是宿主适配层的拟议接口，不是当前 crate 已导出的 trait。
 pub trait HostStorage {
     fn load(&self) -> Option<Vec<u8>>;
     fn save(&self, data: &[u8]) -> Result<(), StorageError>;
@@ -49,4 +57,3 @@ pub trait HostStorage {
 
 - [ ] 补一份完整的宿主 Storage trait 文档与示例
 - [ ] 增加嵌入式目标的编译检查（可选）
-- [ ] 把本文件链接到 README 与 INTEGRATING.md

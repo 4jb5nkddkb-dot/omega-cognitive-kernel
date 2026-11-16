@@ -37,6 +37,41 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --bin omega-kernel
 
+  gui:
+    name: Dashboard GUI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test Dashboard binary and fixed-point event parser
+        run: cargo test --locked --features gui --bin omega-dashboard
+
+  wasm:
+    name: WASM build surfaces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and WASM targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,wasm32-wasip1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build browser library surface
+        run: cargo build --locked --lib --no-default-features --target wasm32-unknown-unknown
+
+      - name: Build WASI smoke surface
+        run: cargo build --locked --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+
   msrv:
     name: MSRV Rust 1.74
     runs-on: ubuntu-latest
