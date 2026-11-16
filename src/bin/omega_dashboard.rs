@@ -8,7 +8,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 use omega_cognitive_kernel::api::{Kernel, TrajectoryReplaySummary};
-use omega_cognitive_kernel::audit::{AuditLog, AuditEvent};
+use omega_cognitive_kernel::audit::{AuditEvent, AuditLog};
 use omega_cognitive_kernel::config::KernelConfig;
 use std::collections::VecDeque;
 use std::path::PathBuf;
