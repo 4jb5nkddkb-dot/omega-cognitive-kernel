@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-11-17
+
+### Async I/O (feature = "async")
+- New `AsyncObserver` / `AsyncExecutor` traits with native tokio async I/O
+- `AsyncObserverAdapter` / `AsyncExecutorAdapter` to wrap sync adapters on thread pool
+- Concrete async adapters: `AsyncDirSnapshotObserver`, `AsyncFileObserver`, `AsyncHttpObserver` (reqwest/ureq), `AsyncLoggingExecutor`
+
+### CI / Infrastructure
+- **L2 Baseline Regression job**: nonstationary bandit benchmark (5 seeds) with JSON artifact upload for trend tracking
+- Fixed `rfd` backend for Linux CI: `xdg-portal` + `tokio` (pure Rust, no GTK3 system deps)
+
 ### L1
 - `PatchGenerator` now uses `high_error_streak` more aggressively (extra damping on long streaks) and includes streak + recent mean error in the audit `code` comment and `expected_effect` string.
 
