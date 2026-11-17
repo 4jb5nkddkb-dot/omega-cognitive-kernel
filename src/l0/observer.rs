@@ -5,12 +5,12 @@ use crate::prelude::*;
 use crate::error::OmegaError;
 use crate::error::Result;
 use crate::types::{Modality, Observation};
+#[cfg(all(feature = "std", feature = "async"))]
+use std::future::Future;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "std")]
 use std::time::Duration;
-#[cfg(all(feature = "std", feature = "async"))]
-use std::future::Future;
 
 /// External world observation interface (synchronous).
 ///
@@ -42,11 +42,15 @@ pub struct AsyncObserverAdapter<O> {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<O> AsyncObserverAdapter<O> {
     pub fn new(observer: O) -> Self {
-        Self { inner: Some(observer) }
+        Self {
+            inner: Some(observer),
+        }
     }
 
     pub fn into_inner(mut self) -> O {
-        self.inner.take().expect("AsyncObserverAdapter already consumed")
+        self.inner
+            .take()
+            .expect("AsyncObserverAdapter already consumed")
     }
 }
 
@@ -54,7 +58,10 @@ impl<O> AsyncObserverAdapter<O> {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<O: Observer + Send + 'static> AsyncObserver for AsyncObserverAdapter<O> {
     fn observe_async(&mut self) -> impl Future<Output = Result<Vec<Observation>>> + Send {
-        let mut observer = self.inner.take().expect("AsyncObserverAdapter already consumed");
+        let mut observer = self
+            .inner
+            .take()
+            .expect("AsyncObserverAdapter already consumed");
         async move {
             let result = tokio::task::spawn_blocking(move || observer.observe()).await;
             match result {
@@ -385,9 +392,7 @@ impl AsyncObserver for AsyncDirSnapshotObserver {
 
             let mut entries = Vec::new();
             while let Some(ent) = rd.next_entry().await.map_err(|e| {
-                OmegaError::ExecutionBlocked(format!(
-                    "AsyncDirSnapshotObserver read entry: {e}"
-                ))
+                OmegaError::ExecutionBlocked(format!("AsyncDirSnapshotObserver read entry: {e}"))
             })? {
                 if entries.len() >= max_entries {
                     break;
@@ -463,7 +468,9 @@ impl AsyncObserver for AsyncHttpObserver {
                 let client = reqwest::Client::builder()
                     .timeout(timeout)
                     .build()
-                    .map_err(|e| OmegaError::ExecutionBlocked(format!("AsyncHttpObserver client: {e}")))?;
+                    .map_err(|e| {
+                        OmegaError::ExecutionBlocked(format!("AsyncHttpObserver client: {e}"))
+                    })?;
                 let resp = client.get(&url).send().await.map_err(|e| {
                     OmegaError::ExecutionBlocked(format!("AsyncHttpObserver GET {}: {e}", url))
                 })?;
@@ -471,14 +478,19 @@ impl AsyncObserver for AsyncHttpObserver {
                 let body = resp.text().await.map_err(|e| {
                     OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body: {e}"))
                 })?;
-                let content = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
-                    serde_json::json!({
-                        "raw": body,
-                        "http_status": status,
-                        "step": step
-                    })
-                });
-                let confidence = if (200..300).contains(&status) { 0.9 } else { 0.5 };
+                let content =
+                    serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
+                        serde_json::json!({
+                            "raw": body,
+                            "http_status": status,
+                            "step": step
+                        })
+                    });
+                let confidence = if (200..300).contains(&status) {
+                    0.9
+                } else {
+                    0.5
+                };
                 Ok(vec![Observation {
                     timestamp: crate::now_utc(),
                     modality: Modality::Structured,
@@ -499,25 +511,33 @@ impl AsyncObserver for AsyncHttpObserver {
                         .timeout_read(timeout)
                         .build();
                     let resp = agent.get(&url_for_closure).call().map_err(|e| {
-                        OmegaError::ExecutionBlocked(format!("AsyncHttpObserver GET {}: {e}", url_for_closure))
+                        OmegaError::ExecutionBlocked(format!(
+                            "AsyncHttpObserver GET {}: {e}",
+                            url_for_closure
+                        ))
                     })?;
                     let status = resp.status();
                     let body = resp.into_string().map_err(|e| {
                         OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body: {e}"))
                     })?;
                     Ok::<(u16, String), OmegaError>((status, body))
-                }).await;
-                let (status, body) = result.map_err(|e| {
-                    OmegaError::Other(anyhow::anyhow!(e))
-                })??;
-                let content = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
-                    serde_json::json!({
-                        "raw": body,
-                        "http_status": status,
-                        "step": step
-                    })
-                });
-                let confidence = if (200..300).contains(&status) { 0.9 } else { 0.5 };
+                })
+                .await;
+                let (status, body) =
+                    result.map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))??;
+                let content =
+                    serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
+                        serde_json::json!({
+                            "raw": body,
+                            "http_status": status,
+                            "step": step
+                        })
+                    });
+                let confidence = if (200..300).contains(&status) {
+                    0.9
+                } else {
+                    0.5
+                };
                 Ok(vec![Observation {
                     timestamp: crate::now_utc(),
                     modality: Modality::Structured,

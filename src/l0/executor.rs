@@ -6,14 +6,14 @@ use crate::audit::{AuditEvent, AuditLog};
 use crate::error::{OmegaError, Result};
 use crate::types::Action;
 use hashbrown::HashSet;
+#[cfg(all(feature = "std", feature = "async"))]
+use std::future::Future;
 #[cfg(feature = "std")]
 use std::io::Write;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "std")]
 use std::time::Duration;
-#[cfg(all(feature = "std", feature = "async"))]
-use std::future::Future;
 
 #[cfg(all(feature = "std", feature = "async"))]
 use tokio::io::AsyncWriteExt;
@@ -34,7 +34,10 @@ pub trait Executor {
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
 pub trait AsyncExecutor {
-    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send;
+    fn execute_async(
+        &mut self,
+        actions: &[Action],
+    ) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send;
 }
 
 /// Adapter to use a synchronous [`Executor`] as an [`AsyncExecutor`] by running
@@ -49,19 +52,29 @@ pub struct AsyncExecutorAdapter<E> {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<E> AsyncExecutorAdapter<E> {
     pub fn new(executor: E) -> Self {
-        Self { inner: Some(executor) }
+        Self {
+            inner: Some(executor),
+        }
     }
 
     pub fn into_inner(mut self) -> E {
-        self.inner.take().expect("AsyncExecutorAdapter already consumed")
+        self.inner
+            .take()
+            .expect("AsyncExecutorAdapter already consumed")
     }
 }
 
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<E: Executor + Send + 'static> AsyncExecutor for AsyncExecutorAdapter<E> {
-    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
-        let mut executor = self.inner.take().expect("AsyncExecutorAdapter already consumed");
+    fn execute_async(
+        &mut self,
+        actions: &[Action],
+    ) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
+        let mut executor = self
+            .inner
+            .take()
+            .expect("AsyncExecutorAdapter already consumed");
         let actions = actions.to_vec();
         async move {
             let result = tokio::task::spawn_blocking(move || executor.execute(&actions)).await;
@@ -399,7 +412,10 @@ impl AsyncLoggingExecutor {
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
 impl AsyncExecutor for AsyncLoggingExecutor {
-    fn execute_async(&mut self, actions: &[Action]) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
+    fn execute_async(
+        &mut self,
+        actions: &[Action],
+    ) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
         let allowed = self.allowed.clone();
         let log_path = self.log_path.clone();
         let echo_stdout = self.echo_stdout;

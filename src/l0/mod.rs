@@ -9,7 +9,10 @@ pub mod predictor;
 // Re-export async traits and adapters when async feature is enabled
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub use observer::{AsyncObserver, AsyncObserverAdapter, AsyncFileObserver, AsyncDirSnapshotObserver, AsyncHttpObserver};
+pub use observer::{
+    AsyncDirSnapshotObserver, AsyncFileObserver, AsyncHttpObserver, AsyncObserver,
+    AsyncObserverAdapter,
+};
 
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
