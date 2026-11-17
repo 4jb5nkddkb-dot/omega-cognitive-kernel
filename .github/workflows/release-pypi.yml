@@ -11,39 +11,23 @@ permissions:
 
 jobs:
   build-wheels:
-    name: Build wheels (Python ${{ matrix.python }})
-    runs-on: ubuntu-24.04
+    name: Build wheels
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-    container:
-      image: quay.io/pypa/manylinux_2_28_x86_64
-      options: --user root
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install Python ${{ matrix.python }}
-        run: |
-          dnf install -y python${{ matrix.python }} python${{ matrix.python }}-devel
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python }} 1
-          alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip${{ matrix.python }} 1
-
-      - name: Install maturin
-        run: pip3 install maturin
-
       - name: Build wheel
-        working-directory: bindings/python
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-        run: |
-          maturin build --release --out dist
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          args: --release --out dist
+          manylinux: '2_28'
+          python-version: ${{ matrix.python }}
+          working-directory: bindings/python
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
