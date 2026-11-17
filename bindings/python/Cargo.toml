@@ -1,6 +1,6 @@
 [package]
 name = "omega-cognitive-kernel-python"
-version = "0.5.12"
+version = "0.5.13"
 edition = "2021"
 description = "Python bindings for omega-cognitive-kernel"
 license = "MIT"
