@@ -67,7 +67,11 @@ getrandom = { version = "0.2", optional = true }
 
 eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"], optional = true }
 egui = { version = "0.29", optional = true }
-rfd = { version = "0.15", default-features = false, optional = true }
+# rfd's build script hard-fails on Linux/BSD unless exactly one backend is
+# selected, and `xdg-portal` requires an async runtime feature. Keep
+# `default-features = false` (to stay off gtk3 and its system libs) but pick the
+# pure-Rust portal backend explicitly with tokio (no libgtk-3-dev needed in CI).
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"], optional = true }
 
 [[bin]]
 name = "omega-kernel"
