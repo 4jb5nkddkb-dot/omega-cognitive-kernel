@@ -23,6 +23,8 @@ cargo run --release --features gui --bin omega-dashboard
 | `custom_adapters` | Implementing your own `Observer` / `Executor` |
 | `tool_gate` / `tool_gate_http` | Sandboxed tool execution with allow-list |
 | `inbox_vertical` | Longer vertical scenario |
+| `async_observer_demo` | **Async** file/dir/HTTP observers using tokio (requires `--features async`) |
+| `async_executor_demo` | **Async** executors & logging using tokio (requires `--features async`) |
 
 All examples respect the safety default `self_modify_enabled = false`.
 

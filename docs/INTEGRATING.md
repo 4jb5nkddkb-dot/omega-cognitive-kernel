@@ -163,7 +163,57 @@ Dashboard Strategies tab also exposes `+` / `−` / reset controls. See [DASHBOA
 | `Executor` | Apply chosen actions |
 | Built-ins | `FileObserver`, `DirSnapshotObserver`, `HttpObserver`, `LoggingExecutor`, `SandboxedExecutor`, `ToolGateExecutor` |
 
+### 7a. Async adapters (requires `async` feature)
+
+| Type | Role |
+|------|------|
+| `AsyncObserver` | Async version of `Observer` for non-blocking I/O |
+| `AsyncExecutor` | Async version of `Executor` for non-blocking action execution |
+| Built-ins | `AsyncFileObserver`, `AsyncDirSnapshotObserver`, `AsyncHttpObserver`, `AsyncLoggingExecutor` |
+| Adapters | `AsyncObserverAdapter<O>`, `AsyncExecutorAdapter<E>` — wrap any sync impl |
+
 Full list and quick-start path: [examples/README.md](../examples/README.md).
+
+### 7b. Quick-start: async observers
+
+```bash
+# Async file/directory/HTTP observers demo
+cargo run --example async_observer_demo --features async
+
+# With HTTP support (requires reqwest feature)
+cargo run --example async_observer_demo --features "async,reqwest"
+```
+
+### 7c. Quick-start: async executors
+
+```bash
+# Async executors & logging demo
+cargo run --example async_executor_demo --features async
+```
+
+### 7d. Bridging sync → async
+
+Any synchronous `Observer` or `Executor` can be used in an async context
+by wrapping it with the provided adapters:
+
+```rust
+use omega_cognitive_kernel::{
+    AsyncObserverAdapter, AsyncExecutorAdapter,
+    FileObserver, SandboxedExecutor,
+};
+
+// Sync observer → async
+let sync_observer = FileObserver::new("sensor.json");
+let async_observer = AsyncObserverAdapter::new(sync_observer);
+
+// Sync executor → async
+let sync_executor = SandboxedExecutor::new(vec!["observe".into()]);
+let async_executor = AsyncExecutorAdapter::new(sync_executor);
+// Or simply: let async_executor: AsyncExecutorAdapter<_> = sync_executor.into();
+```
+
+The adapters run the blocking call on a tokio thread pool (`spawn_blocking`),
+so they integrate seamlessly with async runtimes without blocking the event loop.
 
 ---
 

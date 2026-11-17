@@ -44,6 +44,8 @@ async = ["dep:tokio", "dep:async-std", "dep:futures", "dep:reqwest"]
 reqwest = ["dep:reqwest"]
 # Enable wasm32-unknown-unknown support (requires getrandom with js feature)
 wasm = ["getrandom/js"]
+# docs.rs feature to enable #[cfg_attr(docsrs, doc(cfg(...)))] rendering
+docsrs = []
 
 [dependencies]
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

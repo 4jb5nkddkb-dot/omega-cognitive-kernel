@@ -88,9 +88,18 @@ pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
 pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub use l0::executor::{AsyncExecutor, AsyncExecutorAdapter, AsyncLoggingExecutor};
 pub use l0::executor::{Executor, SandboxedExecutor};
 #[cfg(feature = "std")]
 pub use l0::executor::{LoggingExecutor, ToolGateExecutor};
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub use l0::observer::{
+    AsyncDirSnapshotObserver, AsyncFileObserver, AsyncHttpObserver, AsyncObserver,
+    AsyncObserverAdapter,
+};
 #[cfg(feature = "std")]
 pub use l0::observer::{DirSnapshotObserver, FileObserver, HttpObserver};
 pub use l0::observer::{MultiModalObserver, Observer};
