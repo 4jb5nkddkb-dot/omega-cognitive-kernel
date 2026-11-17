@@ -32,7 +32,7 @@ jobs:
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-py${{ matrix.python }}
+          name: wheels
           path: bindings/python/dist/*.whl
           retention-days: 1
 
@@ -48,8 +48,8 @@ jobs:
       - name: Download all wheels
         uses: actions/download-artifact@v4
         with:
+          name: wheels
           path: dist
-          pattern: wheel-py*
           merge-multiple: true
 
       - name: Show wheels
