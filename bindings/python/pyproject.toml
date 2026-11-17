@@ -23,7 +23,7 @@ keywords = ["cognitive", "agent", "runtime", "patch", "adaptive", "ai"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-compatibility = "manylinux2014"
+compatibility = "manylinux_2_28"
 skip-audit = true
 
 [build-system]
