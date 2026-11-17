@@ -20,13 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64-unknown-linux-gnu
           args: --release --out dist
           manylinux: '2_28'
-          python-version: ${{ matrix.python }}
           working-directory: bindings/python
 
       - name: Upload wheel
