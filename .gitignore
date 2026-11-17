@@ -9,3 +9,14 @@
 # Omega kernel state
 .omega/
 *.omega-state.json
+
+# Local temporary files (not committed)
+l2-benchmark.json
+.clinerules
+omega-inbox-demo/
+
+# Python virtual environment
+.venv/
+
+# Python bindings build artifacts
+bindings/python/target/
