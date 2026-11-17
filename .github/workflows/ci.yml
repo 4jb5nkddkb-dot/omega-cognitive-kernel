@@ -122,3 +122,30 @@ jobs:
 
       - name: Run tests at MSRV
         run: cargo test --locked --all-targets --verbose
+
+  l2-benchmark:
+    name: L2 Baseline Regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Nonstationary scenario with reduced runs for CI speed (full runs locally).
+      # Output JSON artifact for trend tracking / manual regression analysis.
+      - name: Run L2 benchmark (nonstationary, 5 seeds)
+        run: |
+          cargo run --locked --release --bin omega-kernel -- benchmark-l2 \
+            --scenario nonstationary --runs 5 --episodes 8 --steps 8 --seed 20261115 --json \
+            > l2-benchmark.json
+
+      - name: Upload L2 benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-benchmark
+          path: l2-benchmark.json
+          retention-days: 30
