@@ -34,12 +34,12 @@ jobs:
       - name: Install maturin and auditwheel
         run: pip install maturin auditwheel
 
-      - name: Build wheel
+      - name: Build wheel (skip auditwheel check)
         working-directory: bindings/python
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
-          python -m maturin build --release --out dist --interpreter python --compatibility manylinux_2_28
+          python -m maturin build --release --out dist --interpreter python --compatibility manylinux_2_28 --skip-auditwheel
 
       - name: Repair wheel with auditwheel
         working-directory: bindings/python
