@@ -115,13 +115,13 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # Keep the MSRV job on the host-independent default feature set. GUI
-      # backends are optional and are validated by the stable job above.
+      # MSRV job uses `msrv` feature (std without ureq/reqwest) to avoid
+      # idna_adapter requiring Rust 2024 edition.
       - name: Clippy at MSRV
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets --features msrv -- -D warnings
 
       - name: Run tests at MSRV
-        run: cargo test --locked --all-targets --verbose
+        run: cargo test --locked --all-targets --features msrv --verbose
 
   l2-benchmark:
     name: L2 Baseline Regression

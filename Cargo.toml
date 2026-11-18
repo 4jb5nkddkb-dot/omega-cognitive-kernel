@@ -39,6 +39,20 @@ std = [
   "dep:tracing-subscriber",
   "dep:ureq",
 ]
+# MSRV-compatible subset: std without network deps (ureq/reqwest pull in
+# idna_adapter requiring Rust 2024 edition, incompatible with Rust 1.74).
+msrv = [
+  "serde/std",
+  "serde_json/std",
+  "chrono/std",
+  "chrono/clock",
+  "uuid/std",
+  "anyhow/std",
+  "tracing/std",
+  "dep:clap",
+  "dep:toml",
+  "dep:tracing-subscriber",
+]
 gui = ["dep:eframe", "dep:egui", "dep:rfd"]
 async = ["dep:tokio", "dep:async-std", "dep:futures", "dep:reqwest"]
 reqwest = ["dep:reqwest"]
