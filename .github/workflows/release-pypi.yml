@@ -13,6 +13,9 @@ jobs:
   build-linux:
     name: Build Linux wheels (Python 3.10-3.13)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
 
@@ -22,42 +25,34 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Set up Python 3.10 (for cibuildwheel)
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install cibuildwheel
-        run: pip install cibuildwheel
+      - name: Install maturin
+        run: pip install maturin
 
-      - name: Verify Docker
-        run: |
-          docker version
-          docker pull quay.io/pypa/manylinux_2_28_x86_64:2025.04.19-1
-
-      - name: Build Linux wheels
+      - name: Build Linux wheel
         working-directory: bindings/python
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-          CIBW_BUILD: cp310 cp311 cp312 cp313
-          CIBW_SKIP: "pp* cp38 cp39"
-          CIBW_BUILD_ISOLATION: "false"
-          CIBW_BEFORE_BUILD: "pip install maturin"
-          CIBW_ENVIRONMENT: "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1"
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
         run: |
-          python -m cibuildwheel --platform linux --output-dir wheelhouse .
+          maturin build --release --interpreter python --compatibility manylinux_2_28 --out wheelhouse
 
-      - name: Upload Linux wheels
+      - name: Upload Linux wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux
+          name: wheels-linux-${{ matrix.python-version }}
           path: bindings/python/wheelhouse/*.whl
           retention-days: 1
 
   build-windows:
     name: Build Windows wheels (Python 3.10-3.13)
     runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
 
@@ -67,52 +62,25 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Set up Python 3.10
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Install maturin
+        run: python -m pip install maturin
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Verify Python installations
-        run: |
-          py -3.10 -c "import sys; print(sys.version)"
-          py -3.11 -c "import sys; print(sys.version)"
-          py -3.12 -c "import sys; print(sys.version)"
-          py -3.13 -c "import sys; print(sys.version)"
-
-      - name: Install cibuildwheel (for Python 3.10)
-        run: py -3.10 -m pip install cibuildwheel
-
-      - name: Build Windows wheels
+      - name: Build Windows wheel
         working-directory: bindings/python
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-          CIBW_BUILD: cp310 cp311 cp312 cp313
-          CIBW_SKIP: "pp* cp38 cp39"
-          CIBW_BUILD_ISOLATION: "false"
-          CIBW_BEFORE_BUILD: "pip install maturin"
-          CIBW_ENVIRONMENT: "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1"
         run: |
-          py -3.10 -m cibuildwheel --platform windows --output-dir wheelhouse .
+          maturin build --release --interpreter python --out wheelhouse
 
-      - name: Upload Windows wheels
+      - name: Upload Windows wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows
+          name: wheels-windows-${{ matrix.python-version }}
           path: bindings/python/wheelhouse/*.whl
           retention-days: 1
 
