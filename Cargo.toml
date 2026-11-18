@@ -62,6 +62,8 @@ anyhow = { version = "1", default-features = false }
 tracing = { version = "0.1", default-features = false }
 hashbrown = { version = "0.14", default-features = false, features = ["serde", "ahash"] }
 libm = "0.2"
+# indexmap 2.x requires Rust 2024 edition; pin to 1.x for MSRV 1.74 compatibility.
+indexmap = "=1.9.3"
 clap = { version = "=4.5.43", optional = true, features = ["derive"] }
 toml = { version = "0.8", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
