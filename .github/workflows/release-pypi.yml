@@ -22,6 +22,9 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Verify Docker
+        run: docker version && docker pull quay.io/pypa/manylinux_2_28_x86_64:2025.04.19-1
+
       - name: Set up Python 3.10 (for cibuildwheel)
         uses: actions/setup-python@v5
         with:
@@ -82,8 +85,8 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install cibuildwheel
-        run: pip install cibuildwheel
+      - name: Install cibuildwheel (for Python 3.10)
+        run: C:/hostedtoolcache/windows/Python/3.10.*/x64/python.exe -m pip install cibuildwheel
 
       - name: Build Windows wheels
         working-directory: bindings/python
