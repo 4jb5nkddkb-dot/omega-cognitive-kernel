@@ -26,7 +26,6 @@ jobs:
         uses: pypa/cibuildwheel@v2.16.0
         with:
           package-dir: bindings/python
-          platform: linux
           output-dir: wheelhouse
           config-file: "{package-dir}/pyproject.toml"
         env:
@@ -61,7 +60,6 @@ jobs:
         uses: pypa/cibuildwheel@v2.16.0
         with:
           package-dir: bindings/python
-          platform: windows
           output-dir: wheelhouse
           config-file: "{package-dir}/pyproject.toml"
         env:
