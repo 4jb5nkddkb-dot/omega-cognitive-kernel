@@ -10,14 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  build-wheels:
-    name: Build wheels (Linux + Windows, Python 3.10-3.13)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+  build-linux:
+    name: Build Linux wheels (Python 3.10-3.13)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -27,15 +22,65 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Install cibuildwheel
+        run: pip install cibuildwheel
+
+      - name: Build Linux wheels
+        working-directory: bindings/python
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+          CIBW_BUILD: cp310 cp311 cp312 cp313
+          CIBW_SKIP: "pp* cp38 cp39"
+          CIBW_BUILD_ISOLATION: "false"
+          CIBW_BEFORE_BUILD: "pip install maturin"
+          CIBW_ENVIRONMENT: "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+        run: |
+          python -m cibuildwheel --platform linux --output-dir wheelhouse .
+
+      - name: Upload Linux wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux
+          path: bindings/python/wheelhouse/*.whl
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows wheels (Python 3.10-3.13)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.10'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
 
       - name: Install cibuildwheel
         run: pip install cibuildwheel
 
-      - name: Build wheels
+      - name: Build Windows wheels
         working-directory: bindings/python
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
@@ -45,18 +90,18 @@ jobs:
           CIBW_BEFORE_BUILD: "pip install maturin"
           CIBW_ENVIRONMENT: "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1"
         run: |
-          python -m cibuildwheel --platform ${{ runner.os == 'Windows' && 'windows' || 'linux' }} --output-dir wheelhouse .
+          python -m cibuildwheel --platform windows --output-dir wheelhouse .
 
-      - name: Upload wheels
+      - name: Upload Windows wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.python-version }}
+          name: wheels-windows
           path: bindings/python/wheelhouse/*.whl
           retention-days: 1
 
   publish:
     name: Publish to PyPI
-    needs: build-wheels
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     environment: release
     permissions:
