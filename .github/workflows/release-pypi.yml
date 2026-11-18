@@ -17,9 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
-    container:
-      image: quay.io/pypa/manylinux_2_28_x86_64
-      options: --user root
     steps:
       - uses: actions/checkout@v4
 
@@ -29,21 +26,20 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Python ${{ matrix.python }}
-        run: |
-          dnf install -y python${{ matrix.python }} python${{ matrix.python }}-devel
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python }} 1
-          alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip${{ matrix.python }} 1
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
 
       - name: Install maturin
-        run: pip3 install maturin
+        run: pip install maturin
 
       - name: Build wheel
         working-directory: bindings/python
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
-          python -m maturin build --release --out dist --interpreter python
+          python -m maturin build --release --out dist --interpreter python --compatibility manylinux_2_28
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
