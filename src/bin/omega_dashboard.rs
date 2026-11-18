@@ -9,7 +9,8 @@
 use eframe::egui::{self, Color32, RichText};
 use omega_cognitive_kernel::api::{Kernel, TrajectoryReplaySummary};
 use omega_cognitive_kernel::audit::{AuditEvent, AuditLog, AuditRecord};
-use omega_cognitive_kernel::config::KernelConfig;
+#[cfg(feature = "toml")]
+use omega_cognitive_kernel::config_toml;
 use std::path::PathBuf;
 
 fn setup_cjk_fonts(ctx: &egui::Context) {
@@ -358,7 +359,11 @@ impl DashboardApp {
             .add_filter("TOML", &["toml"])
             .pick_file()
         {
-            match KernelConfig::load(&path) {
+            #[cfg(feature = "toml")]
+            let result = config_toml::KernelConfig::load(&path);
+            #[cfg(not(feature = "toml"))]
+            let result = Err("toml feature not enabled".into());
+            match result {
                 Ok(cfg) => {
                     self.kernel.apply_config(&cfg);
                     self.config_path = Some(path.clone());

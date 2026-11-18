@@ -45,7 +45,7 @@ toml = ["dep:toml"]
 # ureq/reqwest pull in idna_adapter requiring Rust 2024 edition.
 ureq = ["dep:ureq"]
 reqwest = ["dep:reqwest"]
-gui = ["dep:eframe", "dep:egui", "dep:rfd"]
+gui = ["dep:eframe", "dep:egui", "dep:rfd", "toml"]
 async = ["dep:tokio", "dep:async-std", "dep:futures", "reqwest"]
 # Enable wasm32-unknown-unknown support (requires getrandom with js feature)
 wasm = ["getrandom/js"]

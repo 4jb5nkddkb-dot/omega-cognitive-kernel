@@ -1,8 +1,8 @@
 //! TOML configuration support (requires `toml` feature).
 
-use crate::config::KernelConfig;
+pub use crate::config::KernelConfig;
 use crate::error::{OmegaError, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use toml;
 
 impl KernelConfig {
