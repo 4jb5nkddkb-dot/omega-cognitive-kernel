@@ -1,6 +1,6 @@
 [package]
 name = "omega-cognitive-kernel-python"
-version = "0.5.20"
+version = "0.5.21"
 edition = "2021"
 description = "Python bindings for omega-cognitive-kernel"
 license = "MIT"
@@ -12,7 +12,7 @@ name = "omega_cognitive_kernel_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-omega-cognitive-kernel = { path = "../../", features = ["std"] }
+omega-cognitive-kernel = { path = "../../", features = ["std", "toml"] }
 pyo3 = { version = "0.23", features = ["extension-module"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
