@@ -231,6 +231,7 @@ impl Observer for DirSnapshotObserver {
 /// GET a URL and treat the body as observation (JSON if possible, else raw text).
 ///
 /// Requires network. Timeout defaults to 5 seconds.
+#[cfg(feature = "std")]
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 #[allow(dead_code)]
 pub struct HttpObserver {
@@ -241,6 +242,7 @@ pub struct HttpObserver {
     _ureq: (),
 }
 
+#[cfg(feature = "std")]
 impl HttpObserver {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
