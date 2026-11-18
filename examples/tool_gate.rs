@@ -8,15 +8,21 @@
 //! later API adapter can sit behind.
 //!
 //! ```bash
-//! cargo run --example tool_gate
+//! cargo run --example tool_gate --features ureq
 //! ```
 
+#[cfg(feature = "ureq")]
 use hashbrown::HashMap;
+#[cfg(feature = "ureq")]
 use omega_cognitive_kernel::types::Action;
+#[cfg(feature = "ureq")]
 use omega_cognitive_kernel::{AuditLog, AuditSummary, Executor, Result, ToolGateExecutor};
+#[cfg(feature = "ureq")]
 use std::env::temp_dir;
+#[cfg(feature = "ureq")]
 use std::path::PathBuf;
 
+#[cfg(feature = "ureq")]
 fn tool(name: &str) -> Action {
     Action {
         name: name.into(),
@@ -25,6 +31,7 @@ fn tool(name: &str) -> Action {
     }
 }
 
+#[cfg(feature = "ureq")]
 fn main() -> Result<()> {
     let root: PathBuf = temp_dir().join(format!(
         "omega-tool-gate-{}",
@@ -91,4 +98,11 @@ fn main() -> Result<()> {
 
     let _ = std::fs::remove_dir_all(&root);
     Ok(())
+}
+
+#[cfg(not(feature = "ureq"))]
+fn main() {
+    eprintln!("This example requires the 'ureq' feature. Run with:");
+    eprintln!("  cargo run --example tool_gate --features ureq");
+    std::process::exit(1);
 }

@@ -117,11 +117,12 @@ jobs:
 
       # MSRV job uses `msrv` feature (std without ureq/reqwest) to avoid
       # idna_adapter requiring Rust 2024 edition.
+      # Must use --no-default-features to disable default "std" feature.
       - name: Clippy at MSRV
-        run: cargo clippy --locked --all-targets --features msrv -- -D warnings
+        run: cargo clippy --locked --all-targets --no-default-features --features msrv -- -D warnings
 
       - name: Run tests at MSRV
-        run: cargo test --locked --all-targets --features msrv --verbose
+        run: cargo test --locked --all-targets --no-default-features --features msrv --verbose
 
   l2-benchmark:
     name: L2 Baseline Regression

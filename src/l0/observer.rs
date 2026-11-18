@@ -231,21 +231,24 @@ impl Observer for DirSnapshotObserver {
 /// GET a URL and treat the body as observation (JSON if possible, else raw text).
 ///
 /// Requires network. Timeout defaults to 5 seconds.
-#[cfg(feature = "std")]
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[allow(dead_code)]
 pub struct HttpObserver {
     url: String,
     step_counter: u64,
     timeout: Duration,
+    #[cfg(feature = "ureq")]
+    _ureq: (),
 }
 
-#[cfg(feature = "std")]
 impl HttpObserver {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             step_counter: 0,
             timeout: Duration::from_secs(5),
+            #[cfg(feature = "ureq")]
+            _ureq: (),
         }
     }
 
@@ -255,7 +258,7 @@ impl HttpObserver {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "ureq")]
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
         self.step_counter += 1;

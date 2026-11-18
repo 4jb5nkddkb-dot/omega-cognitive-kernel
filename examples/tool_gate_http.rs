@@ -4,15 +4,21 @@
 //! - deny-list tools → no network, audited
 //!
 //! ```bash
-//! cargo run --example tool_gate_http
+//! cargo run --example tool_gate_http --features ureq
 //! ```
 
+#[cfg(feature = "ureq")]
 use hashbrown::HashMap;
+#[cfg(feature = "ureq")]
 use omega_cognitive_kernel::types::Action;
+#[cfg(feature = "ureq")]
 use omega_cognitive_kernel::{AuditLog, Executor, Result, ToolGateExecutor};
+#[cfg(feature = "ureq")]
 use std::env::temp_dir;
+#[cfg(feature = "ureq")]
 use std::path::PathBuf;
 
+#[cfg(feature = "ureq")]
 fn tool(name: &str, url: Option<&str>) -> Action {
     let mut params = HashMap::new();
     if let Some(u) = url {
@@ -25,6 +31,7 @@ fn tool(name: &str, url: Option<&str>) -> Action {
     }
 }
 
+#[cfg(feature = "ureq")]
 fn main() -> Result<()> {
     let root: PathBuf = temp_dir().join(format!(
         "omega-tool-http-{}",
@@ -105,4 +112,11 @@ fn main() -> Result<()> {
 
     let _ = std::fs::remove_dir_all(&root);
     Ok(())
+}
+
+#[cfg(not(feature = "ureq"))]
+fn main() {
+    eprintln!("This example requires the 'ureq' feature. Run with:");
+    eprintln!("  cargo run --example tool_gate_http --features ureq");
+    std::process::exit(1);
 }

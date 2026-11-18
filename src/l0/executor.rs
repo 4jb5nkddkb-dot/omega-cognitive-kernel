@@ -1,8 +1,10 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
+#[cfg(feature = "ureq")]
+use crate::audit::AuditEvent;
 #[cfg(feature = "std")]
-use crate::audit::{AuditEvent, AuditLog};
+use crate::audit::AuditLog;
 use crate::error::{OmegaError, Result};
 use crate::types::Action;
 use hashbrown::HashSet;
@@ -12,7 +14,7 @@ use std::future::Future;
 use std::io::Write;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
-#[cfg(feature = "std")]
+#[cfg(feature = "ureq")]
 use std::time::Duration;
 
 #[cfg(all(feature = "std", feature = "async"))]
@@ -202,11 +204,11 @@ impl Executor for LoggingExecutor {
 }
 
 /// Max response body bytes kept for `http_get` (truncate after this).
-#[cfg(feature = "std")]
+#[cfg(feature = "ureq")]
 const HTTP_GET_BODY_LIMIT: usize = 2048;
 
 /// Safe GET-only fetch for tool-gate. No redirects beyond ureq defaults; HTTPS/HTTP only.
-#[cfg(feature = "std")]
+#[cfg(feature = "ureq")]
 fn safe_http_get(url: &str) -> Result<serde_json::Value> {
     let url = url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -249,7 +251,9 @@ fn safe_http_get(url: &str) -> Result<serde_json::Value> {
 /// tool name is `http_get` on the allow-list, a GET is performed (response truncated).
 #[cfg(feature = "std")]
 pub struct ToolGateExecutor {
+    #[cfg_attr(not(feature = "ureq"), allow(dead_code))]
     allowed: HashSet<String>,
+    #[cfg_attr(not(feature = "ureq"), allow(dead_code))]
     denied: HashSet<String>,
     audit: Option<AuditLog>,
     echo: bool,
@@ -297,12 +301,13 @@ impl ToolGateExecutor {
         self
     }
 
+    #[cfg_attr(not(feature = "ureq"), allow(dead_code))]
     fn is_denied(&self, name: &str) -> bool {
         self.denied.contains(name) || !self.allowed.contains(name)
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "ureq")]
 impl Executor for ToolGateExecutor {
     fn execute(&mut self, actions: &[Action]) -> Result<Vec<serde_json::Value>> {
         let mut results = Vec::new();
@@ -468,7 +473,6 @@ mod tests {
     use super::*;
     use crate::types::Action;
     use hashbrown::HashMap;
-    use std::env::temp_dir;
 
     fn action(name: &str, checked: bool) -> Action {
         Action {
@@ -509,7 +513,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ureq")]
     fn tool_gate_denies_dangerous_tool() {
+        use crate::audit::AuditLog;
+        use std::env::temp_dir;
         let path = temp_dir().join(format!("omega-gate-{}.json", crate::new_uuid()));
         let audit = AuditLog::beside_state(&path);
         let mut gate = ToolGateExecutor::new(["search_docs".into(), "http_get".into()])
@@ -526,6 +533,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ureq")]
     fn http_get_rejects_non_http_scheme() {
         let mut gate = ToolGateExecutor::new(["http_get".into()])
             .enable_http_get(true)
