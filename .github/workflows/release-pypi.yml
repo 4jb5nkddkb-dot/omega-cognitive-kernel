@@ -24,6 +24,9 @@ jobs:
 
       - name: Build wheels with cibuildwheel
         uses: pypa/cibuildwheel@v2.21
+        with:
+          package-dir: bindings/python
+          output-dir: wheelhouse
         env:
           CIBW_BUILD: cp38-* cp39-* cp310-* cp311-* cp312-* cp313-*
           CIBW_SKIP: "*-win32 *-musllinux_1_2* *manylinux_i686"
@@ -32,7 +35,6 @@ jobs:
           CIBW_BEFORE_BUILD: pip install maturin
           CIBW_BUILD_VERBOSITY: 1
           CIBW_ENVIRONMENT: PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-          CIBW_PROJECT_DIR: bindings/python
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
