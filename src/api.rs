@@ -6,6 +6,8 @@ use crate::prelude::*;
 use crate::audit::{AuditEvent, AuditLog};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::config::KernelConfig;
+#[cfg(feature = "toml")]
+use crate::config_toml;
 use crate::error::{OmegaError, Result};
 use crate::l0::decision::ConstrainedDecisionMaker;
 use crate::l0::executor::{Executor, SandboxedExecutor};
@@ -231,8 +233,9 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
         }
     }
 
+    #[cfg(feature = "toml")]
     pub fn from_config_path(config_path: impl AsRef<Path>) -> Result<Self> {
-        let cfg = KernelConfig::load(config_path)?;
+        let cfg = config_toml::KernelConfig::load(config_path)?;
         let mut k = Self::with_state_path(cfg.resolved_state_path());
         k.apply_config(&cfg);
         if k.state_path.exists() {

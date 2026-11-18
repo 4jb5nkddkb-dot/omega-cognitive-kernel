@@ -1,12 +1,15 @@
 //! Config file + directory snapshot adapter (offline-friendly).
 //!
 //! ```bash
-//! cargo run --example config_and_dir
+//! cargo run --example config_and_dir --features toml
 //! ```
 
+#[cfg(feature = "toml")]
 use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result};
+#[cfg(feature = "toml")]
 use std::env::temp_dir;
 
+#[cfg(feature = "toml")]
 fn main() -> Result<()> {
     let work = temp_dir().join(format!(
         "omega-phase1-{}",
@@ -56,4 +59,11 @@ fn main() -> Result<()> {
 
     let _ = std::fs::remove_dir_all(&work);
     Ok(())
+}
+
+#[cfg(not(feature = "toml"))]
+fn main() {
+    eprintln!("This example requires the 'toml' feature. Run with:");
+    eprintln!("  cargo run --example config_and_dir --features toml");
+    std::process::exit(1);
 }

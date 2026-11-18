@@ -21,16 +21,27 @@
 //! KEEP_INBOX=1 cargo run --example inbox_vertical
 //! ```
 
+#[cfg(feature = "toml")]
 use chrono::Utc;
+#[cfg(feature = "toml")]
 use omega_cognitive_kernel::types::{Action, Modality};
+#[cfg(feature = "toml")]
 use omega_cognitive_kernel::Executor;
+#[cfg(feature = "toml")]
 use omega_cognitive_kernel::{Kernel, KernelConfig, Observation, Observer, Result};
+#[cfg(feature = "toml")]
 use serde_json::json;
+#[cfg(feature = "toml")]
 use std::collections::{HashSet, VecDeque};
+#[cfg(feature = "toml")]
 use std::env;
+#[cfg(feature = "toml")]
 use std::fs;
+#[cfg(feature = "toml")]
 use std::io::Write;
+#[cfg(feature = "toml")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "toml")]
 use std::sync::{Arc, Mutex};
 
 // ─── Plug-in: event queue observer ───────────────────────────────────────────
@@ -214,6 +225,7 @@ fn whitelist() -> Vec<String> {
 
 // ─── Demo driver ─────────────────────────────────────────────────────────────
 
+#[cfg(feature = "toml")]
 fn main() -> Result<()> {
     let keep = env::var("KEEP_INBOX").ok().as_deref() == Some("1");
     let root = if keep {
@@ -365,4 +377,11 @@ fn main() -> Result<()> {
         println!("\n(temp workspace removed; set KEEP_INBOX=1 to inspect files)");
     }
     Ok(())
+}
+
+#[cfg(not(feature = "toml"))]
+fn main() {
+    eprintln!("This example requires the 'toml' feature. Run with:");
+    eprintln!("  cargo run --example inbox_vertical --features toml");
+    std::process::exit(1);
 }

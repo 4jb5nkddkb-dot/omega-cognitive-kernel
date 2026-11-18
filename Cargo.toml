@@ -26,6 +26,8 @@ include = [
 
 [features]
 default = ["std", "ureq"]
+# std feature: enables std support + core deps (serde, chrono, etc.).
+# Does NOT include toml (which pulls indexmap 2.x / Rust 2024).
 std = [
   "serde/std",
   "serde_json/std",
@@ -35,9 +37,10 @@ std = [
   "anyhow/std",
   "tracing/std",
   "dep:clap",
-  "dep:toml",
   "dep:tracing-subscriber",
 ]
+# Optional toml support (requires indexmap 2.x / Rust 2024).
+toml = ["dep:toml"]
 # Network deps (ureq/reqwest) pulled out of std for MSRV compatibility.
 # ureq/reqwest pull in idna_adapter requiring Rust 2024 edition.
 ureq = ["dep:ureq"]
@@ -51,6 +54,7 @@ docsrs = []
 
 # MSRV-compatible subset: std without network deps (ureq/reqwest pull in
 # idna_adapter requiring Rust 2024 edition, incompatible with Rust 1.74).
+# Also excludes toml (toml_edit requires indexmap 2.x / Rust 2024).
 msrv = ["std"]
 
 [dependencies]
@@ -64,8 +68,10 @@ hashbrown = { version = "0.14", default-features = false, features = ["serde", "
 libm = "0.2"
 # indexmap 2.x requires Rust 2024 edition; pin to 1.x for MSRV 1.74 compatibility.
 indexmap = "=1.9.3"
+# toml 0.8 uses toml_edit 0.22 which requires indexmap 2.x (Rust 2024).
+# Pin to 0.7.x which uses toml_edit 0.19 (compatible with indexmap 1.x / Rust 2021).
+toml = { version = "0.7", optional = true }
 clap = { version = "=4.5.43", optional = true, features = ["derive"] }
-toml = { version = "0.8", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 ureq = { version = "=2.9.7", default-features = true, optional = true }
 
@@ -95,3 +101,23 @@ path = "src/bin/omega_audit_panel.rs"
 name = "omega-dashboard"
 path = "src/bin/omega_dashboard.rs"
 required-features = ["gui"]
+
+[[example]]
+name = "config_and_dir"
+required-features = ["toml"]
+
+[[example]]
+name = "drop_inbox_loop"
+required-features = ["toml"]
+
+[[example]]
+name = "inbox_vertical"
+required-features = ["toml"]
+
+[[example]]
+name = "tool_gate"
+required-features = ["ureq"]
+
+[[example]]
+name = "tool_gate_http"
+required-features = ["ureq"]

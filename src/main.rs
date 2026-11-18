@@ -4,7 +4,9 @@ use omega_cognitive_kernel::prelude::*;
 use clap::{Parser, Subcommand};
 use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
 use omega_cognitive_kernel::audit::AuditLog;
-use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig};
+use omega_cognitive_kernel::config::InterventionPolicy;
+#[cfg(feature = "toml")]
+use omega_cognitive_kernel::config_toml;
 use omega_cognitive_kernel::task::{run_bandit_task, run_l2_benchmark_scenario_with_gate};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -127,24 +129,30 @@ fn state_path(cli: &Cli) -> Option<String> {
     cli.state.as_ref().map(|p| p.display().to_string())
 }
 
-fn load_intervention(cli: &Cli) -> InterventionPolicy {
-    if let Some(ref cfg_path) = cli.config {
-        if let Ok(cfg) = KernelConfig::load(cfg_path) {
-            return cfg.intervention;
+fn load_intervention(_cli: &Cli) -> InterventionPolicy {
+    #[cfg(feature = "toml")]
+    {
+        if let Some(ref cfg_path) = cli.config {
+            if let Ok(cfg) = config_toml::KernelConfig::load(cfg_path) {
+                return cfg.intervention;
+            }
         }
     }
     InterventionPolicy::default()
 }
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
-    let mut kernel = Kernel::open(state_path(cli).as_deref())?;
-    if let Some(ref cfg_path) = cli.config {
-        let cfg = KernelConfig::load(cfg_path)?;
-        kernel.apply_config(&cfg);
-        if let Some(ref p) = cli.state {
-            kernel.state_path = p.clone();
-        } else if cfg.state_path.is_some() && kernel.state_path.exists() {
-            let _ = kernel.load();
+    let kernel = Kernel::open(state_path(cli).as_deref())?;
+    #[cfg(feature = "toml")]
+    {
+        if let Some(ref cfg_path) = cli.config {
+            let cfg = config_toml::KernelConfig::load(cfg_path)?;
+            kernel.apply_config(&cfg);
+            if let Some(ref p) = cli.state {
+                kernel.state_path = p.clone();
+            } else if cfg.state_path.is_some() && kernel.state_path.exists() {
+                let _ = kernel.load();
+            }
         }
     }
     Ok(kernel)

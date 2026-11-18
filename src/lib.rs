@@ -53,6 +53,8 @@ pub mod audit;
 pub mod checkpoint;
 #[cfg(feature = "std")]
 pub mod config;
+#[cfg(all(feature = "std", feature = "toml"))]
+pub mod config_toml;
 pub mod error;
 pub mod l0;
 pub mod l1;
