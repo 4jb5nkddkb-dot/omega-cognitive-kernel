@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-wheels:
-    name: Build wheels with cibuildwheel
+    name: Build wheel (Python 3.12)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,25 +22,26 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build wheels with cibuildwheel
-        uses: pypa/cibuildwheel@v2.21
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          package-dir: bindings/python
-          output-dir: wheelhouse
-        env:
-          CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
-          CIBW_SKIP: "*-win32 *-musllinux_1_2* *manylinux_i686"
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
-          CIBW_BEFORE_BUILD: pip install --upgrade pip setuptools && pip install maturin
-          CIBW_BUILD_VERBOSITY: 1
-          CIBW_ENVIRONMENT: PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+          python-version: '3.12'
 
-      - name: Upload wheels
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheel
+        working-directory: bindings/python
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: |
+          python -m maturin build --release --out dist --interpreter python --compatibility manylinux_2_28 --skip-auditwheel
+
+      - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: wheelhouse/*.whl
+          name: wheel
+          path: bindings/python/dist/*.whl
           retention-days: 1
 
   publish:
@@ -52,13 +53,13 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Download wheels
+      - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: wheels
+          name: wheel
           path: dist
 
-      - name: Show wheels
+      - name: Show wheel
         run: ls -la dist/
 
       - name: Publish to PyPI
