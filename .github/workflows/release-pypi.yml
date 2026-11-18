@@ -23,7 +23,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Linux wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v2.16.0
         with:
           package-dir: bindings/python
           platform: linux
@@ -58,7 +58,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Windows wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v2.16.0
         with:
           package-dir: bindings/python
           platform: windows
