@@ -11,8 +11,12 @@ permissions:
 
 jobs:
   build-wheels:
-    name: Build wheels
-    runs-on: ubuntu-latest
+    name: Build wheel (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
 
@@ -22,25 +26,33 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build wheels with cibuildwheel
-        uses: pypa/cibuildwheel@v2.21
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
         with:
-          package-dir: bindings/python
-          output-dir: wheelhouse
-        env:
-          CIBW_BUILD: cp38-* cp39-* cp310-* cp311-* cp312-* cp313-*
-          CIBW_SKIP: "*-win32 *-musllinux_1_2* *manylinux_i686"
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
-          CIBW_BEFORE_BUILD: pip install maturin
-          CIBW_BUILD_VERBOSITY: 1
-          CIBW_ENVIRONMENT: PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+          python-version: ${{ matrix.python }}
 
-      - name: Upload wheels
+      - name: Install maturin and auditwheel
+        run: pip install maturin auditwheel
+
+      - name: Build wheel
+        working-directory: bindings/python
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: |
+          python -m maturin build --release --out dist --interpreter python --compatibility manylinux_2_28
+
+      - name: Repair wheel with auditwheel
+        working-directory: bindings/python
+        run: |
+          for whl in dist/*.whl; do
+            auditwheel repair "$whl" -w dist/
+          done
+
+      - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: wheelhouse/*.whl
+          name: wheel-py${{ matrix.python }}
+          path: bindings/python/dist/*.whl
           retention-days: 1
 
   publish:
@@ -52,10 +64,35 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Download wheels
+      - name: Download wheel (Python 3.8)
         uses: actions/download-artifact@v4
         with:
-          name: wheels
+          name: wheel-py3.8
+          path: dist
+      - name: Download wheel (Python 3.9)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.9
+          path: dist
+      - name: Download wheel (Python 3.10)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.10
+          path: dist
+      - name: Download wheel (Python 3.11)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.11
+          path: dist
+      - name: Download wheel (Python 3.12)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.12
+          path: dist
+      - name: Download wheel (Python 3.13)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.13
           path: dist
 
       - name: Show wheels
