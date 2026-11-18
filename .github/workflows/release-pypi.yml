@@ -27,7 +27,6 @@ jobs:
         with:
           package-dir: bindings/python
           output-dir: wheelhouse
-          config-file: "{package-dir}/pyproject.toml"
         env:
           CIBW_BUILD: cp310 cp311 cp312 cp313
           CIBW_SKIP: "pp* cp38 cp39"
@@ -61,7 +60,6 @@ jobs:
         with:
           package-dir: bindings/python
           output-dir: wheelhouse
-          config-file: "{package-dir}/pyproject.toml"
         env:
           CIBW_BUILD: cp310 cp311 cp312 cp313
           CIBW_SKIP: "pp* cp38 cp39"
