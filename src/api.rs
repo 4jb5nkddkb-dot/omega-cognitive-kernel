@@ -893,7 +893,7 @@ mod tests {
         let dir = temp_dir().join(format!("omega-l2gate-{}", crate::new_uuid()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
-        let mut k = Kernel::with_state_path(&path);
+        let mut k = Kernel::with_state_path(path.clone());
         k.autosave = false;
         k.dump_trajectory = false;
         k.auto_checkpoint_on_patch = false;
@@ -956,7 +956,7 @@ mod tests {
         std::fs::write(&blocker, b"not a dir").unwrap();
         // state path nested *under* a regular file -> parent mkdir/open fails.
         let bad_state = blocker.join("nested").join("state.json");
-        let mut k = Kernel::with_state_path(&bad_state);
+        let mut k = Kernel::with_state_path(bad_state.clone());
         k.autosave = false;
         k.dump_trajectory = false;
         let res = k.step("should fail");
@@ -974,7 +974,7 @@ mod tests {
         let blocker = temp_dir().join(format!("omega-blocker2-{}.file", crate::new_uuid()));
         std::fs::write(&blocker, b"not a dir").unwrap();
         let bad_state = blocker.join("nested").join("state.json");
-        let mut k = Kernel::with_state_path(&bad_state);
+        let mut k = Kernel::with_state_path(bad_state.clone());
         k.autosave = true;
         k.dump_trajectory = false;
         let res = k.step("autosave should fail");
@@ -989,7 +989,7 @@ mod tests {
         let dir = temp_dir().join(format!("omega-audit-ops-{}", crate::new_uuid()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
-        let mut k = Kernel::with_state_path(&path);
+        let mut k = Kernel::with_state_path(path.clone());
         k.autosave = false;
         k.dump_trajectory = false;
         k.step("create checkpoint").unwrap();

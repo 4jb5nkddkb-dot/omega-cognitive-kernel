@@ -138,10 +138,13 @@ fn load_intervention(cli: &Cli) -> InterventionPolicy {
             }
         }
     }
+    #[cfg(not(feature = "toml"))]
+    let _ = cli;
     InterventionPolicy::default()
 }
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
+    #[allow(unused_mut)]
     let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     #[cfg(feature = "toml")]
     {
