@@ -25,7 +25,7 @@ include = [
 ]
 
 [features]
-default = ["std", "ureq"]
+default = ["std", "ureq", "toml"]
 # std feature: enables std support + core deps (serde, chrono, etc.).
 # Does NOT include toml (which pulls indexmap 2.x / Rust 2024).
 std = [

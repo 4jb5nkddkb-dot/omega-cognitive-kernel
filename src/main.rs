@@ -129,7 +129,7 @@ fn state_path(cli: &Cli) -> Option<String> {
     cli.state.as_ref().map(|p| p.display().to_string())
 }
 
-fn load_intervention(_cli: &Cli) -> InterventionPolicy {
+fn load_intervention(cli: &Cli) -> InterventionPolicy {
     #[cfg(feature = "toml")]
     {
         if let Some(ref cfg_path) = cli.config {
@@ -142,7 +142,7 @@ fn load_intervention(_cli: &Cli) -> InterventionPolicy {
 }
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
-    let kernel = Kernel::open(state_path(cli).as_deref())?;
+    let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     #[cfg(feature = "toml")]
     {
         if let Some(ref cfg_path) = cli.config {

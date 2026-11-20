@@ -78,4 +78,95 @@ fn main() -> Result<()> {
     println!("  omega-kernel --state {} audit --summary", state.display());
     println!("  omega-kernel --state {} status", state.display());
     Ok(())
+\n\n#[cfg(test)]
+mod tests {
+    use super::*;
+    use omega_cognitive_kernel::audit::{AuditEvent, AuditLog, AuditSummary, AuditRecord};
+    use omega_cognitive_kernel::Kernel;
+    use std::env::temp_dir;
+    use uuid::Uuid;
+
+    #[test]
+    fn audit_panel_summarizes_demo_state() {
+        // Create a temporary state file with some demo data
+        let path = temp_dir().join(format!("omega-audit-test-{}.json", omega_cognitive_kernel::new_uuid()));
+
+        // Create kernel and run some steps
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        let _ = k.run("test audit panel", 5);
+        k.save().unwrap();
+
+        // Test audit log summarization
+        let log = AuditLog::beside_state(&path);
+        let summary = log.summarize().unwrap();
+
+        assert!(summary.total_events > 0);
+        assert!(summary.steps > 0);
+        assert_eq!(summary.patches_accepted, 0); // self_modify_enabled = false by default
+        assert!(summary.patches_rejected > 0);
+
+        // Test that we can open the kernel and get status
+        let kernel = Kernel::open(Some(path.to_str().unwrap())).unwrap();
+        let status = kernel.status();
+        assert!(!status.self_modify_enabled);
+        assert!(status.strategy_count > 0);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
+    }
+
+    #[test]
+    fn audit_panel_handles_missing_state() {
+        let path = temp_dir().join("nonexistent_state.json");
+        let log = AuditLog::beside_state(&path);
+        let summary = log.summarize().unwrap();
+
+        assert_eq!(summary.total_events, 0);
+        assert_eq!(summary.steps, 0);
+    }
+
+    #[test]
+    fn audit_summary_from_records() {
+        let now = chrono::Utc::now();
+        let rows = vec![
+            AuditRecord {
+                ts: now,
+                event: AuditEvent::Step {
+                    step: 1,
+                    goal: "test".into(),
+                    action: "stabilize".into(),
+                    avg_err: 0.5,
+                    damping: 1.0,
+                },
+            },
+            AuditRecord {
+                ts: now,
+                event: AuditEvent::PatchRejected {
+                    step: 1,
+                    reason: "self_modify_enabled=false".into(),
+                },
+            },
+            AuditRecord {
+                ts: now,
+                event: AuditEvent::Step {
+                    step: 2,
+                    goal: "test".into(),
+                    action: "explore".into(),
+                    avg_err: 0.3,
+                    damping: 0.9,
+                },
+            },
+        ];
+
+        let summary = AuditSummary::from_records(&rows);
+        assert_eq!(summary.total_events, 3);
+        assert_eq!(summary.steps, 2);
+        assert_eq!(summary.patches_rejected, 1);
+        assert_eq!(summary.action_counts.len(), 2);
+        assert_eq!(summary.last_action, Some("explore".into()));
+        assert!((summary.last_avg_err.unwrap() - 0.3).abs() < f64::EPSILON);
+        assert!((summary.last_damping.unwrap() - 0.9).abs() < f64::EPSILON);
+    }
+}
 }
