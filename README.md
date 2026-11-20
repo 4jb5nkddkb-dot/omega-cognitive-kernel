@@ -31,7 +31,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 
 ---
 
-**Status:** research prototype (**v0.5.6** on [crates.io](https://crates.io/crates/omega-cognitive-kernel)). Schema versioned; trajectory replay; event stream; strategy weight; multi-workspace dashboard; `status --json`.
+**Status:** research prototype. The current source and Python binding version is **0.5.25**; the newest repository tag is **v0.5.30**. Check [crates.io](https://crates.io/crates/omega-cognitive-kernel) for the latest published library. Schema versioning, trajectory replay, event streaming, strategy weights, async adapters, a multi-workspace dashboard, and `status --json` are implemented.
 
 ---
 
@@ -44,14 +44,14 @@ cargo add omega-cognitive-kernel
 ```
 
 ```toml
-omega-cognitive-kernel = "0.5.6"
+omega-cognitive-kernel = "0.5.25"
 ```
 
 **CLI / dashboard from git tag:**
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.25 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.25 --locked --features gui --bin omega-dashboard
 ```
 
 Or download binaries from [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases).
@@ -105,7 +105,27 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **0.5.1** | Dashboard Replay tab + required GUI release artifacts |
 | **0.5.2–0.5.4** | Event hooks / poll_after, strategy weight, multi-workspace, CLI parity |
 | **0.5.5** | `status --json` + HTTP `/status` example |
-| **0.5.6** | examples in crate package; **on crates.io** — **current** |
+| **0.5.6** | Examples in crate package; first crates.io release |
+| **0.5.7+** | Async adapters and CI hardening |
+| **0.5.25** | Current source version; matching Git tag `v0.5.25` |
+
+## Python bindings
+
+```bash
+python -m pip install omega-cognitive-kernel
+```
+
+```python
+import omega_cognitive_kernel_python as ok
+
+kernel = ok.Kernel.with_state_path("./agent-state.json")
+report = kernel.run("maintain coherent self-model", 10)
+print(report)
+kernel.save()
+```
+
+See [the Python binding guide](bindings/python/README.md) for local development and testing.
+Package: [PyPI — omega-cognitive-kernel](https://pypi.org/project/omega-cognitive-kernel/).
 
 See [CHANGELOG.md](CHANGELOG.md).
 

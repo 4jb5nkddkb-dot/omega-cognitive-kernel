@@ -1,6 +1,6 @@
-use pyo3::prelude::*;
+use crate::error::{PyResult, PythonBindingError};
 use crate::types::{AuditEvent, AuditRecord, AuditSummary};
-use crate::error::{PythonBindingError, PyResult};
+use pyo3::prelude::*;
 use std::path::Path;
 
 /// Python wrapper for AuditLog
@@ -29,8 +29,7 @@ impl AuditLog {
         if !Path::new(&self.path).exists() {
             return Ok(vec![]);
         }
-        let data = fs::read_to_string(&self.path)
-            .map_err(PythonBindingError::Io)?;
+        let data = fs::read_to_string(&self.path).map_err(PythonBindingError::Io)?;
         let rows: Vec<AuditRecord> = data
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -72,7 +71,8 @@ impl AuditLog {
             // File was truncated/rotated — resync from start.
             return self.poll_after(0);
         }
-        f.seek(SeekFrom::Start(offset)).map_err(PythonBindingError::Io)?;
+        f.seek(SeekFrom::Start(offset))
+            .map_err(PythonBindingError::Io)?;
         let mut buf = String::new();
         f.read_to_string(&mut buf).map_err(PythonBindingError::Io)?;
 
@@ -115,7 +115,12 @@ impl AuditLog {
         }
         for r in rows {
             match &r.event {
-                AuditEvent::Step { action, avg_err, damping, .. } => {
+                AuditEvent::Step {
+                    action,
+                    avg_err,
+                    damping,
+                    ..
+                } => {
                     s.steps += 1;
                     *actions.entry(action.clone()).or_insert(0) += 1;
                     s.last_action = Some(action.clone());

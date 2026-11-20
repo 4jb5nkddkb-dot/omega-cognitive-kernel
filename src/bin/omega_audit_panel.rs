@@ -78,18 +78,21 @@ fn main() -> Result<()> {
     println!("  omega-kernel --state {} audit --summary", state.display());
     println!("  omega-kernel --state {} status", state.display());
     Ok(())
-\n\n#[cfg(test)]
+}
+
+#[cfg(test)]
 mod tests {
-    use super::*;
-    use omega_cognitive_kernel::audit::{AuditEvent, AuditLog, AuditSummary, AuditRecord};
+    use omega_cognitive_kernel::audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary};
     use omega_cognitive_kernel::Kernel;
     use std::env::temp_dir;
-    use uuid::Uuid;
 
     #[test]
     fn audit_panel_summarizes_demo_state() {
         // Create a temporary state file with some demo data
-        let path = temp_dir().join(format!("omega-audit-test-{}.json", omega_cognitive_kernel::new_uuid()));
+        let path = temp_dir().join(format!(
+            "omega-audit-test-{}.json",
+            omega_cognitive_kernel::new_uuid()
+        ));
 
         // Create kernel and run some steps
         let mut k = Kernel::with_state_path(&path);
@@ -168,5 +171,4 @@ mod tests {
         assert!((summary.last_avg_err.unwrap() - 0.3).abs() < f64::EPSILON);
         assert!((summary.last_damping.unwrap() - 0.9).abs() < f64::EPSILON);
     }
-}
 }

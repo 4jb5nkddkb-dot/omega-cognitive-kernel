@@ -670,7 +670,7 @@ where
         Ok(())
     }
 
-    pub fn checkpoint(&self, label: &str) -> Result<CheckpointMeta> {
+    pub fn checkpoint(&mut self, label: &str) -> Result<CheckpointMeta> {
         let snap = self.snapshot();
         let meta = self.checkpoints().save(
             label,
@@ -679,6 +679,11 @@ where
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
         )?;
+        self.append_event(AuditEvent::Checkpoint {
+            checkpoint_id: meta.id,
+            step: meta.step,
+            label: meta.label.clone(),
+        });
         Ok(meta)
     }
 
@@ -688,7 +693,12 @@ where
 
     pub fn rollback(&mut self, checkpoint_id: Uuid) -> Result<()> {
         let snap = self.checkpoints().load_snapshot(checkpoint_id)?;
+        let step_before = self.inner.total_steps;
         self.apply_snapshot(snap);
+        self.append_event(AuditEvent::Rollback {
+            checkpoint_id,
+            step_before,
+        });
         Ok(())
     }
 
@@ -773,6 +783,35 @@ mod tests {
 
         let _ = std::fs::remove_file(&source_path);
         let _ = std::fs::remove_file(&restored_path);
+    }
+
+    #[test]
+    fn checkpoint_and_rollback_emit_audit_events() {
+        let path = temp_dir().join(format!("omega-audit-ops-{}.json", crate::new_uuid()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.step("create checkpoint").unwrap();
+        let checkpoint = k.checkpoint("before rollback").unwrap();
+        k.step("change state").unwrap();
+        k.rollback(checkpoint.id).unwrap();
+
+        let summary = k.audit_summary().unwrap();
+        assert_eq!(summary.checkpoints, 1);
+        assert_eq!(summary.rollbacks, 1);
+        let records = k.audit_tail(20).unwrap();
+        assert!(records.iter().any(|record| matches!(
+            &record.event,
+            AuditEvent::Checkpoint { checkpoint_id, .. } if *checkpoint_id == checkpoint.id
+        )));
+        assert!(records.iter().any(|record| matches!(
+            record.event,
+            AuditEvent::Rollback { checkpoint_id, step_before: 2 } if checkpoint_id == checkpoint.id
+        )));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
+        let _ = std::fs::remove_dir_all(CheckpointStore::beside_state(&path).dir);
     }
 
     #[test]

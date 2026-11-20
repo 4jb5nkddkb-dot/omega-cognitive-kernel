@@ -38,6 +38,31 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --bin omega-kernel
 
+  python:
+    name: Python bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test tooling
+        run: python -m pip install pytest
+      - name: Build manylinux wheel
+        run: |
+          mkdir -p /tmp/omega-wheelhouse
+          docker run --rm \
+            -v "${{ github.workspace }}":/io \
+            -v /tmp/omega-wheelhouse:/wheelhouse \
+            -w /io/bindings/python \
+            ghcr.io/pyo3/maturin:latest \
+            build --release --locked --interpreter python3.13 --compatibility manylinux2014 --out /wheelhouse
+      - run: python -m pip install /tmp/omega-wheelhouse/omega_cognitive_kernel-*.whl
+      - name: Test the installed extension
+        run: python -m pytest
+
   gui:
     name: Dashboard GUI
     runs-on: ubuntu-latest

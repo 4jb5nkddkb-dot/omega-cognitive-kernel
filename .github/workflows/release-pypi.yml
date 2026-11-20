@@ -32,7 +32,7 @@ jobs:
             -v "${{ github.workspace }}":/io \
             -w /io/bindings/python \
             ghcr.io/pyo3/maturin:latest \
-            build --release --interpreter python --compatibility manylinux2014 --out wheelhouse
+            build --release --locked --interpreter python --compatibility manylinux2014 --out wheelhouse
 
       - name: Upload Linux wheel
         uses: actions/upload-artifact@v4
@@ -69,7 +69,7 @@ jobs:
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
-          maturin build --release --interpreter python --out wheelhouse
+          maturin build --release --locked --interpreter python --out wheelhouse
 
       - name: Upload Windows wheel
         uses: actions/upload-artifact@v4

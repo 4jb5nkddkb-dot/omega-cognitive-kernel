@@ -1,5 +1,20 @@
 # Releasing Omega Cognitive Kernel
 
+## Project identity
+
+- Repository: `omega-cognitive-kernel`
+- Current development branch: `fix/audit-tests`
+
+## Distribution channels
+
+| Channel | Package / demo | Canonical URL |
+|---------|----------------|---------------|
+| crates.io (Rust) | `omega-cognitive-kernel` | https://crates.io/crates/omega-cognitive-kernel |
+| PyPI (Python) | `omega-cognitive-kernel` | https://pypi.org/project/omega-cognitive-kernel/ |
+| itch.io (Omega World demo) | URL not supplied yet | — |
+
+Verify the registry pages rather than inferring published versions from Git tags.
+
 ## Preconditions
 
 ```bash
@@ -67,7 +82,7 @@ Checklist:
 Notes:
 
 - This crate ships binaries (`omega-kernel`, `omega-audit-panel`; GUI behind `gui` feature). That is fine for crates.io.
-- `Cargo.lock` is gitignored (library-style). Dependents resolve their own lock.
+- The repository tracks `Cargo.lock` for reproducible CLI builds; `bindings/python/Cargo.lock` pins the Python release build.
 - Yank is available if a bad version ships; prefer dry-run + CI green first.
 - Brand: crates.io description may mention Omega; trademark rules in `NOTICE` still apply to product naming.
 

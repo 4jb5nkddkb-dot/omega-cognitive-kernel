@@ -1,6 +1,6 @@
 # Roadmap — Omega Cognitive Kernel 0.5
 
-**Status:** **v0.5.6** on [crates.io](https://crates.io/crates/omega-cognitive-kernel).
+**Status:** source tree at **v0.5.25**; newest repository tag **v0.5.30**. See [crates.io](https://crates.io/crates/omega-cognitive-kernel) for published library versions.
 
 ## Shipped
 

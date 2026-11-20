@@ -10,7 +10,7 @@
 - Systems that must **audit** why the policy changed and **undo** bad patches
 - Integrators who already have sensors / files / HTTP status and want a small closed loop
 
-## What ships today (v0.5.6 on crates.io)
+## What ships in this source tree (v0.5.25)
 
 | Capability | Surface |
 |------------|---------|
@@ -25,7 +25,7 @@
 | GUI | `omega-dashboard` (`--features gui`) — status / run / audit live follow / strategies / workspaces / replay |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
 
-**Published:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel) `0.5.6`
+**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ; this source tree is `0.5.25`.
 
 ## Current productizable assets (2026-11-14 screening)
 

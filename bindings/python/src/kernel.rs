@@ -1,7 +1,9 @@
+use crate::error::{PyResult, PythonBindingError};
+use crate::types::{
+    CheckpointMeta, KernelStatus, RunReport, TrajectoryReplayRow, TrajectoryReplaySummary,
+};
+use omega_cognitive_kernel::OmegaError;
 use pyo3::prelude::*;
-use crate::types::{KernelStatus, RunReport, CheckpointMeta, TrajectoryReplaySummary, TrajectoryReplayRow};
-use crate::error::{PythonBindingError, PyResult};
-use std::path::Path;
 use uuid::Uuid;
 
 /// Python wrapper for Kernel
@@ -31,9 +33,10 @@ impl Kernel {
 
     /// Open existing kernel or create new one
     #[staticmethod]
+    #[pyo3(signature = (state_path=None))]
     pub fn open(state_path: Option<&str>) -> PyResult<Self> {
-        let kernel = omega_cognitive_kernel::Kernel::open(state_path)
-            .map_err(PythonBindingError::Kernel)?;
+        let kernel =
+            omega_cognitive_kernel::Kernel::open(state_path).map_err(PythonBindingError::Kernel)?;
         Ok(Self { inner: kernel })
     }
 
@@ -55,7 +58,10 @@ impl Kernel {
             final_avg_err: self.inner.inner.l0.memory.cas.avg_prediction_error,
             final_damping: self.inner.inner.l0.memory.cognitive_effect.error_damping,
             error_decreased: false,
-            last_actions: result.trajectory.actions.first()
+            last_actions: result
+                .trajectory
+                .actions
+                .first()
                 .map(|a| vec![a.name.clone()])
                 .unwrap_or_default(),
         };
@@ -64,7 +70,10 @@ impl Kernel {
 
     /// Execute multiple steps
     pub fn run(&mut self, goal: &str, steps: u32) -> PyResult<RunReport> {
-        let report = self.inner.run(goal, steps).map_err(PythonBindingError::Kernel)?;
+        let report = self
+            .inner
+            .run(goal, steps)
+            .map_err(PythonBindingError::Kernel)?;
         let py_report = RunReport {
             steps: report.steps,
             patches_accepted: report.patches_accepted,
@@ -115,13 +124,21 @@ impl Kernel {
 
     /// Get snapshot as JSON string
     pub fn snapshot_json(&self) -> PyResult<String> {
-        let json = self.inner.snapshot_json().map_err(PythonBindingError::Kernel)?;
+        let json = self
+            .inner
+            .snapshot_json()
+            .map_err(PythonBindingError::Kernel)?;
         Ok(json)
     }
 
     /// Apply snapshot from JSON string
     pub fn apply_snapshot_json(&mut self, json: &str) -> PyResult<()> {
-        self.inner.apply_snapshot_json(json).map_err(PythonBindingError::Kernel)?;
+        self.inner
+            .apply_snapshot_json(json)
+            .map_err(|error| match error {
+                OmegaError::Persist(message) => PythonBindingError::SnapshotJson(message),
+                other => PythonBindingError::Kernel(other),
+            })?;
         Ok(())
     }
 
@@ -138,21 +155,31 @@ impl Kernel {
 
     /// List all checkpoints
     pub fn list_checkpoints(&self) -> PyResult<Vec<CheckpointMeta>> {
-        let checkpoints = self.inner.list_checkpoints().map_err(PythonBindingError::Kernel)?;
-        let py_checkpoints: Vec<CheckpointMeta> = checkpoints.into_iter().map(|c| CheckpointMeta {
-            id: c.id.to_string(),
-            label: c.label,
-            step: c.step,
-            created_at: c.created_at.to_string(),
-            avg_err: c.avg_err,
-            damping: c.damping,
-        }).collect();
+        let checkpoints = self
+            .inner
+            .list_checkpoints()
+            .map_err(PythonBindingError::Kernel)?;
+        let py_checkpoints: Vec<CheckpointMeta> = checkpoints
+            .into_iter()
+            .map(|c| CheckpointMeta {
+                id: c.id.to_string(),
+                label: c.label,
+                step: c.step,
+                created_at: c.created_at.to_string(),
+                avg_err: c.avg_err,
+                damping: c.damping,
+            })
+            .collect();
         Ok(py_checkpoints)
     }
 
     /// Create a manual checkpoint
     pub fn create_checkpoint(&mut self, label: &str) -> PyResult<CheckpointMeta> {
-        let meta = self.inner.checkpoint(label).map_err(PythonBindingError::Kernel)?;
+        let meta = self
+            .inner
+            .checkpoint(label)
+            .map_err(PythonBindingError::Kernel)?;
+        self.save()?;
         let py_meta = CheckpointMeta {
             id: meta.id.to_string(),
             label: meta.label,
@@ -167,14 +194,19 @@ impl Kernel {
     /// Rollback to checkpoint
     pub fn rollback(&mut self, checkpoint_id: &str) -> PyResult<()> {
         let uuid = Uuid::parse_str(checkpoint_id).map_err(PythonBindingError::Uuid)?;
-        self.inner.rollback(uuid).map_err(PythonBindingError::Kernel)?;
+        self.inner
+            .rollback(uuid)
+            .map_err(PythonBindingError::Kernel)?;
         self.save()?;
         Ok(())
     }
 
     /// Replay trajectory
     pub fn replay_trajectory(&self, tail_n: usize) -> PyResult<TrajectoryReplaySummary> {
-        let summary = self.inner.replay_trajectory(tail_n).map_err(PythonBindingError::Kernel)?;
+        let summary = self
+            .inner
+            .replay_trajectory(tail_n)
+            .map_err(PythonBindingError::Kernel)?;
         let py_summary = TrajectoryReplaySummary {
             path: summary.path,
             rows: summary.rows,
@@ -182,13 +214,17 @@ impl Kernel {
             first_avg_err: summary.first_avg_err,
             last_avg_err: summary.last_avg_err,
             action_counts: summary.action_counts,
-            tail: summary.tail.into_iter().map(|r| TrajectoryReplayRow {
-                step: r.step,
-                action: r.action,
-                patched: r.patched,
-                avg_err: r.avg_err,
-                goal: r.goal,
-            }).collect(),
+            tail: summary
+                .tail
+                .into_iter()
+                .map(|r| TrajectoryReplayRow {
+                    step: r.step,
+                    action: r.action,
+                    patched: r.patched,
+                    avg_err: r.avg_err,
+                    goal: r.goal,
+                })
+                .collect(),
         };
         Ok(py_summary)
     }
@@ -229,7 +265,10 @@ impl Kernel {
     }
 
     fn __repr__(&self) -> String {
-        format!("Kernel(state_path={}, steps={})",
-            self.inner.state_path.display(), self.inner.inner.total_steps)
+        format!(
+            "Kernel(state_path={}, steps={})",
+            self.inner.state_path.display(),
+            self.inner.inner.total_steps
+        )
     }
 }

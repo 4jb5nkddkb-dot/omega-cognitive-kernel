@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Maintenance
+- Align current source version, installation tags, and Python documentation; distinguish source versions from newer repository tags.
+- Use one dynamic Python package version sourced from `bindings/python/Cargo.toml`.
+- Replace the print-based Python test script with isolated pytest integration tests and add Python tests to CI.
+- Remove tracked backup/build artifacts and ignore future backup files.
+- Fix the audit-panel test module syntax that prevented the default Rust test suite from compiling.
+- Record manual checkpoints and rollbacks in the audit log; map invalid Python snapshot JSON to `ValueError`.
+
+
 ## [0.5.7] — 2026-11-17
 
 ### Async I/O (feature = "async")

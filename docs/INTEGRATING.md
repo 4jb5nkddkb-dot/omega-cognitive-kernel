@@ -2,7 +2,7 @@
 
 Practical guide for embedding the kernel in another process or service.
 
-Target version: **v0.5.6+** ([crates.io](https://crates.io/crates/omega-cognitive-kernel))
+Target source version: **v0.5.25+**. See [crates.io](https://crates.io/crates/omega-cognitive-kernel) for the latest published release.
 
 **Recommended first run:** [examples/README.md](../examples/README.md) → `cargo run --example drop_inbox_loop` then open the dashboard.
 
@@ -13,14 +13,14 @@ Target version: **v0.5.6+** ([crates.io](https://crates.io/crates/omega-cognitiv
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = "0.5.6"
+omega-cognitive-kernel = "0.5.25"
 ```
 
 ```bash
 cargo add omega-cognitive-kernel
 ```
 
-Git pin still works: `{ git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.6" }`.
+Git pin for the matching source release: `{ git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.5.25" }`.
 
 ---
 

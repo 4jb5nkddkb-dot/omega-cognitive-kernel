@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Kernel status information
 #[pyclass(get_all)]
@@ -59,8 +58,11 @@ impl RunReport {
     fn __repr__(&self) -> String {
         format!(
             "RunReport(steps={}, patches={}, err {:.3}→{:.3}, decreased={})",
-            self.steps, self.patches_accepted, self.early_avg_err,
-            self.final_avg_err, self.error_decreased
+            self.steps,
+            self.patches_accepted,
+            self.early_avg_err,
+            self.final_avg_err,
+            self.error_decreased
         )
     }
 }
@@ -79,8 +81,10 @@ pub struct StrategyInfo {
 #[pymethods]
 impl StrategyInfo {
     fn __repr__(&self) -> String {
-        format!("StrategyInfo(name={}, weight={:.3}, success={}, fail={})",
-            self.name, self.weight, self.success_count, self.fail_count)
+        format!(
+            "StrategyInfo(name={}, weight={:.3}, success={}, fail={})",
+            self.name, self.weight, self.success_count, self.fail_count
+        )
     }
 }
 
@@ -99,8 +103,13 @@ pub struct CheckpointMeta {
 #[pymethods]
 impl CheckpointMeta {
     fn __repr__(&self) -> String {
-        format!("CheckpointMeta(id={}, label={}, step={}, err={:.3})",
-            &self.id[..8], self.label, self.step, self.avg_err)
+        format!(
+            "CheckpointMeta(id={}, label={}, step={}, err={:.3})",
+            &self.id[..8],
+            self.label,
+            self.step,
+            self.avg_err
+        )
     }
 }
 
@@ -210,8 +219,10 @@ pub struct AuditSummary {
 #[pymethods]
 impl AuditSummary {
     fn __repr__(&self) -> String {
-        format!("AuditSummary(events={}, steps={}, patches={}, checkpoints={})",
-            self.total_events, self.steps, self.patches_accepted, self.checkpoints)
+        format!(
+            "AuditSummary(events={}, steps={}, patches={}, checkpoints={})",
+            self.total_events, self.steps, self.patches_accepted, self.checkpoints
+        )
     }
 }
 

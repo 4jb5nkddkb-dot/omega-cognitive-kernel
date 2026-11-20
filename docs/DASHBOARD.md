@@ -11,7 +11,7 @@ cargo run --release --features gui --bin omega-dashboard
 Or install the binary:
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.25 --locked --features gui --bin omega-dashboard
 ```
 
 Windows: produces a pure GUI window (no console) via `windows_subsystem`.
