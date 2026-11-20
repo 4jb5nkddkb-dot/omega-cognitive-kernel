@@ -130,3 +130,28 @@ def test_audit_log_tracks_steps_and_rollback(kernel):
     assert summary.rollbacks == 1
     assert len(log.tail(2)) == 2
     assert log.byte_len() > 0
+
+
+def test_schema_version_is_current(kernel):
+    kernel.run("schema goal", 1)
+    kernel.save()
+    payload = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
+    # Schema v2 adds self_modify_enabled, steps_since_last_patch, l2_rollback_effect.
+    assert payload["version"] == 2
+    assert payload["self_modify_enabled"] is False
+    assert "steps_since_last_patch" in payload
+    assert "l2_rollback_effect" in payload
+
+
+def test_self_modify_flag_survives_restart(state_path):
+    # Enable L1 self-modify via the snapshot, persist, restart, and confirm the
+    # switch is still on rather than reverting to the safe default-off.
+    kernel = ok.Kernel.with_state_path(str(state_path))
+    payload = json.loads(kernel.snapshot_json())
+    payload["self_modify_enabled"] = True
+    kernel.apply_snapshot_json(json.dumps(payload))
+    assert kernel.status().self_modify_enabled is True
+    kernel.save()
+
+    reopened = ok.Kernel.open(str(state_path))
+    assert reopened.status().self_modify_enabled is True

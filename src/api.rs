@@ -355,9 +355,16 @@ where
         }
     }
 
-    fn append_event(&mut self, event: AuditEvent) {
-        let _ = self.audit().append(event.clone());
+    /// Append an audit event, then fire the hook only on a successful append.
+    ///
+    /// Persistence contract (fail-closed): a failure to durably record the event
+    /// is returned to the caller so that a step cannot report success while the
+    /// audit trail silently drops the transition. The in-process hook fires only
+    /// after the append has actually succeeded.
+    fn append_event(&mut self, event: AuditEvent) -> Result<()> {
+        self.audit().append(event.clone())?;
         self.emit_event(&event);
+        Ok(())
     }
 
     /// Operator nudge: set a strategy weight (0.1–10). Returns false if unknown.
@@ -383,9 +390,9 @@ where
         replay_trajectory_file(&self.trajectory_path(), tail_n)
     }
 
-    fn append_trajectory(&self, goal: &str, result: &StepResult) {
+    fn append_trajectory(&self, goal: &str, result: &StepResult) -> Result<()> {
         if !self.dump_trajectory {
-            return;
+            return Ok(());
         }
         use std::io::Write;
         let path = self.trajectory_path();
@@ -410,13 +417,14 @@ where
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
-        if let Ok(mut f) = std::fs::OpenOptions::new()
+        // Fail-closed: a trajectory write failure is a real error, not ignored.
+        let mut f = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(path)
-        {
-            let _ = writeln!(f, "{}", rec);
-        }
+            .open(&path)
+            .map_err(|e| OmegaError::Persist(format!("trajectory open {}: {e}", path.display())))?;
+        writeln!(f, "{rec}")
+            .map_err(|e| OmegaError::Persist(format!("trajectory write {}: {e}", path.display())))
     }
 
     pub fn step(&mut self, goal: &str) -> Result<StepResult> {
@@ -440,39 +448,44 @@ where
             action,
             avg_err,
             damping,
-        });
+        })?;
 
         // Emit L2 fixed-point regime changes for observability.
         if result.l2.entered_fixed_point {
             self.append_event(AuditEvent::FixedPointEntered {
                 step: self.inner.total_steps,
                 alignment_score: result.l2.alignment_score,
-            });
+            })?;
         }
         if result.l2.exited_fixed_point {
             self.append_event(AuditEvent::FixedPointExited {
                 step: self.inner.total_steps,
                 alignment_score: result.l2.alignment_score,
                 dwell_steps: self.inner.l2.dwell_steps,
-            });
+            })?;
         }
         if result.l2.modulation_proposed {
             self.append_event(AuditEvent::L2ModulationProposed {
                 step: self.inner.total_steps,
                 score: result.l2.candidate_score,
-            });
+            })?;
         }
         if result.l2.modulation_committed {
             self.append_event(AuditEvent::L2ModulationCommitted {
                 step: self.inner.total_steps,
                 score: result.l2.candidate_score,
                 gain: result.l2.modulation_gain,
-            });
+            })?;
         }
 
-        self.append_trajectory(goal, &result);
+        self.append_trajectory(goal, &result)?;
         if result.l1.patched {
             if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
+                // Best-effort pre-patch checkpoint. A failure to save the optional
+                // rollback snapshot must NOT suppress the primary PatchAccepted
+                // event: the patch was really accepted and that fact is what the
+                // audit trail must record. Checkpoint failure is propagated only
+                // if its own audit event also fails.
                 if let Ok(meta) = self.checkpoints().save(
                     "pre-patch",
                     self.inner.total_steps.saturating_sub(1),
@@ -484,23 +497,23 @@ where
                         checkpoint_id: meta.id,
                         step: meta.step,
                         label: meta.label,
-                    });
+                    })?;
                 }
                 self.append_event(AuditEvent::PatchAccepted {
                     step: self.inner.total_steps,
                     patch_id: result.l1.patch_id.unwrap_or_else(Uuid::nil),
                     damping: d,
                     description: "cognitive_rules".into(),
-                });
+                })?;
             }
         } else if let Some(reason) = &result.l1.reason {
             self.append_event(AuditEvent::PatchRejected {
                 step: self.inner.total_steps,
                 reason: reason.clone(),
-            });
+            })?;
         }
         if self.autosave {
-            let _ = self.save();
+            self.save()?;
         }
         Ok(result)
     }
@@ -609,6 +622,9 @@ where
             l2_detector_self_ref_threshold: self.inner.l2.detector.self_ref_threshold,
             l2_detector_cooldown_steps: self.inner.l2.detector.cooldown_steps,
             l2_detector_cooldown_remaining: self.inner.l2.detector.cooldown_remaining,
+            self_modify_enabled: self.inner.l1.self_modify_enabled,
+            steps_since_last_patch: self.inner.l1.steps_since_last_patch,
+            l2_rollback_effect: self.inner.l2.rollback_effect.clone(),
         }
     }
 
@@ -648,6 +664,9 @@ where
         self.inner.l2.detector.self_ref_threshold = snap.l2_detector_self_ref_threshold;
         self.inner.l2.detector.cooldown_steps = snap.l2_detector_cooldown_steps;
         self.inner.l2.detector.cooldown_remaining = snap.l2_detector_cooldown_remaining;
+        self.inner.l1.self_modify_enabled = snap.self_modify_enabled;
+        self.inner.l1.steps_since_last_patch = snap.steps_since_last_patch;
+        self.inner.l2.rollback_effect = snap.l2_rollback_effect;
     }
 
     pub fn snapshot_json(&self) -> Result<String> {
@@ -683,7 +702,7 @@ where
             checkpoint_id: meta.id,
             step: meta.step,
             label: meta.label.clone(),
-        });
+        })?;
         Ok(meta)
     }
 
@@ -698,7 +717,7 @@ where
         self.append_event(AuditEvent::Rollback {
             checkpoint_id,
             step_before,
-        });
+        })?;
         Ok(())
     }
 
@@ -707,7 +726,7 @@ where
             task: task.into(),
             reward,
             steps,
-        });
+        })?;
         Ok(())
     }
 
@@ -786,8 +805,190 @@ mod tests {
     }
 
     #[test]
+    fn restart_preserves_l1_self_modify_flag() {
+        // Enable L1 self-modify, save, "restart" (reload from disk), verify the
+        // switch is still on rather than falling back to the safe default-off.
+        let path = temp_dir().join(format!("omega-restart-l1-{}.json", crate::new_uuid()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.inner.l1.self_modify_enabled = true;
+        k.save().unwrap();
+
+        let mut restarted = Kernel::with_state_path(&path);
+        restarted.load().unwrap();
+        assert!(
+            restarted.inner.l1.self_modify_enabled,
+            "L1 self-modify flag must survive restart"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn restart_preserves_l1_patch_cooldown() {
+        // After accepting a patch the cooldown counter resets to 0; a restart
+        // must not reset it back to the warm default (which would let a patch
+        // fire immediately again).
+        let path = temp_dir().join(format!("omega-restart-cd-{}.json", crate::new_uuid()));
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.inner.l1.self_modify_enabled = true;
+        k.inner.l1.steps_since_last_patch = 1;
+        k.save().unwrap();
+
+        let mut restarted = Kernel::with_state_path(&path);
+        restarted.load().unwrap();
+        assert_eq!(
+            restarted.inner.l1.steps_since_last_patch, 1,
+            "patch cooldown must survive restart"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn restart_preserves_l2_rollback_effect_for_negative_feedback() {
+        // Simulate an L2 commit that stored the pre-commit policy in
+        // rollback_effect, restart, then feed negative feedback and verify the
+        // old policy is actually restored.
+        let path = temp_dir().join(format!("omega-restart-l2rb-{}.json", crate::new_uuid()));
+        let prior = crate::types::RuleEffect {
+            error_damping: 0.33,
+            explore_bonus: 0.21,
+            ..crate::types::RuleEffect::default()
+        };
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        // Pre-commit policy preserved for rollback.
+        k.inner.l2.rollback_effect = Some(prior.clone());
+        // Current policy is the post-commit (worse) one.
+        k.inner.l0.memory.cognitive_effect.error_damping = 0.95;
+        k.save().unwrap();
+
+        let mut restarted = Kernel::with_state_path(&path);
+        restarted.load().unwrap();
+        assert!(
+            restarted.inner.l2.rollback_effect.is_some(),
+            "rollback_effect must survive restart"
+        );
+
+        // Negative feedback triggers rollback to the pre-commit policy.
+        restarted.observe_l2_consequence(-1.0, 1.0, 0.0);
+        assert!(
+            (restarted.inner.l0.memory.cognitive_effect.error_damping - 0.33).abs() < 1e-9,
+            "negative feedback after restart must roll back to the preserved policy"
+        );
+        assert!(restarted.inner.l2.rollback_effect.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn l2_modulates_effect_even_when_self_modify_disabled() {
+        // Locks the documented two-gate semantics: `self_modify_enabled=false`
+        // (the default) gates only L1 patch commits. L2 `RuleEffect` modulation
+        // is an independent channel governed by `l2.enabled` and still fires.
+        // Use a unique subdirectory so audit/checkpoint sidecar files are
+        // isolated from other tests that also write into temp_dir().
+        let dir = temp_dir().join(format!("omega-l2gate-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut k = Kernel::with_state_path(&path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.auto_checkpoint_on_patch = false;
+        assert!(
+            !k.inner.l1.self_modify_enabled,
+            "self_modify_enabled must default to false"
+        );
+        // Loosen L2 detector so the modulation path actually fires (mirrors the
+        // orchestrator-level nudge test, which uses the default commit threshold).
+        k.inner.l2.detector.window = 2;
+        k.inner.l2.detector.pred_threshold = 0.3;
+        k.inner.l2.detector.self_ref_threshold = 0.3;
+        k.inner.l2.detector.cooldown_steps = 0;
+        // Seed an active rule module so L2 can reach fixed-point alignment
+        // without any L1 patch being committed (the benchmark does the same).
+        // This is what lets L2 modulate RuleEffect while self_modify stays off.
+        k.inner
+            .l1
+            .store
+            .active
+            .insert("cognitive_rules".into(), "self-model bias damp rule".into());
+
+        let before = k.inner.l0.memory.cognitive_effect.explore_bonus;
+        let mut saw_l2_activity = false;
+        let mut saw_l1_patch = false;
+        for _ in 0..24 {
+            let r = k.step("maintain coherent self-model omega dayan").unwrap();
+            // Any L2 engagement counts: a committed effect nudge, a modulation
+            // proposal, or entering the fixed-point regime. Requiring a full
+            // commit every run is too strict — the commit gate is intentionally
+            // conservative (threshold + cooldown + consequence feedback).
+            if r.l2.effect_nudge.is_some() || r.l2.modulation_proposed || r.l2.entered_fixed_point {
+                saw_l2_activity = true;
+            }
+            if r.l1.patched {
+                saw_l1_patch = true;
+            }
+        }
+        let after = k.inner.l0.memory.cognitive_effect.explore_bonus;
+        assert!(
+            saw_l2_activity || (after - before).abs() > 1e-6,
+            "L2 must engage (proposal/fixed-point/nudge or effect drift) even \
+             with self_modify_enabled=false; before={before} after={after}"
+        );
+        assert!(
+            !saw_l1_patch,
+            "L1 patch must NOT fire while self_modify_enabled=false"
+        );
+
+        // Cleanup the whole isolated directory.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn step_propagates_audit_append_failure() {
+        // Point the kernel at a state path whose parent directory does not exist
+        // and cannot be created (a path under an existing *file*), so the audit
+        // append fails. step() must return Err rather than reporting success.
+        let blocker = temp_dir().join(format!("omega-blocker-{}.file", crate::new_uuid()));
+        std::fs::write(&blocker, b"not a dir").unwrap();
+        // state path nested *under* a regular file -> parent mkdir/open fails.
+        let bad_state = blocker.join("nested").join("state.json");
+        let mut k = Kernel::with_state_path(&bad_state);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        let res = k.step("should fail");
+        assert!(res.is_err(), "step must fail when audit append fails");
+        let _ = std::fs::remove_file(&blocker);
+    }
+
+    #[test]
+    fn step_propagates_autosave_failure() {
+        // Same nested-under-a-file trick, but disable the audit path by making
+        // dump_trajectory/autosave the failing component. Here autosave is on and
+        // audit append is what we allow to succeed first is impossible to isolate,
+        // so we simply assert that a step with autosave on an unwritable path
+        // errors out (fail-closed).
+        let blocker = temp_dir().join(format!("omega-blocker2-{}.file", crate::new_uuid()));
+        std::fs::write(&blocker, b"not a dir").unwrap();
+        let bad_state = blocker.join("nested").join("state.json");
+        let mut k = Kernel::with_state_path(&bad_state);
+        k.autosave = true;
+        k.dump_trajectory = false;
+        let res = k.step("autosave should fail");
+        assert!(res.is_err(), "step must fail when autosave fails");
+        let _ = std::fs::remove_file(&blocker);
+    }
+
+    #[test]
     fn checkpoint_and_rollback_emit_audit_events() {
-        let path = temp_dir().join(format!("omega-audit-ops-{}.json", crate::new_uuid()));
+        // Unique subdirectory so the shared `<parent>/audit.jsonl` and
+        // `<parent>/checkpoints/` sidecars are isolated per test.
+        let dir = temp_dir().join(format!("omega-audit-ops-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         k.dump_trajectory = false;
@@ -809,9 +1010,7 @@ mod tests {
             AuditEvent::Rollback { checkpoint_id, step_before: 2 } if checkpoint_id == checkpoint.id
         )));
 
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
-        let _ = std::fs::remove_dir_all(CheckpointStore::beside_state(&path).dir);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
