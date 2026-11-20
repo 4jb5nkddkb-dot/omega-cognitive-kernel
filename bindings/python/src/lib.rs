@@ -1,14 +1,14 @@
 use pyo3::prelude::*;
 
-mod error;
-mod types;
-mod kernel;
 mod audit;
 mod checkpoint;
+mod error;
+mod kernel;
+mod types;
 
-use kernel::Kernel;
 use audit::AuditLog;
 use checkpoint::CheckpointStore;
+use kernel::Kernel;
 
 /// Python module for omega-cognitive-kernel
 #[pymodule]

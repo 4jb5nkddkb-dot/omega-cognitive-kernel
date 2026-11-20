@@ -1,5 +1,5 @@
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::exceptions::PyRuntimeError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,13 +14,20 @@ pub enum PythonBindingError {
     Uuid(#[from] uuid::Error),
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
+    #[error("{0}")]
+    SnapshotJson(String),
     #[error("Checkpoint not found: {0}")]
     CheckpointNotFound(String),
 }
 
 impl From<PythonBindingError> for PyErr {
     fn from(err: PythonBindingError) -> PyErr {
-        PyRuntimeError::new_err(err.to_string())
+        match err {
+            PythonBindingError::Serde(_)
+            | PythonBindingError::InvalidArgument(_)
+            | PythonBindingError::SnapshotJson(_) => PyValueError::new_err(err.to_string()),
+            _ => PyRuntimeError::new_err(err.to_string()),
+        }
     }
 }
 

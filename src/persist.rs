@@ -15,10 +15,21 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
 /// Current on-disk schema. Bump only with a migration path.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 fn default_schema_version() -> u32 {
     0
+}
+
+/// Pre-v2 default for the L1 self-modify master switch was `false` (safe).
+fn default_self_modify_enabled() -> bool {
+    false
+}
+
+/// Pre-v2 the cooldown counter started "warm" so the first patch could fire
+/// immediately once self-modify was enabled.
+fn default_steps_since_last_patch() -> u64 {
+    100
 }
 
 fn default_l2_enabled() -> bool {
@@ -55,7 +66,8 @@ fn default_l2_detector_cooldown() -> usize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
-    /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated to 1.
+    /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
+    /// [`CURRENT_SCHEMA_VERSION`] (currently 2) on load.
     #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
@@ -114,6 +126,18 @@ pub struct KernelSnapshot {
     pub l2_detector_cooldown_steps: usize,
     #[serde(default)]
     pub l2_detector_cooldown_remaining: usize,
+    /// L1 self-modify master switch (v2+). Restored so that enabling L1 then
+    /// restarting does not silently fall back to the safe default-off.
+    #[serde(default = "default_self_modify_enabled")]
+    pub self_modify_enabled: bool,
+    /// L1 patch cooldown counter (v2+). Restored so a restart cannot reset the
+    /// min-steps-between-patches cooldown.
+    #[serde(default = "default_steps_since_last_patch")]
+    pub steps_since_last_patch: u64,
+    /// L2 rollback policy snapshot (v2+). Restored so that after an L2 commit a
+    /// restart retains the pre-commit policy needed for negative-feedback rollback.
+    #[serde(default)]
+    pub l2_rollback_effect: Option<RuleEffect>,
 }
 
 impl Default for KernelSnapshot {
@@ -154,6 +178,9 @@ impl Default for KernelSnapshot {
             l2_detector_self_ref_threshold: 0.50,
             l2_detector_cooldown_steps: 5,
             l2_detector_cooldown_remaining: 0,
+            self_modify_enabled: false,
+            steps_since_last_patch: default_steps_since_last_patch(),
+            l2_rollback_effect: None,
         }
     }
 }
@@ -174,6 +201,14 @@ impl KernelSnapshot {
                 self.case_capacity = 256;
             }
             self.version = 1;
+        }
+        if self.version < 2 {
+            // v1 → v2: the new safety fields (`self_modify_enabled`,
+            // `steps_since_last_patch`, `l2_rollback_effect`) are absent from v1
+            // snapshots and therefore already carry their serde defaults. The
+            // defaults are intentionally the *safe* pre-v2 behavior: L1 disabled
+            // and a warm cooldown. Nothing to backfill beyond stamping the version.
+            self.version = 2;
         }
         Ok(self)
     }
@@ -256,6 +291,68 @@ mod tests {
     }
 
     #[test]
+    fn migrates_version_one_to_two() {
+        // A v1 snapshot lacks the v2 safety fields entirely; they must default.
+        let path = temp_dir().join(format!("omega-v1-{}.json", crate::new_uuid()));
+        let raw = r#"{
+            "version": 1,
+            "total_steps": 12,
+            "biases": {},
+            "constraints": {},
+            "cas_total_steps": 12,
+            "cas_avg_prediction_error": 0.1,
+            "cas_adaptation_score": 0.9,
+            "cognitive_effect": {
+                "error_damping": 1.0,
+                "action_preference": {},
+                "min_uncertainty": 0.05,
+                "explore_bonus": 0.0,
+                "risk_tolerance": 0.5
+            },
+            "cases": [],
+            "case_capacity": 256,
+            "strategies": {},
+            "active_modules": {},
+            "patch_history": []
+        }"#;
+        fs::write(&path, raw).unwrap();
+        let loaded = KernelSnapshot::load_from(&path).unwrap();
+        assert_eq!(loaded.version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(loaded.total_steps, 12);
+        assert!(!loaded.self_modify_enabled);
+        assert_eq!(loaded.steps_since_last_patch, 100);
+        assert!(loaded.l2_rollback_effect.is_none());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roundtrips_v2_safety_fields() {
+        let path = temp_dir().join(format!("omega-v2rt-{}.json", crate::new_uuid()));
+        let mut snap = KernelSnapshot {
+            total_steps: 42,
+            ..KernelSnapshot::default()
+        };
+        snap.self_modify_enabled = true;
+        snap.steps_since_last_patch = 3;
+        snap.l2_rollback_effect = Some(RuleEffect {
+            error_damping: 0.42,
+            explore_bonus: 0.11,
+            ..RuleEffect::default()
+        });
+        snap.save_to(&path).unwrap();
+        let loaded = KernelSnapshot::load_from(&path).unwrap();
+        assert_eq!(loaded.version, CURRENT_SCHEMA_VERSION);
+        assert!(loaded.self_modify_enabled);
+        assert_eq!(loaded.steps_since_last_patch, 3);
+        let rb = loaded
+            .l2_rollback_effect
+            .expect("rollback effect persisted");
+        assert!((rb.error_damping - 0.42).abs() < 1e-9);
+        assert!((rb.explore_bonus - 0.11).abs() < 1e-9);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
     fn migrates_version_zero() {
         let path = temp_dir().join(format!("omega-mig-{}.json", crate::new_uuid()));
         // Pre-0.5 style: omit version field entirely.
@@ -281,9 +378,12 @@ mod tests {
         }"#;
         fs::write(&path, raw).unwrap();
         let loaded = KernelSnapshot::load_from(&path).unwrap();
-        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.version, CURRENT_SCHEMA_VERSION);
         assert_eq!(loaded.case_capacity, 256);
         assert_eq!(loaded.total_steps, 3);
+        // v2 safety fields fall back to their safe defaults when migrating v0.
+        assert!(!loaded.self_modify_enabled);
+        assert!(loaded.l2_rollback_effect.is_none());
         let _ = fs::remove_file(&path);
     }
 

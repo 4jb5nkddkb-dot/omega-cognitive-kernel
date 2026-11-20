@@ -1,124 +1,77 @@
-# Omega Cognitive Kernel
+# Omega Cognitive Kernel — Python bindings
 
-**Training-free online strategy adaptation** — patch a structured `RuleEffect`, measure the consequence, roll back if needed.
+Python bindings for the training-free, auditable `RuleEffect` adaptation runtime. The package version is read dynamically from `Cargo.toml`, keeping it aligned with the Rust source.
 
-> When error rises, the kernel emits a bounded policy patch, persists it as cognitive state, and changes the next cycle’s decisions.  
-> **No weight updates. No code execution. Full audit trail.**
-
-```
-World (L0) → Reflect & patch (L1) → Meta-modulate (L2) → bias next L0
-```
-
-## Why this exists
-
-Most adaptive systems either:
-- require expensive retraining / fine-tuning, or
-- allow arbitrary code changes that are hard to audit and reverse.
-
-Omega takes a third path: **structured, reversible policy patches**.
-
-| Doc | Topic |
-|-----|--------|
-| **[docs/PRODUCT.md](docs/PRODUCT.md)** | Positioning & monetization posture |
-| **[docs/INTEGRATING.md](docs/INTEGRATING.md)** | Embed + adapters + config |
-| **[docs/CLOSED_LOOP.md](docs/CLOSED_LOOP.md)** | Safety switches + trajectory |
-| **[docs/DASHBOARD.md](docs/DASHBOARD.md)** | Desktop operator UI |
-| **[docs/PORTABILITY.md](docs/PORTABILITY.md)** | no_std / WASM / embedded portability |
-| **[docs/API_0.5.md](docs/API_0.5.md)** | 0.5 surface (schema + replay + events) |
-| **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
-| **[docs/L2_BENCHMARK.md](docs/L2_BENCHMARK.md)** | Reproducible L2 baseline comparison |
-| **[docs/CRATES_IO.md](docs/CRATES_IO.md)** | crates.io notes |
-
----
-
-**Status:** research prototype (**v0.5.6** on [crates.io](https://crates.io/crates/omega-cognitive-kernel)). Schema versioned; trajectory replay; event stream; strategy weight; multi-workspace dashboard; `status --json`.
-
----
+**Status:** research prototype, source version **0.5.25**. The default observer and executor are simulations; self-modification is disabled by default.
 
 ## Install
 
-**Library (crates.io):**
-
 ```bash
-cargo add omega-cognitive-kernel
+python -m pip install omega-cognitive-kernel
 ```
 
-```toml
-omega-cognitive-kernel = "0.5.6"
-```
-
-**CLI / dashboard from git tag:**
-
-```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.6 --locked --features gui --bin omega-dashboard
-```
-
-Or download binaries from [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases).
-
----
+The published distribution name is `omega-cognitive-kernel`; the import name is `omega_cognitive_kernel_python`.
 
 ## Quick start
 
+```python
+import omega_cognitive_kernel_python as ok
+
+kernel = ok.Kernel.with_state_path("./agent-state.json")
+report = kernel.run("maintain coherent self-model", 10)
+print(
+    f"error {report.early_avg_err:.3f} -> {report.final_avg_err:.3f}; "
+    f"decreased={report.error_decreased}"
+)
+
+checkpoint = kernel.create_checkpoint("before-review")
+kernel.run("try another policy", 3)
+kernel.rollback(checkpoint.id)
+kernel.save()
+```
+
+`Kernel.open(path)` loads an existing state file or creates a new in-memory kernel at that path. Always use a dedicated state directory in applications and tests.
+
+## Exposed API
+
+- `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
+- Safety and policy controls: `create_checkpoint`, `list_checkpoints`, `rollback`, `set_strategy_weight`, `set_l2_enabled`.
+- Runtime settings: `autosave`, `auto_checkpoint_on_patch`, and `dump_trajectory` getters/setters.
+- Observability: `replay_trajectory`, `AuditLog.beside_state`, `read_all`, `tail`, `poll_after`, `summarize`.
+- `CheckpointStore`: read persisted checkpoint metadata and snapshots.
+
+The Python wrapper currently exposes the built-in simulated observer/executor, not custom Python observer or executor callbacks.
+
+## Build and test from source
+
+Run from the repository root:
+
 ```bash
-cargo run --release -- demo
-cargo run --release -- run --steps 20
-cargo run --release -- status
-cargo run --release -- status --json
-cargo run --release -- audit --summary
-cargo run --release -- replay --tail 15
-cargo run --release -- benchmark-l2 --runs 20 --json
-cargo run --release --features gui --bin omega-dashboard
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install 'maturin>=1.4,<2' pytest
+maturin develop --manifest-path bindings/python/Cargo.toml --release
+python -m pytest
 ```
 
-Default: **`self_modify_enabled = false`**.
+To produce a wheel without installing it:
 
----
-
-## Library API
-
-```rust
-use omega_cognitive_kernel::Kernel;
-
-fn main() -> omega_cognitive_kernel::Result<()> {
-    let mut kernel = Kernel::open(None)?;
-    let report = kernel.run("maintain coherent self-model", 10)?;
-    println!(
-        "err {:.3} → {:.3} (decreased={})",
-        report.early_avg_err, report.final_avg_err, report.error_decreased
-    );
-    let replay = kernel.replay_trajectory(10)?;
-    println!("trajectory rows={} patches={}", replay.rows, replay.patches);
-    kernel.save()?;
-    Ok(())
-}
+```bash
+maturin build --manifest-path bindings/python/Cargo.toml --release --out /tmp/omega-wheelhouse
+python -m pip install --force-reinstall /tmp/omega-wheelhouse/omega_cognitive_kernel-*.whl
+python -m pytest
 ```
 
----
+Do not use the wheel checked into older development branches as a test dependency; it is version- and interpreter-specific.
 
-## Version map
+## Safety and limitations
 
-| Version | Meaning |
-|---------|---------|
-| **0.4.x** | Integrator freeze + PER + dashboard intro |
-| **0.5.0** | Schema migrate + trajectory replay |
-| **0.5.1** | Dashboard Replay tab + required GUI release artifacts |
-| **0.5.2–0.5.4** | Event hooks / poll_after, strategy weight, multi-workspace, CLI parity |
-| **0.5.5** | `status --json` + HTTP `/status` example |
-| **0.5.6** | examples in crate package; **on crates.io** — **current** |
+- `self_modify_enabled` defaults to `false`.
+- Policy updates are bounded structured `RuleEffect` values, not arbitrary code execution.
+- Use checkpoints, rollback, audit logs, and replay to inspect behavior.
+- Python 3.10–3.13 are covered by the release workflow; newer interpreters are best-effort until added to CI.
+- For custom real-world adapters and async I/O, use the Rust API described in the [integration guide](../../docs/INTEGRATING.md).
 
-See [CHANGELOG.md](CHANGELOG.md).
+## License
 
----
-
-## License & Brand
-
-This project is released under the **MIT License** — see [LICENSE](LICENSE).
-
-The names "Omega", "Omega Kernel", and "Omega Cognitive Kernel", together with related branding, are trademarks of the copyright holder(s). The MIT license grants rights to the *source code*; it does **not** grant trademark rights. See [NOTICE](NOTICE) for the full trademark and open-core posture statement.
-
-Commercial plugins, hosted multi-tenant services, managed policy packs, and enterprise control-plane features may be offered under separate terms in the future.
-
----
-
-*Omega Cognitive Kernel — patch, remember, measure, roll back.*
+MIT for source code; see the repository `LICENSE` and `NOTICE` for license and trademark terms.

@@ -1,230 +1,157 @@
-#!/usr/bin/env python3
-"""
-Test script for omega-cognitive-kernel Python bindings.
-Tests initialization, single-step inference, and rollback functionality.
-"""
+"""Integration tests for the installed omega-cognitive-kernel Python wheel."""
 
-import tempfile
-import os
-import sys
+import json
+import math
+from pathlib import Path
 
-# Add the project root to path so we can import the bindings
-sys.path.insert(0, "/workspaces/omega-cognitive-kernel")
+import pytest
 
 import omega_cognitive_kernel_python as ok
 
 
-def test_initialization():
-    """Test kernel initialization."""
-    print("=== Testing Initialization ===")
-    
-    # Test 1: Create new kernel with default path
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        print(f"✓ Kernel created at: {kernel.state_path()}")
-        print(f"  Initial status: {kernel.status()}")
-        
-        # Test 2: Open existing kernel
-        kernel2 = ok.Kernel.open(state_path)
-        print(f"✓ Kernel opened from existing state: {kernel2.state_path()}")
-        
-        # Test 3: Create new kernel with default path
-        kernel3 = ok.Kernel.new()
-        print(f"✓ Kernel created with default path: {kernel3.state_path()}")
-    
-    print()
+@pytest.fixture
+def state_path(tmp_path):
+    return tmp_path / "state.json"
 
 
-def test_single_step():
-    """Test single-step inference."""
-    print("=== Testing Single-Step Inference ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        # Execute a single step
-        goal = "test goal"
-        report = kernel.step(goal)
-        print(f"✓ Step executed with goal: '{goal}'")
-        print(f"  Report: {report}")
-        
-        # Execute multiple steps
-        report2 = kernel.run("another goal", 3)
-        print(f"✓ Run executed with 3 steps")
-        print(f"  Report: {report2}")
-        
-        # Check status after steps
-        status = kernel.status()
-        print(f"✓ Status after steps: total_steps={status.total_steps}, avg_err={status.avg_prediction_error:.3f}")
-    
-    print()
+@pytest.fixture
+def kernel(state_path):
+    return ok.Kernel.with_state_path(str(state_path))
 
 
-def test_checkpoints_and_rollback():
-    """Test checkpoint creation and rollback."""
-    print("=== Testing Checkpoints and Rollback ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        # Run a few steps to have some state
-        kernel.run("initial goal", 5)
-        print(f"✓ Ran 5 steps, total_steps={kernel.status().total_steps}")
-        
-        # Create a checkpoint
-        checkpoint = kernel.create_checkpoint("before_changes")
-        print(f"✓ Checkpoint created: {checkpoint.id[:8]}... (label: {checkpoint.label}, step: {checkpoint.step})")
-        
-        # Run more steps
-        kernel.run("more goals", 3)
-        print(f"✓ Ran 3 more steps, total_steps={kernel.status().total_steps}")
-        
-        # List checkpoints
-        checkpoints = kernel.list_checkpoints()
-        print(f"✓ Checkpoints listed: {len(checkpoints)} checkpoint(s)")
-        for cp in checkpoints:
-            print(f"  - {cp.id[:8]}... label='{cp.label}' step={cp.step} err={cp.avg_err:.3f}")
-        
-        # Rollback to checkpoint
-        kernel.rollback(checkpoint.id)
-        print(f"✓ Rolled back to checkpoint {checkpoint.id[:8]}...")
-        print(f"  total_steps after rollback: {kernel.status().total_steps}")
-        
-        # Verify rollback worked (should be back to step 5)
-        assert kernel.status().total_steps == 5, f"Expected 5 steps after rollback, got {kernel.status().total_steps}"
-        print("✓ Rollback verified: state correctly restored to checkpoint")
-    
-    print()
+def test_initialization_and_persistence(state_path):
+    kernel = ok.Kernel.with_state_path(str(state_path))
+    assert Path(kernel.state_path()) == state_path
+    assert kernel.status().total_steps == 0
+    assert kernel.status().self_modify_enabled is False
+
+    kernel.run("persist this state", 2)
+    kernel.save()
+    assert state_path.is_file()
+
+    reopened = ok.Kernel.open(str(state_path))
+    assert reopened.status().total_steps == 2
+    assert Path(reopened.status().state_path) == state_path
 
 
-def test_snapshot_json():
-    """Test snapshot JSON serialization."""
-    print("=== Testing Snapshot JSON ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        kernel.run("test goal", 2)
-        
-        # Get snapshot as JSON
-        json_str = kernel.snapshot_json()
-        print(f"✓ Snapshot JSON retrieved (length: {len(json_str)} chars)")
-        
-        # Apply snapshot from JSON
-        kernel2 = ok.Kernel.with_state_path(os.path.join(tmpdir, "test_state2"))
-        kernel2.apply_snapshot_json(json_str)
-        print(f"✓ Snapshot applied to new kernel")
-        print(f"  Original steps: {kernel.status().total_steps}, Restored steps: {kernel2.status().total_steps}")
-        
-        assert kernel2.status().total_steps == kernel.status().total_steps
-        print("✓ Snapshot JSON round-trip verified")
-    
-    print()
+def test_single_step_and_run(kernel):
+    step = kernel.step("test goal")
+    assert step.steps == 1
+    assert step.patches_accepted == 0
+    assert len(step.last_actions) == 1
+    assert step.last_actions[0] in {"noop", "observe", "explore", "exploit", "stabilize"}
+    assert math.isfinite(step.final_avg_err)
+
+    report = kernel.run("another goal", 3)
+    assert report.steps == 3
+    assert report.patches_accepted == 0
+    assert len(report.last_actions) == 3
+    assert kernel.status().total_steps == 4
 
 
-def test_strategy_weight():
-    """Test strategy weight modification."""
-    print("=== Testing Strategy Weight ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        # Get initial strategy weights (if any)
-        status = kernel.status()
-        print(f"✓ Initial strategy count: {status.strategy_count}")
-        
-        # Try setting a strategy weight
-        result = kernel.set_strategy_weight("explore", 2.0)
-        print(f"✓ Set strategy weight 'explore' to 2.0: {result}")
-        
-        # Try setting unknown strategy
-        result2 = kernel.set_strategy_weight("unknown_strategy", 1.0)
-        print(f"✓ Set unknown strategy weight: {result2} (expected False)")
-    
-    print()
+def test_checkpoints_and_rollback(kernel):
+    kernel.run("initial goal", 5)
+    checkpoint = kernel.create_checkpoint("before_changes")
+    assert checkpoint.label == "before_changes"
+    assert checkpoint.step == 5
+
+    kernel.run("more goals", 3)
+    assert kernel.status().total_steps == 8
+    checkpoints = kernel.list_checkpoints()
+    assert [item.id for item in checkpoints] == [checkpoint.id]
+
+    kernel.rollback(checkpoint.id)
+    assert kernel.status().total_steps == 5
+
+    reopened = ok.Kernel.open(kernel.state_path())
+    assert reopened.status().total_steps == 5
 
 
-def test_l2_settings():
-    """Test L2 enable/disable."""
-    print("=== Testing L2 Settings ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        # Check initial L2 state
-        status = kernel.status()
-        print(f"✓ Initial L2 enabled: {status.l2_enabled}")
-        
-        # Enable L2
-        kernel.set_l2_enabled(True)
-        status = kernel.status()
-        print(f"✓ L2 enabled: {status.l2_enabled}")
-        
-        # Disable L2
-        kernel.set_l2_enabled(False)
-        status = kernel.status()
-        print(f"✓ L2 disabled: {status.l2_enabled}")
-    
-    print()
+def test_snapshot_json_round_trip(kernel, state_path):
+    kernel.run("snapshot goal", 2)
+    snapshot = kernel.snapshot_json()
+    payload = json.loads(snapshot)
+    assert payload["total_steps"] == 2
+    assert payload["version"] >= 1
+
+    restored = ok.Kernel.with_state_path(str(state_path.with_name("restored.json")))
+    restored.apply_snapshot_json(snapshot)
+    assert restored.status().total_steps == kernel.status().total_steps
+    assert restored.status().avg_prediction_error == pytest.approx(
+        kernel.status().avg_prediction_error
+    )
+
+    with pytest.raises(ValueError, match="expected ident"):
+        restored.apply_snapshot_json("not valid JSON")
 
 
-def test_trajectory_replay():
-    """Test trajectory replay."""
-    print("=== Testing Trajectory Replay ===")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        state_path = os.path.join(tmpdir, "test_state")
-        kernel = ok.Kernel.with_state_path(state_path)
-        
-        # Run some steps with trajectory dumping enabled
-        kernel.set_dump_trajectory(True)
-        kernel.run("replay test", 4)
-        
-        # Replay trajectory
-        replay = kernel.replay_trajectory(3)
-        print(f"✓ Trajectory replay: {replay.rows} rows, {replay.patches} patches")
-        print(f"  Path: {replay.path}")
-        print(f"  First avg_err: {replay.first_avg_err}, Last avg_err: {replay.last_avg_err}")
-        print(f"  Tail ({len(replay.tail)} rows):")
-        for row in replay.tail:
-            print(f"    Step {row.step}: action='{row.action}' patched={row.patched} err={row.avg_err}")
-    
-    print()
+def test_strategy_weight(kernel):
+    report = kernel.run("create strategies", 1)
+    strategy = report.last_actions[0]
+    assert kernel.set_strategy_weight(strategy, 2.0) is True
+    assert kernel.set_strategy_weight("unknown_strategy", 1.0) is False
+    kernel.save()
+
+    snapshot = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
+    assert snapshot["strategies"][strategy]["weight"] == pytest.approx(2.0)
 
 
-def main():
-    """Run all tests."""
-    print("=" * 60)
-    print("Omega Cognitive Kernel - Python Bindings Test Suite")
-    print("=" * 60)
-    print()
-    
-    try:
-        test_initialization()
-        test_single_step()
-        test_checkpoints_and_rollback()
-        test_snapshot_json()
-        test_strategy_weight()
-        test_l2_settings()
-        test_trajectory_replay()
-        
-        print("=" * 60)
-        print("✅ ALL TESTS PASSED!")
-        print("=" * 60)
-        return 0
-        
-    except Exception as e:
-        print(f"\n❌ TEST FAILED: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+def test_l2_settings(kernel):
+    assert kernel.status().l2_enabled is True
+    kernel.set_l2_enabled(False)
+    assert kernel.status().l2_enabled is False
+    kernel.set_l2_enabled(True)
+    assert kernel.status().l2_enabled is True
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def test_trajectory_replay(kernel):
+    kernel.set_dump_trajectory(True)
+    kernel.run("replay test", 4)
+
+    replay = kernel.replay_trajectory(3)
+    assert Path(replay.path) == Path(kernel.state_path()).parent / "trajectory.jsonl"
+    assert replay.rows == 4
+    assert replay.patches == 0
+    assert len(replay.tail) == 3
+    assert [row.step for row in replay.tail] == [2, 3, 4]
+    assert all(row.goal == "replay test" for row in replay.tail)
+    assert sum(count for _, count in replay.action_counts) == 4
+
+
+def test_audit_log_tracks_steps_and_rollback(kernel):
+    kernel.run("audit goal", 2)
+    checkpoint = kernel.create_checkpoint("audit checkpoint")
+    kernel.rollback(checkpoint.id)
+
+    log = ok.AuditLog.beside_state(kernel.state_path())
+    summary = log.summarize()
+    assert summary.steps == 2
+    assert summary.checkpoints == 1
+    assert summary.rollbacks == 1
+    assert len(log.tail(2)) == 2
+    assert log.byte_len() > 0
+
+
+def test_schema_version_is_current(kernel):
+    kernel.run("schema goal", 1)
+    kernel.save()
+    payload = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
+    # Schema v2 adds self_modify_enabled, steps_since_last_patch, l2_rollback_effect.
+    assert payload["version"] == 2
+    assert payload["self_modify_enabled"] is False
+    assert "steps_since_last_patch" in payload
+    assert "l2_rollback_effect" in payload
+
+
+def test_self_modify_flag_survives_restart(state_path):
+    # Enable L1 self-modify via the snapshot, persist, restart, and confirm the
+    # switch is still on rather than reverting to the safe default-off.
+    kernel = ok.Kernel.with_state_path(str(state_path))
+    payload = json.loads(kernel.snapshot_json())
+    payload["self_modify_enabled"] = True
+    kernel.apply_snapshot_json(json.dumps(payload))
+    assert kernel.status().self_modify_enabled is True
+    kernel.save()
+
+    reopened = ok.Kernel.open(str(state_path))
+    assert reopened.status().self_modify_enabled is True

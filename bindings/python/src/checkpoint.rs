@@ -1,13 +1,12 @@
-use pyo3::prelude::*;
+use crate::error::{PyResult, PythonBindingError};
 use crate::types::CheckpointMeta;
-use crate::error::{PythonBindingError, PyResult};
+use pyo3::prelude::*;
 use std::path::Path;
 
 /// Python wrapper for CheckpointStore
 #[pyclass]
 pub struct CheckpointStore {
     dir: String,
-    max_keep: usize,
 }
 
 #[pymethods]
@@ -21,7 +20,6 @@ impl CheckpointStore {
             .join("checkpoints");
         Ok(Self {
             dir: dir.to_string_lossy().to_string(),
-            max_keep: 32,
         })
     }
 

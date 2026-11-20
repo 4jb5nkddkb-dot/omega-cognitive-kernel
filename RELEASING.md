@@ -1,5 +1,20 @@
 # Releasing Omega Cognitive Kernel
 
+## Project identity
+
+- Repository: `omega-cognitive-kernel`
+- Current development branch: `fix/audit-tests`
+
+## Distribution channels
+
+| Channel | Package / demo | Canonical URL |
+|---------|----------------|---------------|
+| crates.io (Rust) | `omega-cognitive-kernel` | https://crates.io/crates/omega-cognitive-kernel |
+| PyPI (Python) | `omega-cognitive-kernel` | https://pypi.org/project/omega-cognitive-kernel/ |
+| itch.io (Omega World demo) | URL not supplied yet | — |
+
+Verify the registry pages rather than inferring published versions from Git tags.
+
 ## Preconditions
 
 ```bash
@@ -67,7 +82,7 @@ Checklist:
 Notes:
 
 - This crate ships binaries (`omega-kernel`, `omega-audit-panel`; GUI behind `gui` feature). That is fine for crates.io.
-- `Cargo.lock` is gitignored (library-style). Dependents resolve their own lock.
+- The repository tracks `Cargo.lock` for reproducible CLI builds; `bindings/python/Cargo.lock` pins the Python release build.
 - Yank is available if a bad version ships; prefer dry-run + CI green first.
 - Brand: crates.io description may mention Omega; trademark rules in `NOTICE` still apply to product naming.
 
@@ -76,3 +91,40 @@ Notes:
 - [ ] Spot-check Release page rendering (install commands, links)
 - [ ] Optionally announce with a one-liner: *training-free RuleEffect patch loop, audit + rollback*
 - [ ] If published to crates.io, verify docs.rs build
+
+## PyPI (Python bindings)
+
+`.github/workflows/release-pypi.yml` runs on `v*` tags (and `workflow_dispatch`).
+It is split into three gated stages:
+
+1. **Build** — Linux (manylinux2014 via Docker), Windows, macOS (universal2) wheels
+   for CPython 3.10–3.13, plus an sdist.
+2. **Test** — each built wheel is downloaded, installed, and `pytest`-tested on its
+   native platform and Python version. A wheel that fails to install or pass tests
+   blocks publication.
+3. **Publish** — `pypa/gh-action-pypi-publish` uploads all wheels + sdist via
+   **Trusted Publishing (OIDC)**, gated on the `release` environment.
+
+### One-time Trusted Publisher setup
+
+The publish job authenticates with PyPI via OIDC — there is **no stored API token**.
+Configure it on PyPI *before* the first release:
+
+- Project: `omega-cognitive-kernel`
+- Add a **Trusted Publisher** (GitHub) with exactly:
+  - Owner / repository: this repo
+  - Workflow name: `release-pypi.yml`
+  - Environment name: `release`
+- Create a matching `release` environment in the GitHub repo settings (optionally
+  require manual approval for the publish job).
+
+If the repository, workflow filename, or environment name changes, update the PyPI
+Trusted Publisher to match, otherwise the publish step will be rejected. Do **not**
+retry publication by re-pushing the same tag — a version already on PyPI cannot be
+overwritten; bump the version instead.
+
+### Do not tag until green
+
+The Python `requires-python` metadata is `>=3.10` and the CI `python` job now tests
+the manylinux wheel on 3.10–3.13. Confirm that matrix is green on `main` before
+cutting a `v*` tag, since the release publishes for exactly those versions.

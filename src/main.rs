@@ -138,10 +138,13 @@ fn load_intervention(cli: &Cli) -> InterventionPolicy {
             }
         }
     }
+    #[cfg(not(feature = "toml"))]
+    let _ = cli;
     InterventionPolicy::default()
 }
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
+    #[allow(unused_mut)]
     let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     #[cfg(feature = "toml")]
     {
@@ -386,7 +389,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint { label } => {
-            let kernel = open_kernel(&cli)?;
+            let mut kernel = open_kernel(&cli)?;
             let meta = kernel.checkpoint(label)?;
             println!("checkpoint created: {} (step={})", meta.id, meta.step);
         }

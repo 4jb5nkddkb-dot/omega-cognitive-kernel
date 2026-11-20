@@ -18,5 +18,15 @@ omega-inbox-demo/
 # Python virtual environment
 .venv/
 
-# Python bindings build artifacts
+# Python packaging, test, and binding build artifacts
+*.egg-info/
+__pycache__/
+.pytest_cache/
+/dist/
+/wheelhouse/
+bindings/python/dist/
 bindings/python/target/
+bindings/python/wheelhouse/
+
+# Editor backups
+*.bak

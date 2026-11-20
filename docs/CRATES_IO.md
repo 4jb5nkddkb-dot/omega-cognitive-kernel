@@ -1,13 +1,15 @@
 # crates.io — Omega Cognitive Kernel
 
-**Published:** [omega-cognitive-kernel **0.5.6**](https://crates.io/crates/omega-cognitive-kernel)
+**Package:** [omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel)
+
+The source tree currently targets **0.5.25**. Use crates.io for the latest published version rather than assuming a Git tag was published to crates.io.
 
 ```bash
 cargo add omega-cognitive-kernel
 ```
 
 ```toml
-omega-cognitive-kernel = "0.5.6"
+omega-cognitive-kernel = "0.5.25"
 ```
 
 Git tag install (CLI / GUI binaries) remains available — see README.
