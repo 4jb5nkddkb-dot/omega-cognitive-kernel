@@ -1,110 +1,166 @@
 # Contributing to Omega Cognitive Kernel
 
-Thank you for your interest in contributing to Omega Cognitive Kernel! This document provides guidelines and instructions for contributing.
+Thank you for contributing to Omega Cognitive Kernel. The project is a research prototype for auditable, online strategy adaptation, so correctness, reversibility, persistence behavior, and clear documentation are as important as feature development.
 
-## Code of Conduct
+Please read [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) before participating. For suspected security vulnerabilities, follow [`SECURITY.md`](SECURITY.md) instead of opening a public issue.
 
-Be respectful and constructive. We're building a tool for safe, auditable AI systems, and our community should reflect those values.
-
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
-- **Rust 1.74+** (for Rust development)
-- **Python 3.10+** (for Python bindings)
-- **Git**
-- **Docker** (optional, for testing manylinux wheels)
+- Rust `1.74+` and `rustup` for Rust development.
+- Python `3.10+` for Python bindings.
+- Git.
+- Docker, optionally, for manylinux wheel testing.
 
-### Setting Up Your Development Environment
+### Set up the repository
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel.git
-   cd omega-cognitive-kernel
-   ```
+```bash
+git clone https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel.git
+cd omega-cognitive-kernel
+rustup update stable
+rustup component add rustfmt clippy
+```
 
-2. **Install Rust toolchain:**
-   ```bash
-   rustup update stable
-   rustup component add rustfmt clippy
-   ```
+For Python binding work, create an isolated environment and install the local build/test tools:
 
-3. **Set up Python environment (optional):**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install maturin pytest
-   ```
+```bash
+python -m venv .venv
+. .venv/bin/activate                 # Windows: .venv\Scripts\activate
+python -m pip install 'maturin>=1.4,<2' pytest
+```
 
-4. **Build the project:**
-   ```bash
-   cargo build --release
-   ```
+Build and run the default Rust checks:
 
-5. **Run tests:**
-   ```bash
-   # Rust tests
-   cargo test --locked
-   
-   # Python tests (if working on bindings)
-   maturin develop --manifest-path bindings/python/Cargo.toml --release
-   python -m pytest
-   ```
+```bash
+cargo build --release
+cargo test --locked
+```
 
-## Development Workflow
+For Python binding work, build the extension from the repository root and run its tests:
 
-### 1. Create a Feature Branch
+```bash
+maturin develop --manifest-path bindings/python/Cargo.toml --release
+python -m pytest
+```
+
+## Development workflow
+
+### Create a branch
+
+Start from an up-to-date `main` branch:
 
 ```bash
 git checkout main
-git pull origin main
+git pull --ff-only origin main
 git checkout -b feature/your-feature-name
 ```
 
-Branch naming conventions:
-- `feature/` - New features
-- `fix/` - Bug fixes
-- `docs/` - Documentation changes
-- `refactor/` - Code refactoring
-- `test/` - Test additions or improvements
-- `ci/` - CI/CD changes
+Use a descriptive prefix where practical:
 
-### 2. Make Your Changes
+| Prefix | Use |
+|---|---|
+| `feature/` | New behavior or capability |
+| `fix/` | Bug or regression fix |
+| `docs/` | Documentation-only change |
+| `refactor/` | Internal restructuring without intended behavior change |
+| `test/` | Test additions or improvements |
+| `ci/` | Workflow or build automation changes |
 
-#### Code Style
+### Understand the compatibility-sensitive surfaces
 
-**Rust:**
-- Follow standard Rust conventions
-- Run `cargo fmt` before committing
-- Ensure `cargo clippy --locked --all-targets -- -D warnings` passes
-- Add tests for new functionality
-- Update documentation for public APIs
+Before changing runtime behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs), follow [`src/orchestrator.rs`](src/orchestrator.rs), and inspect the affected L0/L1/L2 or persistence module. Treat the following as compatibility-sensitive:
 
-**Python:**
-- Follow PEP 8
-- Use type hints where appropriate
-- Add docstrings to public functions
-- Ensure `pytest` passes
+- `RuleEffect::sanitize` and its bounded action/effect fields.
+- The independent `self_modify_enabled` and `l2.enabled` gates.
+- `KernelSnapshot::migrate` and `CURRENT_SCHEMA_VERSION`.
+- `AuditEvent` variants and JSONL compatibility.
+- Audit, trajectory, checkpoint, and autosave ordering.
+- Rust feature combinations and the declared Rust `1.74` MSRV.
 
-#### Commit Messages
+If a change modifies public API, serialized state, audit events, safety defaults, or feature behavior, explain the compatibility and migration implications in the PR.
 
-##### Automatic verified task commits
+### Code and documentation style
 
-For a local Cline task-completion trigger, run `python3 -B hooks/cline/install.py --update` and then `python3 -B hooks/cline/auto_commit.py --enable`. The setting is stored only in Git-ignored `.omega/auto-commit.json`; disable both committing and pushing with `--disable`.
+For Rust changes, use standard Rust conventions, run `cargo fmt`, keep the MSRV in mind, and add regression tests for new behavior. For Python changes, follow PEP 8, use type hints where useful, and add or update pytest coverage. Public API changes must update the relevant API/integration documentation.
 
-After each completed task, the hook checks allowed untracked paths, runs Rust formatting, Clippy, the complete default test suite, and skill validation, then commits and pushes the verified changes. Any failure skips the commit and leaves work available for review. Tracked source changes are included; new files are restricted to project source, test, documentation, script, hook, and workflow paths. Review new documentation and release-metadata changes manually when they are outside those paths. Local rules, `.omega`, credentials, caches, and backup files are never intentionally included. The generic commit message refers to the previous commit; use manual commits when a more descriptive message or selective staging is needed.
+When project behavior or architecture changes, update the smallest relevant files under [`memory-bank/`](memory-bank/README.md). Keep Memory Bank claims grounded in source or executed checks; do not record credentials, private data, generated runtime state, or task transcripts.
 
-##### Automatic verified formatting commits
+## Verification commands
 
-`.github/workflows/auto-commit-verified.yml` runs after pushes to `main` and `fix/audit-tests`, and can also be dispatched manually. If `cargo fmt` changes Rust source, it runs the complete default test suite and Clippy before committing and pushing those formatting-only changes. It does not run when no formatting changes exist, and `[skip ci]` prevents an autofix recursion loop.
+Run the narrowest relevant checks during iteration, then run the full applicable set before opening a PR:
 
-This is a **GitHub push trigger**, not a Cline task-completion trigger. Local edits, uncommitted work, and unpushed commits are not visible to GitHub. Commit and push the reviewed implementation first; never rely on the workflow to finish or validate unreviewed business logic. The scheduled code-quality workflow remains separate and opens a pull request for less deterministic Clippy fixes.
-
-#### Commit Messages
-
-Use clear, descriptive commit messages following the [Conventional Commits](https://www.conventionalcommits.org/) format:
-
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
+
+For feature or portability changes, also use the relevant checks:
+
+```bash
+cargo test --all-features
+bash scripts/test-no-std.sh
+bash scripts/test-wasm-runtime.sh
+```
+
+For Python binding changes:
+
+```bash
+maturin develop --manifest-path bindings/python/Cargo.toml --release
+python -m pytest
+```
+
+For release-related changes, follow [`RELEASING.md`](RELEASING.md) and run the version/package checks documented there. If an external dependency, platform, registry, or workflow is unavailable, report that fact rather than treating the check as passed.
+
+## Pull request checklist
+
+Before opening a pull request, confirm the following:
+
+### Scope and implementation
+
+- [ ] The PR description explains the problem, the approach, and any user-visible behavior change.
+- [ ] The change is limited to the stated scope and does not include unrelated generated files, local state, credentials, or backup artifacts.
+- [ ] Public API, feature flags, safety gates, persistence schema, or audit-event changes are explicitly called out.
+- [ ] Any schema or audit compatibility change includes migration, fallback, or consumer-impact notes.
+
+### Tests and verification
+
+- [ ] `cargo fmt --all -- --check` passes.
+- [ ] `cargo clippy --locked --all-targets -- -D warnings` passes for applicable Rust changes.
+- [ ] `cargo test --locked` passes.
+- [ ] Relevant `--all-features`, no-std, WASM, async, GUI, or Python checks have been run when affected.
+- [ ] The PR description records exact commands that were run and any checks that could not be run.
+- [ ] New regressions have a focused test, or the PR explains why a test is not practical.
+
+### Documentation and project context
+
+- [ ] README/API/integration/release documentation is updated for user-visible changes.
+- [ ] `CHANGELOG.md` is updated for notable behavior, API, schema, safety, or release changes.
+- [ ] Memory Bank files are updated when project goals, active work, architecture, technical constraints, or progress have changed.
+- [ ] Examples, configuration snippets, and command names have been checked against the current source.
+- [ ] New documentation has working relative links and does not claim unexecuted verification as successful.
+
+### Safety and operations
+
+- [ ] Policy changes remain bounded and do not introduce arbitrary code execution.
+- [ ] L1 and L2 gate semantics remain explicit and tested if touched.
+- [ ] Persistence failures remain observable and rollback/checkpoint behavior is covered if touched.
+- [ ] Untrusted input, network access, tool execution, and sensitive audit/trajectory data are considered.
+- [ ] Security-sensitive details are handled privately according to [`SECURITY.md`](SECURITY.md).
+
+### Review readiness
+
+- [ ] The branch is based on the current `main`.
+- [ ] The working tree contains only intended changes.
+- [ ] Commit messages follow the Conventional Commits format.
+- [ ] The PR is ready for review, or clearly labels any draft/design questions.
+
+## Commit messages
+
+Use clear, descriptive messages following [Conventional Commits](https://www.conventionalcommits.org/):
+
+```text
 <type>(<scope>): <subject>
 
 <body>
@@ -112,29 +168,23 @@ Use clear, descriptive commit messages following the [Conventional Commits](http
 <footer>
 ```
 
-Types:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting, etc.)
-- `refactor`: Code refactoring
-- `test`: Test additions or changes
-- `chore`: Build process or auxiliary tool changes
-- `ci`: CI/CD changes
+Common types are `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, and `ci`. Examples:
 
-Examples:
-```
-feat(l2): add consequence-based defensive mode
-
-Implement defensive mode that activates after consecutive negative
-consequences, reducing L2 intervention aggressiveness.
-
-Closes #123
-```
-
-```
+```text
 docs(readme): clarify version mapping
 
-Distinguish between source version and repository tags to avoid
-confusion about which version to use.
+Distinguish between the source package version and repository tags.
 ```
+
+```text
+feat(l2): add consequence-based defensive mode
+
+Activate defensive mode after consecutive negative consequences and add
+regression coverage for recovery after a strong positive consequence.
+```
+
+## Automated workflows
+
+The repository includes CI, portability, release, weekly runtime-report, and formatting workflows under [`.github/workflows/`](.github/workflows/). A local Cline task-completion auto-commit hook is optional and documented in [`hooks/cline/README.md`](hooks/cline/README.md); do not rely on it as a substitute for reviewing or verifying changes.
+
+The formatting workflow is a GitHub push workflow, not a local validation service. Commit and push reviewed implementation changes first, and use the resulting CI status as an additional signal rather than as a replacement for local checks.
