@@ -107,7 +107,8 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **0.5.5** | `status --json` + HTTP `/status` example |
 | **0.5.6** | Examples in crate package; first crates.io release |
 | **0.5.7+** | Async adapters and CI hardening |
-| **0.5.25** | Current source version; matching Git tag `v0.5.25` |
+| **0.5.25** | Current source version (Cargo.toml and Python bindings) |
+| **v0.5.30** | Newest repository tag (may include unreleased changes) |
 
 ## Python bindings
 

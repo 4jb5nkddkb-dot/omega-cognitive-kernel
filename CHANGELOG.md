@@ -27,6 +27,7 @@
 ### Documentation
 - Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (default `true`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
 - `RELEASING.md` documents the PyPI build/test/publish pipeline and the one-time Trusted Publisher setup.
+- Clarify version mapping in `README.md`: distinguish between current source version (0.5.25) and newest repository tag (v0.5.30), which may include unreleased changes.
 
 
 
