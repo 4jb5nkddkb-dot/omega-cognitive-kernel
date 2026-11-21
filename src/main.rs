@@ -292,11 +292,18 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Demo { steps } => {
             println!("Omega Kernel Demo (S3: audit · checkpoint · consequence)\n");
-            let demo_path = std::env::temp_dir().join(format!(
-                "omega-demo-{}.json",
-                omega_cognitive_kernel::new_uuid()
-            ));
-            let mut kernel = Kernel::with_state_path(&demo_path);
+            // Keep the default demo isolated, including its sibling audit and
+            // trajectory files. An explicit --state or config path must be
+            // honored so a subsequent status/audit command reads the same run.
+            let mut kernel = if cli.state.is_some() || cli.config.is_some() {
+                open_kernel(&cli)?
+            } else {
+                let demo_dir = std::env::temp_dir()
+                    .join(format!("omega-demo-{}", omega_cognitive_kernel::new_uuid()));
+                std::fs::create_dir_all(&demo_dir)?;
+                Kernel::with_state_path(demo_dir.join("state.json"))
+            };
+            let demo_path = kernel.state_path.clone();
             kernel.autosave = true;
             kernel.dump_trajectory = true;
             let report =
@@ -507,6 +514,22 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "l2 nudges/run     : {:>10.4}    {:>10.4}",
                     base.mean_l2_nudges, l2.mean_l2_nudges
+                );
+                println!(
+                    "action switches   : {:>10.4}    {:>10.4}",
+                    base.mean_action_switches, l2.mean_action_switches
+                );
+                println!(
+                    "post-L2 Δaction   : {:>10.4}    {:>10.4}",
+                    base.mean_post_commit_action_changes, l2.mean_post_commit_action_changes
+                );
+                println!(
+                    "post-L2 Δarm      : {:>10.4}    {:>10.4}",
+                    base.mean_post_commit_arm_changes, l2.mean_post_commit_arm_changes
+                );
+                println!(
+                    "distinct actions  : {:>10.4}    {:>10.4}",
+                    base.mean_distinct_actions, l2.mean_distinct_actions
                 );
                 println!(
                     "consequence       : {:>10.4}    {:>10.4}",

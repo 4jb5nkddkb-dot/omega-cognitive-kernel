@@ -62,13 +62,16 @@ Or download binaries from [Releases](https://github.com/4jb5nkddkb-dot/omega-cog
 ## Quick start
 
 ```bash
-cargo run --release -- demo
-cargo run --release -- run --steps 20
-cargo run --release -- status
-cargo run --release -- status --json
-cargo run --release -- audit --summary
-cargo run --release -- replay --tail 15
-cargo run --release -- benchmark-l2 --runs 20 --json
+# Isolated demo: state, audit, and trajectory use a fresh temporary directory.
+cargo run --release --bin omega-kernel -- demo
+
+# Runtime commands share .omega/state.json unless --state selects another path.
+cargo run --release --bin omega-kernel -- run --steps 20
+cargo run --release --bin omega-kernel -- status
+cargo run --release --bin omega-kernel -- status --json
+cargo run --release --bin omega-kernel -- audit --summary
+cargo run --release --bin omega-kernel -- replay --tail 15
+cargo run --release --bin omega-kernel -- benchmark-l2 --runs 20 --json
 cargo run --release --features gui --bin omega-dashboard
 ```
 

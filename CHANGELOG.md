@@ -12,6 +12,11 @@
   - v0/v1 snapshots migrate up automatically; the new fields default to the safe pre-v2 behavior (L1 disabled, warm cooldown, no rollback effect).
 
 ### Maintenance
+- Honor explicit `--state` and configuration paths in `demo`, isolate the default demo's sidecar files, and add an end-to-end demo/status/audit regression test.
+- Make quick-start Cargo commands select `omega-kernel` explicitly and make weekly report generation fail on runtime errors or inconsistent step counts.
+- Save snapshots through a synced same-directory temporary file and atomic rename; failed replacement preserves the previous state and cleans up temporary files.
+- Bound HTTP tool response reads before constructing previews and document the host's URL/SSRF policy responsibility.
+- Expose benchmark action diversity, switching, and post-commit action/arm changes; record the current no-reward-improvement finding instead of treating commits as success.
 - Align current source version, installation tags, and Python documentation; distinguish source versions from newer repository tags.
 - Use one dynamic Python package version sourced from `bindings/python/Cargo.toml`.
 - Replace the print-based Python test script with isolated pytest integration tests and add Python tests to CI.

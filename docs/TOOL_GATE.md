@@ -37,7 +37,9 @@ let mut gate = ToolGateExecutor::new(["http_get".into(), "search_docs".into()])
 gate.execute(&proposed_actions)?;
 ```
 
-`http_get` rules: `http://` or `https://` only; connect/read timeouts; body preview ≤ 2 KiB.
+`http_get` rules: `http://` or `https://` only; connect/read timeouts; at most 2 KiB plus one sentinel byte is read for the bounded body preview.
+
+**Deployment boundary:** URL allow-listing and private-network/SSRF policy belong to the host. Do not expose arbitrary user-controlled URLs to `http_get`; front it with an application allow-list or an egress proxy that resolves and filters redirects as well as the initial destination. The gate restricts tool names and schemes, not IP ranges or DNS resolution.
 
 ## Roadmap
 

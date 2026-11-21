@@ -207,7 +207,8 @@ impl Executor for LoggingExecutor {
 #[cfg(feature = "ureq")]
 const HTTP_GET_BODY_LIMIT: usize = 2048;
 
-/// Safe GET-only fetch for tool-gate. No redirects beyond ureq defaults; HTTPS/HTTP only.
+/// Safe GET-only fetch for tool-gate. HTTPS/HTTP only; response previews are
+/// capped at 2 KiB without reading the rest of the response body.
 #[cfg(feature = "ureq")]
 fn safe_http_get(url: &str) -> Result<serde_json::Value> {
     let url = url.trim();
@@ -215,10 +216,6 @@ fn safe_http_get(url: &str) -> Result<serde_json::Value> {
         return Err(OmegaError::ExecutionBlocked(
             "http_get: only http:// or https:// URLs allowed".into(),
         ));
-    }
-    // Block obvious credential injection in userinfo (basic hygiene).
-    if url.contains('@') && !url.split('@').next().unwrap_or("").contains("://") {
-        // crude: reject if @ appears before path in a way that looks like userinfo
     }
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
@@ -229,11 +226,13 @@ fn safe_http_get(url: &str) -> Result<serde_json::Value> {
         .call()
         .map_err(|e| OmegaError::ExecutionBlocked(format!("http_get failed: {e}")))?;
     let status = resp.status();
-    let body = resp
-        .into_string()
+    let mut bytes = Vec::new();
+    let mut limited = std::io::Read::take(resp.into_reader(), HTTP_GET_BODY_LIMIT as u64 + 1);
+    std::io::Read::read_to_end(&mut limited, &mut bytes)
         .map_err(|e| OmegaError::ExecutionBlocked(format!("http_get body: {e}")))?;
-    let truncated = body.len() > HTTP_GET_BODY_LIMIT;
-    let preview: String = body.chars().take(HTTP_GET_BODY_LIMIT).collect();
+    let truncated = bytes.len() > HTTP_GET_BODY_LIMIT;
+    bytes.truncate(HTTP_GET_BODY_LIMIT);
+    let preview = String::from_utf8_lossy(&bytes).into_owned();
     Ok(serde_json::json!({
         "status": "ok",
         "action": "http_get",
@@ -530,6 +529,28 @@ mod tests {
         assert!(rows.len() >= 2);
         let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    #[cfg(feature = "ureq")]
+    fn http_get_bounds_large_response_preview() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8192\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            stream.write_all(&[b'x'; 8192]).unwrap();
+        });
+
+        let result = safe_http_get(&format!("http://{address}/large")).unwrap();
+        server.join().unwrap();
+        assert_eq!(result["body_preview"].as_str().unwrap().len(), 2048);
+        assert_eq!(result["truncated"], true);
     }
 
     #[test]

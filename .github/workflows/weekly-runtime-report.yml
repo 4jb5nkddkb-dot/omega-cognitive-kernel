@@ -27,12 +27,15 @@ jobs:
       - name: Run short demo and capture status
         id: run
         run: |
-          set -e
-          STATE=./.omega-weekly-state.json
-          rm -f "$STATE" trajectory.jsonl audit.jsonl 2>/dev/null || true
-          ./target/release/omega-kernel --state "$STATE" demo --steps 16 > demo_out.txt 2>&1 || true
-          ./target/release/omega-kernel --state "$STATE" status > status_out.txt 2>&1 || true
-          ./target/release/omega-kernel --state "$STATE" audit --summary > audit_out.txt 2>&1 || true
+          set -euo pipefail
+          STATE="$RUNNER_TEMP/omega-weekly/state.json"
+          rm -rf "$RUNNER_TEMP/omega-weekly"
+          mkdir -p "$RUNNER_TEMP/omega-weekly"
+          ./target/release/omega-kernel --state "$STATE" demo --steps 16 > demo_out.txt 2>&1
+          ./target/release/omega-kernel --state "$STATE" status > status_out.txt 2>&1
+          ./target/release/omega-kernel --state "$STATE" audit --summary > audit_out.txt 2>&1
+          grep -Eq '^total_steps[[:space:]]*:[[:space:]]*16$' status_out.txt
+          grep -Eq '^steps[[:space:]]*:[[:space:]]*16$' audit_out.txt
           echo "captured"
 
       - name: Compose weekly report

@@ -18,8 +18,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate-version:
+    name: Validate package versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check tag and package versions
+        run: python3 scripts/check-release-version.py "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+
   build-linux:
     name: Build Linux
+    needs: [validate-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -70,6 +83,7 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: [validate-version]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5

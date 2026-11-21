@@ -221,8 +221,29 @@ impl KernelSnapshot {
         snap.version = CURRENT_SCHEMA_VERSION;
         let json =
             serde_json::to_string_pretty(&snap).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        fs::write(path, json).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        Ok(())
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                OmegaError::Persist(format!("invalid state path: {}", path.display()))
+            })?;
+        let temp_path = parent.join(format!(".{file_name}.{}.tmp", crate::new_uuid()));
+        let result = (|| -> Result<()> {
+            use std::io::Write;
+            let mut file = fs::File::create(&temp_path)
+                .map_err(|e| OmegaError::Persist(format!("state temp create: {e}")))?;
+            file.write_all(json.as_bytes())
+                .and_then(|()| file.sync_all())
+                .map_err(|e| OmegaError::Persist(format!("state temp write: {e}")))?;
+            fs::rename(&temp_path, path)
+                .map_err(|e| OmegaError::Persist(format!("state atomic replace: {e}")))?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+        result
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
@@ -288,6 +309,29 @@ mod tests {
         assert!((loaded.cognitive_effect.explore_bonus + 0.2).abs() < 1e-9);
         assert!((loaded.cognitive_effect.risk_tolerance - 0.4).abs() < 1e-9);
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn failed_atomic_replace_preserves_previous_state() {
+        let dir = temp_dir().join(format!("omega-atomic-{}", crate::new_uuid()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("marker"), b"previous-state").unwrap();
+
+        let error = KernelSnapshot::default().save_to(&path).unwrap_err();
+        assert!(error.to_string().contains("atomic replace"), "{error}");
+        assert_eq!(
+            fs::read_to_string(path.join("marker")).unwrap(),
+            "previous-state"
+        );
+        assert!(fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .all(|entry| entry.path().extension().and_then(|x| x.to_str()) != Some("tmp")));
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

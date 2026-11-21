@@ -22,11 +22,16 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo build --release
+python3 scripts/check-release-version.py vX.Y.Z
 ```
+
+The version check compares the optional tag, `Cargo.toml`, `bindings/python/Cargo.toml`, and the locked Cargo package metadata. The GitHub Release workflow runs it before building either platform.
 
 Confirm before tagging:
 
 - [ ] `Cargo.toml` version matches the tag (e.g. `0.5.4` ↔ `v0.5.4`)
+- [ ] `bindings/python/Cargo.toml` has the same package version as `Cargo.toml`
+- [ ] The source-checkout `Cargo.lock` is up to date (`cargo metadata --locked --no-deps`)
 - [ ] `CHANGELOG.md` has a section for this version
 - [ ] `README.md` / `docs/PRODUCT.md` version narrative is not stale
 - [ ] `NOTICE` present (trademark / open-core boundary)

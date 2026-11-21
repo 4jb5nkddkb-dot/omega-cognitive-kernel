@@ -63,6 +63,9 @@ Each run uses a fresh temporary state path. Persistent benchmark artifacts are r
 - `mean_l2_nudges`: average steps where L2 produced an effect nudge;
 - `mean_l2_consequence_score`: short-term reward/error consequence score;
 - `mean_l2_proposals` / `mean_l2_commits`: candidate and committed modulation counts;
+- `mean_action_switches`: changes of selected action between adjacent decisions;
+- `mean_post_commit_action_changes` / `mean_post_commit_arm_changes`: whether the decision immediately after a committed modulation selects a different action or bandit arm;
+- `mean_distinct_actions`: action diversity within each run;
 - `mean_final_score_breakdown`: weighted fixed-point score components;
 - `mean_fixed_point_enters` / `mean_fixed_point_exits`: L2 regime transition counts;
 - `mean_max_fixed_point_dwell`: maximum observed fixed-point dwell steps;
@@ -103,6 +106,12 @@ A useful L2 result should satisfy all of the following over repeated seeds:
 5. results remain directionally stable when the seed range changes.
 
 Do not use `mean_l2_nudges > 0` or `mean_fixed_point_enters > 0` as a success criterion by itself. Those only prove that an L2 path fired, not that the intervention helped.
+
+## Current baseline finding (2026-11-21)
+
+With the recommended 20-seed nonstationary configuration (`20261115`, 12 episodes × 12 steps), the treatment averages 1.85 L2 commits per run. The immediate post-commit action changes 0.20 times per run, but the selected **bandit arm changes 0.00 times**. Mean reward and best-arm rate are unchanged from baseline.
+
+This is a mechanism diagnostic, not evidence of improved task performance. The benchmark's `stabilize`, `exploit`, and `observe` actions currently map to arm 0, while only `explore` maps to arm 1; reward feedback is recorded after `Kernel::step`, so it affects later decisions rather than the decision that just produced it. Future algorithm changes should first demonstrate post-commit arm changes, then establish repeated reward gains across seeds and scenarios. Do not describe a higher commit count as an algorithmic improvement.
 
 ## CI / regression use
 

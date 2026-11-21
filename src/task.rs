@@ -38,6 +38,10 @@ pub struct BanditReport {
     pub l2_nudges: usize,
     pub l2_proposals: usize,
     pub l2_commits: usize,
+    pub action_switches: usize,
+    pub post_commit_action_changes: usize,
+    pub post_commit_arm_changes: usize,
+    pub distinct_actions: usize,
     pub mean_l2_consequence_score: f64,
     pub final_score_breakdown: HashMap<String, f64>,
     pub final_alignment_score: f64,
@@ -59,6 +63,10 @@ pub struct L2BenchmarkAggregate {
     pub mean_l2_nudges: f64,
     pub mean_l2_proposals: f64,
     pub mean_l2_commits: f64,
+    pub mean_action_switches: f64,
+    pub mean_post_commit_action_changes: f64,
+    pub mean_post_commit_arm_changes: f64,
+    pub mean_distinct_actions: f64,
     pub mean_l2_consequence_score: f64,
     pub mean_final_score_breakdown: HashMap<String, f64>,
     pub mean_final_alignment_score: f64,
@@ -133,6 +141,12 @@ fn run_bandit_task_seeded_scenario(
     let mut l2_nudges = 0usize;
     let mut l2_proposals = 0usize;
     let mut l2_commits = 0usize;
+    let mut action_switches = 0usize;
+    let mut post_commit_action_changes = 0usize;
+    let mut post_commit_arm_changes = 0usize;
+    let mut distinct_actions = std::collections::HashSet::new();
+    let mut previous_action: Option<String> = None;
+    let mut pending_commit: Option<(String, usize)> = None;
     let mut max_fixed_point_dwell = 0u64;
     let mut consequence_sum = 0.0;
     let mut early_err = None;
@@ -186,6 +200,26 @@ fn run_bandit_task_seeded_scenario(
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| "observe".into());
             let arm = arm_for_action(&action);
+            distinct_actions.insert(action.clone());
+            if previous_action
+                .as_deref()
+                .map(|prev| prev != action)
+                .unwrap_or(false)
+            {
+                action_switches += 1;
+            }
+            if let Some((before_action, before_arm)) = pending_commit.take() {
+                if action != before_action {
+                    post_commit_action_changes += 1;
+                }
+                if arm != before_arm {
+                    post_commit_arm_changes += 1;
+                }
+            }
+            if r.l2.modulation_committed {
+                pending_commit = Some((action.clone(), arm));
+            }
+            previous_action = Some(action.clone());
             let p = if scenario == "degraded" && ep >= episodes / 2 {
                 if arm == best {
                     0.45
@@ -257,6 +291,10 @@ fn run_bandit_task_seeded_scenario(
         l2_nudges,
         l2_proposals,
         l2_commits,
+        action_switches,
+        post_commit_action_changes,
+        post_commit_arm_changes,
+        distinct_actions: distinct_actions.len(),
         mean_l2_consequence_score: if total_choices == 0 {
             0.0
         } else {
@@ -285,6 +323,10 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             mean_l2_nudges: 0.0,
             mean_l2_proposals: 0.0,
             mean_l2_commits: 0.0,
+            mean_action_switches: 0.0,
+            mean_post_commit_action_changes: 0.0,
+            mean_post_commit_arm_changes: 0.0,
+            mean_distinct_actions: 0.0,
             mean_l2_consequence_score: 0.0,
             mean_final_score_breakdown: HashMap::new(),
             mean_final_alignment_score: 0.0,
@@ -307,6 +349,10 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
         mean_l2_nudges: mean(|r| r.l2_nudges as f64),
         mean_l2_proposals: mean(|r| r.l2_proposals as f64),
         mean_l2_commits: mean(|r| r.l2_commits as f64),
+        mean_action_switches: mean(|r| r.action_switches as f64),
+        mean_post_commit_action_changes: mean(|r| r.post_commit_action_changes as f64),
+        mean_post_commit_arm_changes: mean(|r| r.post_commit_arm_changes as f64),
+        mean_distinct_actions: mean(|r| r.distinct_actions as f64),
         mean_l2_consequence_score: mean(|r| r.mean_l2_consequence_score),
         mean_final_score_breakdown: {
             let mut out = HashMap::new();
