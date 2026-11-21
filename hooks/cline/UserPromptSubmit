@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Inject pending skill-capture context before the next model request."""
+import os
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(__file__).resolve().parents[2]
+os.environ["OMEGA_SKILL_CAPTURE_ROOT"] = str(root)
+sys.argv = [sys.argv[0], "prompt"]
+runpy.run_path(str(root / "hooks/cline/skill_capture_hook.py"), run_name="__main__")
