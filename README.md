@@ -261,6 +261,7 @@ Before changing behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs),
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Installation and runtime troubleshooting |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release history and unreleased changes |
 | [`memory-bank/`](memory-bank/README.md) | Source-grounded project continuity context |
+| [`ROADMAP.md`](ROADMAP.md) | Next development phases, priorities, and exit criteria |
 
 ## Roadmap and project boundaries
 
