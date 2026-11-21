@@ -28,6 +28,7 @@ Omega takes a third path: **structured, reversible policy patches**.
 | **[docs/ROADMAP_0.5.md](docs/ROADMAP_0.5.md)** | 0.5 roadmap |
 | **[docs/L2_BENCHMARK.md](docs/L2_BENCHMARK.md)** | Reproducible L2 baseline comparison |
 | **[docs/CRATES_IO.md](docs/CRATES_IO.md)** | crates.io notes |
+| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** | Common issues and solutions |
 
 ---
 
@@ -107,7 +108,8 @@ fn main() -> omega_cognitive_kernel::Result<()> {
 | **0.5.5** | `status --json` + HTTP `/status` example |
 | **0.5.6** | Examples in crate package; first crates.io release |
 | **0.5.7+** | Async adapters and CI hardening |
-| **0.5.25** | Current source version; matching Git tag `v0.5.25` |
+| **0.5.25** | Current source version (Cargo.toml and Python bindings) |
+| **v0.5.30** | Newest repository tag (may include unreleased changes) |
 
 ## Python bindings
 
