@@ -9,3 +9,4 @@ if (-not $python) {
     exit 0
 }
 [Console]::In.ReadToEnd() | & $python.Source -B (Join-Path $root "hooks\cline\skill_capture_hook.py") complete
+& $python.Source -B (Join-Path $root "hooks\cline\auto_commit.py") --project $root

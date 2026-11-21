@@ -18,6 +18,95 @@ SPEC.loader.exec_module(hook)
 INSTALL_SPEC = importlib.util.spec_from_file_location("install_hooks", ROOT / "hooks/cline/install.py")
 installer = importlib.util.module_from_spec(INSTALL_SPEC)
 INSTALL_SPEC.loader.exec_module(installer)
+AUTO_SPEC = importlib.util.spec_from_file_location("auto_commit", ROOT / "hooks/cline/auto_commit.py")
+auto_commit = importlib.util.module_from_spec(AUTO_SPEC)
+AUTO_SPEC.loader.exec_module(auto_commit)
+
+
+class AutoCommitTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.project = Path(self.tempdir.name)
+        self.env = os.environ.copy()
+        self.env["OMEGA_SKILL_CAPTURE_ROOT"] = str(self.project)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_disabled_by_default_and_enable_roundtrip(self):
+        self.assertEqual(auto_commit.enabled(self.project), (False, False))
+        auto_commit.configure(self.project, True, True)
+        self.assertEqual(auto_commit.enabled(self.project), (True, True))
+        auto_commit.configure(self.project, False, False)
+        self.assertEqual(auto_commit.enabled(self.project), (False, False))
+
+    def test_untracked_path_policy(self):
+        self.assertTrue(auto_commit.allowed_path("src/new.rs"))
+        self.assertTrue(auto_commit.allowed_path(".github/workflows/new.yml"))
+        self.assertFalse(auto_commit.allowed_path(".clinerules.local"))
+        self.assertFalse(auto_commit.allowed_path("secret.env"))
+        self.assertFalse(auto_commit.allowed_path("src/../../outside"))
+
+    def test_git_fixture_commits_and_pushes_only_after_verification(self):
+        remote = self.project / "remote.git"
+        work = self.project / "work"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "init", str(work)], check=True, capture_output=True)
+        auto_commit.run(work, ["git", "config", "user.email", "test@example.invalid"])
+        auto_commit.run(work, ["git", "config", "user.name", "Test"])
+        (work / "tracked.txt").write_text("before\n", encoding="utf-8")
+        auto_commit.run(work, ["git", "add", "tracked.txt"])
+        auto_commit.run(work, ["git", "commit", "-m", "initial"])
+        auto_commit.run(work, ["git", "branch", "-M", "main"])
+        auto_commit.run(work, ["git", "remote", "add", "origin", str(remote)])
+        auto_commit.run(work, ["git", "config", "info.exclude", ".omega/"])
+        auto_commit.configure(work, True, True)
+        (work / "tracked.txt").write_text("after\n", encoding="utf-8")
+
+        original_run = auto_commit.run
+
+        def fake_verify(project, command, check=True):
+            if command[0] in {"cargo", sys.executable}:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return original_run(project, command, check)
+
+        auto_commit.run = fake_verify
+        try:
+            self.assertIn("pushed=true", auto_commit.commit_and_push(work))
+        finally:
+            auto_commit.run = original_run
+        self.assertEqual(auto_commit.changed_paths(work), [])
+        self.assertIn("after", auto_commit.run(work, ["git", "show", "HEAD:tracked.txt"]).stdout)
+        self.assertEqual(
+            auto_commit.run(work, ["git", "rev-parse", "HEAD"]).stdout,
+            auto_commit.run(work, ["git", "rev-parse", "origin/main"]).stdout,
+        )
+
+    def test_verification_failure_does_not_commit(self):
+        subprocess.run(["git", "init", str(self.project)], check=True, capture_output=True)
+        auto_commit.run(self.project, ["git", "config", "info.exclude", ".omega/"])
+        auto_commit.configure(self.project, True, True)
+        (self.project / "src").mkdir()
+        (self.project / "src/new.rs").write_text("fn main() {}\n", encoding="utf-8")
+        original_run = auto_commit.run
+
+        def fail_test(project, command, check=True):
+            if command[0] == "cargo" and command[:2] != ["cargo", "test"]:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            if command[:2] == ["cargo", "test"]:
+                raise RuntimeError("simulated test failure")
+            return original_run(project, command, check)
+
+        auto_commit.run = fail_test
+        try:
+            with self.assertRaisesRegex(RuntimeError, "simulated test failure"):
+                auto_commit.commit_and_push(self.project)
+        finally:
+            auto_commit.run = original_run
+        self.assertNotEqual(
+            auto_commit.run(self.project, ["git", "status", "--porcelain"]).stdout,
+            "",
+        )
 
 
 class HookTests(unittest.TestCase):

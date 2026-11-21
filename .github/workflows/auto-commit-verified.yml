@@ -1,0 +1,73 @@
+name: Auto Commit Verified Changes
+
+# GitHub can only act on code already pushed to the repository. This workflow
+# commits deterministic formatting fixes after every eligible push; it does not
+# invent or auto-commit unfinished business logic.
+on:
+  push:
+    branches: [main, fix/audit-tests]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-commit-verified-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verified-autofix:
+    # Scheduled/manual workflows and tag pushes must not trigger an autofix loop.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.pusher.type != 'bot' && !contains(github.event.head_commit.message, '[skip ci]'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Apply deterministic formatting
+        run: cargo fmt --all
+
+      - name: Check for formatting changes
+        id: changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No automatic changes required
+        if: steps.changes.outputs.changed == 'false'
+        run: echo "The pushed tree is already formatted; no commit is needed."
+
+      - name: Verify automatic changes
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
+      - name: Commit and push verified formatting
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*.rs'
+          git diff --cached --quiet && exit 0
+          git commit -m "style: apply verified rustfmt changes [skip ci]"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          git push origin "HEAD:${GITHUB_REF_NAME}"

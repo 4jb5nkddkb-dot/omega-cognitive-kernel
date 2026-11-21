@@ -88,6 +88,20 @@ Branch naming conventions:
 
 #### Commit Messages
 
+##### Automatic verified task commits
+
+For a local Cline task-completion trigger, run `python3 -B hooks/cline/install.py --update` and then `python3 -B hooks/cline/auto_commit.py --enable`. The setting is stored only in Git-ignored `.omega/auto-commit.json`; disable both committing and pushing with `--disable`.
+
+After each completed task, the hook checks allowed untracked paths, runs Rust formatting, Clippy, the complete default test suite, and skill validation, then commits and pushes the verified changes. Any failure skips the commit and leaves work available for review. Tracked source changes are included; new files are restricted to project source, test, documentation, script, hook, and workflow paths. Review new documentation and release-metadata changes manually when they are outside those paths. Local rules, `.omega`, credentials, caches, and backup files are never intentionally included. The generic commit message refers to the previous commit; use manual commits when a more descriptive message or selective staging is needed.
+
+##### Automatic verified formatting commits
+
+`.github/workflows/auto-commit-verified.yml` runs after pushes to `main` and `fix/audit-tests`, and can also be dispatched manually. If `cargo fmt` changes Rust source, it runs the complete default test suite and Clippy before committing and pushing those formatting-only changes. It does not run when no formatting changes exist, and `[skip ci]` prevents an autofix recursion loop.
+
+This is a **GitHub push trigger**, not a Cline task-completion trigger. Local edits, uncommitted work, and unpushed commits are not visible to GitHub. Commit and push the reviewed implementation first; never rely on the workflow to finish or validate unreviewed business logic. The scheduled code-quality workflow remains separate and opens a pull request for less deterministic Clippy fixes.
+
+#### Commit Messages
+
 Use clear, descriptive commit messages following the [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 ```

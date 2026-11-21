@@ -28,6 +28,19 @@ python3 -B hooks/cline/install.py --update
 
 Reload the VS Code window after installation if hook discovery does not refresh. Check **Settings → Feature Settings → Enable Hooks** and ensure the Unix files remain executable. Windows uses the corresponding `.ps1` entry points.
 
+## Optional verified task commit and push
+
+Task completion can also run repository verification, commit the changes, and push the current branch. This is deliberately opt-in and separate from skill capture:
+
+```bash
+python3 -B hooks/cline/install.py --update
+python3 -B hooks/cline/auto_commit.py --enable
+# Disable both operations:
+python3 -B hooks/cline/auto_commit.py --disable
+```
+
+The configuration is local-only `.omega/auto-commit.json`. Before committing, the automation rejects unreviewed untracked paths outside project source/test/docs/script/hook/workflow directories, then runs `cargo fmt`, Clippy, `cargo test --locked`, and skill validation. Any failure skips the commit and push. The hook never cancels the completed Cline task; inspect stderr for a skipped run. It uses a generic message derived from the previous commit, so use a manual commit for selective staging or a curated commit message.
+
 ## Test
 
 ```bash

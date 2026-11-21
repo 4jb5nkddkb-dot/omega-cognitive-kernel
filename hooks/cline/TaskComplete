@@ -6,4 +6,17 @@ import runpy
 
 root = Path(__file__).resolve().parents[2]
 os.environ["OMEGA_SKILL_CAPTURE_ROOT"] = str(root)
+# Run repository automation after the deterministic capture step. Its opt-in
+# configuration lives in Git-ignored .omega/auto-commit.json.
+import subprocess
+try:
+    subprocess.run(
+        [os.environ.get("PYTHON", "python3"), "-B", str(root / "hooks/cline/auto_commit.py"), "--project", str(root)],
+        cwd=root,
+        check=False,
+        timeout=1800,
+    )
+except (OSError, subprocess.TimeoutExpired) as exc:
+    import sys
+    print(f"auto-commit hook skipped: {exc}", file=sys.stderr)
 runpy.run_path(str(root / "hooks/cline/skill_capture_hook.py"), run_name="__main__")
