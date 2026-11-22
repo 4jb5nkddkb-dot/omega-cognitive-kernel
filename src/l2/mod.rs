@@ -46,6 +46,10 @@ pub struct L2MetaLayer {
     /// Default is **false**. Enable explicitly with `Kernel::set_l2_enabled(true)`
     /// only after reproducible benchmarks show a positive gain over the disabled baseline.
     pub enabled: bool,
+    /// Multiplier applied on top of the normal modulation_gain (which is clamped to [0.1, 1.0]).
+    /// Default 1.0. Set > 1.0 only for experiments that need stronger nudges to move decisions.
+    /// Values are still sanitized by `RuleEffect::sanitize` after application.
+    pub nudge_gain_multiplier: f64,
     pub in_fixed_point: bool,
     /// How many consecutive steps we have been inside the fixed point.
     pub dwell_steps: u64,
@@ -74,6 +78,7 @@ impl L2MetaLayer {
             fixed_point: OmegaDayanFixedPoint,
             modulator: MetaModulator,
             enabled: false,
+            nudge_gain_multiplier: 1.0,
             in_fixed_point: false,
             dwell_steps: 0,
             last_alignment_score: 0.0,
@@ -169,9 +174,10 @@ impl L2MetaLayer {
                     && (self.stable_consequence_steps < 8 || attention)
                 {
                     modulation_committed = true;
-                    modulation_gain = ((fp.score - self.commit_threshold)
+                    let base_gain = ((fp.score - self.commit_threshold)
                         / (1.0 - self.commit_threshold))
                         .clamp(0.10, 1.0);
+                    modulation_gain = (base_gain * self.nudge_gain_multiplier).clamp(0.0, 5.0);
                     let (b, c) = self.modulator.apply_scaled(
                         &fp,
                         modulation_gain,
@@ -215,9 +221,10 @@ impl L2MetaLayer {
                 && (self.stable_consequence_steps < 8 || attention)
             {
                 modulation_committed = true;
-                modulation_gain = ((fp.score - self.commit_threshold)
+                let base_gain = ((fp.score - self.commit_threshold)
                     / (1.0 - self.commit_threshold))
                     .clamp(0.10, 1.0);
+                modulation_gain = (base_gain * self.nudge_gain_multiplier).clamp(0.0, 5.0);
                 let (b, c) =
                     self.modulator
                         .apply_scaled(&fp, modulation_gain, new_biases, new_constraints);
