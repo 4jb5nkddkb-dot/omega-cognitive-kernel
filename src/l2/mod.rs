@@ -42,6 +42,9 @@ pub struct L2MetaLayer {
     /// Whether L2 is allowed to change biases, constraints, or RuleEffect.
     /// The monitor still runs when disabled so benchmark baselines retain
     /// comparable observability without receiving L2 interventions.
+    ///
+    /// Default is **false**. Enable explicitly with `Kernel::set_l2_enabled(true)`
+    /// only after reproducible benchmarks show a positive gain over the disabled baseline.
     pub enabled: bool,
     pub in_fixed_point: bool,
     /// How many consecutive steps we have been inside the fixed point.
@@ -70,7 +73,7 @@ impl L2MetaLayer {
             detector: EmergenceDetector::default(),
             fixed_point: OmegaDayanFixedPoint,
             modulator: MetaModulator,
-            enabled: true,
+            enabled: false,
             in_fixed_point: false,
             dwell_steps: 0,
             last_alignment_score: 0.0,
@@ -315,6 +318,7 @@ mod tests {
     #[test]
     fn defensive_mode_recovers_after_strong_positive_consequence() {
         let mut l2 = L2MetaLayer::new();
+        l2.enabled = true; // test requires L2 active for consequence path
         l2.defensive_mode = true;
         l2.negative_consequence_streak = 2;
         l2.awaiting_consequence = true;
@@ -333,6 +337,7 @@ mod tests {
     #[test]
     fn aligned_but_below_commit_threshold_does_not_nudge() {
         let mut l2 = L2MetaLayer::new();
+        l2.enabled = true; // test requires L2 active
         l2.detector.window = 2;
         l2.detector.pred_threshold = 0.2;
         l2.detector.self_ref_threshold = 0.2;
