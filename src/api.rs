@@ -945,6 +945,8 @@ mod tests {
         k.inner.l2.detector.pred_threshold = 0.3;
         k.inner.l2.detector.self_ref_threshold = 0.3;
         k.inner.l2.detector.cooldown_steps = 0;
+        // Enable L2 so it can modulate RuleEffect while self_modify stays off
+        k.set_l2_enabled(true);
         // Seed an active rule module so L2 can reach fixed-point alignment
         // without any L1 patch being committed (the benchmark does the same).
         // This is what lets L2 modulate RuleEffect while self_modify stays off.
