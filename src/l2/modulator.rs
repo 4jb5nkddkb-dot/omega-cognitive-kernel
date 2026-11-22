@@ -31,7 +31,9 @@ impl MetaModulator {
         mut biases: HashMap<String, f64>,
         mut constraints: HashMap<String, f64>,
     ) -> (HashMap<String, f64>, HashMap<String, f64>) {
-        let gain = gain.clamp(0.0, 1.0);
+        // Allow gain > 1.0 for experiments (caller may use nudge_gain_multiplier).
+        // Final RuleEffect is still sanitized.
+        let gain = gain.max(0.0);
         for (k, v) in &fp.modulation.bias_delta {
             *biases.entry(k.clone()).or_insert(0.0) += *v * gain;
         }
@@ -58,7 +60,8 @@ impl MetaModulator {
         effect: &RuleEffect,
     ) -> RuleEffect {
         let mut e = effect.clone();
-        let gain = gain.clamp(0.0, 1.0);
+        // Allow gain > 1.0; sanitize() still enforces hard bounds.
+        let gain = gain.max(0.0);
         e.explore_bonus += fp.modulation.explore_bonus_delta * gain;
         e.risk_tolerance += fp.modulation.risk_tolerance_delta * gain;
         e.sanitize()
