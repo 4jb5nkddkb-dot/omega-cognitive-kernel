@@ -2,11 +2,11 @@
 
 ## Source snapshot
 
-This context was refreshed from the checked-out `main` source tree at commit `f7ae3de` (`创建 EXPERIMENTS.md`). The working tree was clean before the Memory Bank files were changed. The crate declares source version `0.5.25`, Rust 2021, MSRV `1.74`, and persistence schema `2`.
+This context reflects the `main` source tree after PR #28. The crate and Python binding declare source version `0.6.0`, Rust 2021, MSRV `1.74`, and persistence schema `2`.
 
 ## Current implementation focus
 
-The unreleased changelog and code are concentrated on correctness and safety around the product step boundary. Persistence failures are fail-closed: audit append, trajectory write, and autosave errors return through `Kernel::step`. Event hooks run only after audit append. Atomic snapshot replacement preserves the previous file if replacement fails. Schema v2 persists L1 enablement, patch cooldown, and the L2 pre-commit effect across restarts.
+The 0.6.0 changelog and code cover generic decision makers and correctness/safety at the product step boundary. `Kernel<O, D, E>` accepts a `DecisionMaker`; `BanditKernel` and `with_bandit_ucb` support UCB-based bandit decisions. Persistence failures are fail-closed: audit append, trajectory write, and autosave errors return through `Kernel::step`. Event hooks run only after audit append. Atomic snapshot replacement preserves the previous file if replacement fails. Schema v2 persists L1 enablement, patch cooldown, and the L2 pre-commit effect across restarts.
 
 The source also includes a complete L2 consequence loop: L2 commits only after score/cooldown/defensive checks, waits for feedback, and can restore the pre-commit `RuleEffect` after negative consequence. The status surface exposes fixed-point, cooldown, consequence, and defensive-mode state.
 
@@ -20,7 +20,7 @@ The roadmap still defers a full multi-tenant control plane, a workspace multi-ke
 
 ## Open engineering questions
 
-The repository documents a source version of `0.5.25` while also documenting a newer repository tag `v0.5.30`; release/version alignment should remain explicit. Optional feature combinations, especially `async`, `gui`, `wasm`, and `msrv`, deserve continued CI coverage when dependencies change. Any schema or audit enum change requires a migration/compatibility decision before implementation.
+The source and Python versions are aligned at `0.6.0`; registry availability must be checked independently of source declarations and Git tags. The UCB treatment's small positive nonstationary benchmark delta is not an L2-only ablation, so both mutation gates remain off by default. Optional feature combinations, especially `async`, `gui`, `wasm`, and `msrv`, deserve continued CI coverage when dependencies change. Any schema or audit enum change requires a migration/compatibility decision before implementation.
 
 ## Maintenance rule
 

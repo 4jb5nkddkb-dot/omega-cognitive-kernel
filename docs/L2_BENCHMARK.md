@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`benchmark-l2` compares the same seeded non-stationary two-armed bandit task with L2 interventions disabled and enabled. It is intended to turn L2 from a qualitative heuristic into a measurable, repeatable capability.
+`benchmark-l2` compares a constrained-decision baseline with a UCB-based, L2-enabled treatment on the same seeded non-stationary two-armed bandit task. It is intended to turn L2 from a qualitative heuristic into a measurable, repeatable capability.
 
 The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline.
 
@@ -35,12 +35,14 @@ cargo run --release --bin omega-kernel -- benchmark-l2 \
   --json
 ```
 
-The three gate parameters are the treatment-arm commit threshold, post-commit cooldown, and consecutive negative-reward requirement. The recommended defaults are `0.55/5/3` for nonstationary, `0.65/8/3` for degraded, and `0.55/5/5` for stable.
+The three gate parameters are the treatment-branch commit threshold, post-commit cooldown, and consecutive negative-reward requirement. The recommended defaults are `0.55/5/3` for nonstationary, `0.65/8/3` for degraded, and `0.55/5/5` for stable.
 
-The two arms use identical seeds:
+The two algorithm branches use identical environment seeds:
 
-- **baseline**: L2 monitor may be evaluated, but L2 cannot modify biases, constraints, or `RuleEffect`;
-- **L2 enabled**: normal L2 detector, fixed-point, modulation, and effect-nudge behavior.
+- **baseline**: `ConstrainedDecisionMaker` with L2 disabled; the monitor may evaluate metrics, but L2 cannot modify biases, constraints, or `RuleEffect`;
+- **treatment**: `BanditKernel` with `BanditUcbDecisionMaker` and L2 enabled, including its detector, fixed-point, modulation, and effect-nudge behavior. The task loop calls `DecisionMaker::observe(arm, reward)` after each decision to update UCB statistics.
+
+This is a composite treatment comparison, not an L2-only ablation: the baseline and treatment use different decision makers. Positive deltas demonstrate measured task improvement for the UCB treatment in this fixture, but cannot be attributed to L2 alone. L2 remains disabled by default.
 
 The short benchmark fixture lowers the treatment `commit_threshold` to `0.55` so the five-signal candidate-to-commit path is exercised. The production/default L2 threshold remains `0.82`; this fixture is for mechanism measurement, not a production configuration recommendation.
 
@@ -74,12 +76,12 @@ Each run uses a fresh temporary state path. Persistent benchmark artifacts are r
 The top-level `delta_*` fields are:
 
 ```text
-L2 enabled aggregate - baseline aggregate
+treatment aggregate - baseline aggregate
 ```
 
 ## Five-signal score
 
-The next score revision combines the internal alignment signal with environment and consequence signals:
+The current score combines the internal alignment signal with environment and consequence signals:
 
 ```text
 candidate_score =
@@ -93,11 +95,11 @@ candidate_score =
 
 Fixed-point evidence is intentionally separate from modulation evidence. `candidate_alignment_score` is the raw internal alignment component; `candidate_score` is the weighted score used by the commit gate. A run is counted as entering fixed-point when raw alignment crosses the fixed-point threshold, even if the composite score is below the modulation commit threshold. This proves enter/dwell/exit behavior without conflating it with a policy nudge.
 
-For reward and best-arm rate, positive is better. For error delta, lower is better; the JSON report keeps each arm's value so that interpretation is not hidden.
+For reward and best-arm rate, positive is better. For error delta, lower is better; the JSON report keeps each branch's value so that interpretation is not hidden.
 
 ## Interpretation
 
-A useful L2 result should satisfy all of the following over repeated seeds:
+A useful treatment result should satisfy all of the following over repeated seeds:
 
 1. reward or best-arm rate improves against baseline;
 2. the improvement is not caused only by a higher patch count;
@@ -107,12 +109,23 @@ A useful L2 result should satisfy all of the following over repeated seeds:
 
 Do not use `mean_l2_nudges > 0` or `mean_fixed_point_enters > 0` as a success criterion by itself. Those only prove that an L2 path fired, not that the intervention helped.
 
-## Current baseline finding (2026-11-21)
+## Current treatment finding (2026-11-22)
 
-With the recommended 20-seed nonstationary configuration (`20261115`, 12 episodes × 12 steps), the treatment averages 1.85 L2 commits per run. The immediate post-commit action changes 0.20 times per run, but the selected **bandit arm changes 0.00 times**. Mean reward and best-arm rate are unchanged from baseline.
+A local release-build run at the PR #28 baseline used the recommended 20-seed nonstationary configuration (initial seed `20261115`, 12 episodes × 12 steps). It produced these results:
 
-This is a mechanism diagnostic, not evidence of improved task performance. The benchmark's `stabilize`, `exploit`, and `observe` actions currently map to arm 0, while only `explore` maps to arm 1; reward feedback is recorded after `Kernel::step`, so it affects later decisions rather than the decision that just produced it. Future algorithm changes should first demonstrate post-commit arm changes, then establish repeated reward gains across seeds and scenarios. Do not describe a higher commit count as an algorithmic improvement.
+| Metric | Constrained baseline, L2 off | UCB treatment, L2 on | Delta |
+|---|---:|---:|---:|
+| Mean reward | 0.699306 | 0.746181 | **+0.046875** |
+| Best-arm rate | 0.750000 | 0.822222 | **+0.072222** |
+| Error-decrease rate | 0.000000 | 0.000000 | 0.000000 |
+| Mean action switches | 2.60 | 28.85 | +26.25 |
+| Mean L2 commits | 0.00 | 0.85 | +0.85 |
+| Mean post-commit arm changes | 0.00 | 0.10 | +0.10 |
+
+The UCB treatment therefore shows a small, measurable positive task-performance delta, and its selected arm can change after a commit. This supersedes the earlier unchanged-reward finding for this configuration. It does not establish statistical significance, show that L2 causes the gain, or demonstrate that prediction error improves. Both branches had an error-decrease rate of zero.
+
+Reproduce the underlying JSON with the recommended command above. Retain the JSON as a release/CI artifact when publishing trend data. Continue to compare other scenarios and seed ranges before making broader effectiveness claims or enabling L2 by default.
 
 ## CI / regression use
 
-The JSON output is designed for a later CI job or plotting script. Initially, keep this benchmark observational rather than enforcing a hard reward threshold. After collecting stable results across several commits, add a regression threshold with an explicit tolerance and record the benchmark parameters in the report.
+The JSON output supports CI trend tracking and plotting. Keep this benchmark observational rather than enforcing a hard reward threshold until matched-policy L2 ablations and repeated scenarios provide stable evidence. After collecting stable results across several commits, add a regression threshold with an explicit tolerance and record the benchmark parameters in the report.

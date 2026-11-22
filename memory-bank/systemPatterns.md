@@ -2,7 +2,7 @@
 
 ## Generic adapter pipeline
 
-`OmegaOrchestrator<O, P, D, E>` owns `L0WorldLayer<O, P, D, E>`, `L1CognitiveLayer`, and `L2MetaLayer`, plus mutable bias/constraint maps and a step counter. The product `Kernel<O, E>` fixes `P` to `ModelBasedPredictor` and `D` to `ConstrainedDecisionMaker`, while allowing custom observer/executor implementations.
+`OmegaOrchestrator<O, P, D, E>` owns `L0WorldLayer<O, P, D, E>`, `L1CognitiveLayer`, and `L2MetaLayer`, plus mutable bias/constraint maps and a step counter. The product `Kernel<O, D, E>` fixes `P` to `ModelBasedPredictor`, defaults `D` to `ConstrainedDecisionMaker`, and allows custom observer, decision, and executor implementations. `BanditKernel` uses `BanditUcbDecisionMaker`.
 
 ## One runtime step
 

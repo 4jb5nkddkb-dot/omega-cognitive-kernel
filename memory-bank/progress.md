@@ -2,7 +2,7 @@
 
 ## Implemented in the current source tree
 
-The core runtime is implemented as a generic observer/executor kernel with fixed predictor/decision defaults. The L0 path observes, retrieves cases/strategies/CAS/effect context, predicts, decides under constraints, executes, computes uncertainty/action-based error, and updates memory.
+The core runtime is implemented as a generic observer/decision/executor kernel with a model-based predictor and constrained-decision default. `BanditKernel` and `Kernel::with_bandit_ucb(path)` provide a UCB decision-maker specialization. The L0 path observes, retrieves cases/strategies/CAS/effect context, predicts, decides under constraints, executes, computes uncertainty/action-based error, and updates memory.
 
 L1 includes trajectory abstraction, reflection, a hard self-modification gate, bounded effect sanitization, sandbox validation, versioned active-module storage, accepted/rejected outcomes, and a patch cooldown. L2 includes metric monitoring, emergence detection, fixed-point scoring, bounded modulation of biases/constraints/effect, cooldowns, consequence feedback, defensive mode, and negative-consequence rollback.
 
@@ -12,13 +12,13 @@ The repository also contains Python bindings exposing `Kernel`, `AuditLog`, and 
 
 ## Release and roadmap state
 
-The source package version is `0.5.25`. The changelog has an `Unreleased` section covering fail-closed persistence, schema v2 safety restoration, atomic replacement, HTTP read bounds, benchmark reporting, Python packaging/CI, and documentation alignment. Project docs identify `v0.5.30` as the newest repository tag.
+The source and Python package versions are `0.6.0`. The changelog has a dated 0.6.0 section covering generic decision makers, fail-closed persistence, schema v2 safety restoration, atomic replacement, HTTP read bounds, benchmark reporting, Python packaging/CI, and documentation alignment. L1 and L2 are disabled by default. The recommended nonstationary benchmark's UCB treatment has a small positive task-performance delta, but differing decision policies prevent interpreting it as an L2-only effect.
 
 The roadmap marks the 0.5.x schema/replay/events/strategy weights/dashboard/CLI work as shipped. Full multi-tenant control plane, workspace multi-kernel orchestration, and optional docs.rs polish remain deferred.
 
 ## Verification state
 
-For this Memory Bank refresh, the code and documentation were inspected directly. No full `cargo test`, `cargo test --all-features`, release build, Python test run, no-std probe, or WASM probe was executed. The commands in `techContext.md` are verification entry points, not claimed results.
+For the 0.6.0 release preparation on 2026-11-22, `cargo check --locked`, `cargo test --lib --locked` (93 passed), `cargo fmt --all -- --check`, and `python3 scripts/check-release-version.py v0.6.0` passed. Python binding `cargo check --locked` also passed with the workflow's `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` setting and with `PYO3_PYTHON` set to a local Python 3.13 interpreter. The default local Python 3.14 interpreter is newer than PyO3 0.23's standard maximum supported version. The recommended 20-seed nonstationary UCB treatment run produced `delta_mean_reward = +0.046875` and `delta_best_arm_rate = +0.072222`; its error-decrease rate did not improve. The treatment uses a different decision maker from the baseline, so this is not an L2-only ablation. Full `cargo test`, `--all-features`, Python tests, release build, and portability probes were not run locally; consult their CI results separately.
 
 ## Next update protocol
 

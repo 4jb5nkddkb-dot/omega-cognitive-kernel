@@ -1,6 +1,6 @@
 # Architecture — Omega Cognitive Kernel
 
-**Source baseline:** `0.5.25`
+**Source baseline:** `0.6.0`
 **State schema:** `2`
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
@@ -21,15 +21,17 @@ The runtime is designed around four invariants:
 
 ## Generic runtime composition
 
-The public `Kernel<O, E>` fixes the current predictor and decision maker while injecting the world I/O boundaries:
+The public `Kernel<O, D, E>` fixes the predictor to `ModelBasedPredictor` while injecting observer, decision maker, and executor boundaries:
 
 ```text
-Kernel<O, E>
-  -> OmegaOrchestrator<O, ModelBasedPredictor, ConstrainedDecisionMaker, E>
-     -> L0WorldLayer<O, ModelBasedPredictor, ConstrainedDecisionMaker, E>
+Kernel<O, D, E>
+  -> OmegaOrchestrator<O, ModelBasedPredictor, D, E>
+     -> L0WorldLayer<O, ModelBasedPredictor, D, E>
      -> L1CognitiveLayer
      -> L2MetaLayer
 ```
+
+The defaults are `MultiModalObserver`, `ConstrainedDecisionMaker`, and `SandboxedExecutor`. `BanditKernel` substitutes `BanditUcbDecisionMaker` for standard two-armed bandit decisions; `Kernel::with_bandit_ucb(path)` constructs that specialization.
 
 `OmegaOrchestrator` also owns the current L0 bias map, constraint map, and total step counter. `MemoryFacade` belongs to L0 and composes case memory, strategy memory, CAS metrics, and the active `RuleEffect`.
 

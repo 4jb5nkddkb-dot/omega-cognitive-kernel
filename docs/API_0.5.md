@@ -1,31 +1,33 @@
-# API notes — 0.5.x
+# API notes — 0.6.x
 
-**Source baseline:** `0.5.25`
+**Source baseline:** `0.6.0`
 **On-disk state schema:** `2`
-**API status:** the additive 0.5 surface is implemented in the current source tree. L1/L2 heuristics and the exact trajectory payload remain experimental.
+**API status:** the 0.6 surface is implemented in the current source tree. L1/L2 heuristics and the exact trajectory payload remain experimental.
 
 This document describes the public Rust API, persisted state, audit/event stream, and compatibility expectations. It complements [`INTEGRATING.md`](INTEGRATING.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Public kernel surface
 
-The product-facing type is generic over the world I/O boundaries:
+The product-facing type is generic over the observer, decision maker, and executor:
 
 ```text
-Kernel<O, E>
+Kernel<O, D, E>
   O: Observer
+  D: DecisionMaker
   E: Executor
 ```
 
-The predictor is `ModelBasedPredictor` and the decision maker is `ConstrainedDecisionMaker` in the current public constructor. The default concrete type uses `MultiModalObserver` and `SandboxedExecutor`.
+The predictor is `ModelBasedPredictor`. The default concrete type uses `MultiModalObserver`, `ConstrainedDecisionMaker`, and `SandboxedExecutor`. `BanditKernel` uses `BanditUcbDecisionMaker` as `D`.
 
 Primary constructors and lifecycle methods:
 
 ```text
-Kernel::new() -> Kernel<MultiModalObserver, SandboxedExecutor>
+Kernel::new() -> Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor>
 Kernel::with_state_path(path) -> Kernel<...>
 Kernel::open(path: Option<&str>) -> Result<Kernel<...>>
-Kernel::with_adapters(observer, executor) -> Kernel<O, E>
-Kernel::with_adapters_and_path(observer, executor, path) -> Kernel<O, E>
+Kernel::with_adapters(observer, executor, decision) -> Kernel<O, D, E>
+Kernel::with_adapters_and_path(observer, executor, decision, path) -> Kernel<O, D, E>
+Kernel::with_bandit_ucb(path) -> BanditKernel
 Kernel::from_config_path(path) -> Result<Kernel<...>>       # feature = "toml"
 Kernel::step(goal) -> Result<StepResult>
 Kernel::run(goal, steps) -> Result<RunReport>
@@ -42,9 +44,9 @@ The runtime has two intentionally independent mutation channels:
 | Channel | Public control | Default | Effect |
 |---|---|---:|---|
 | L1 discrete patch | `self_modify_enabled` / `KernelConfig.self_modify_enabled` | `false` | Allows a validated `CognitivePatch` to install a new `RuleEffect` and active-module version |
-| L2 continuous modulation | `set_l2_enabled(bool)` | `true` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
+| L2 continuous modulation | `set_l2_enabled(bool)` | `false` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
 
-`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, keep L1 disabled and call `set_l2_enabled(false)`. Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
+`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, keep both gates disabled (the default). Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
 
 L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed.
 

@@ -2,7 +2,7 @@
 
 This roadmap describes the next development sequence for Omega Cognitive Kernel based on the current source tree, Memory Bank, changelog, benchmarks, and the existing 0.5 roadmap.
 
-The project is currently a research prototype. The source package declares version `0.5.25`, the current on-disk schema is `2`, and project documentation identifies `v0.5.30` as the newest repository tag. The 0.5.x runtime already contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, and an optional dashboard.
+The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `2`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
 
 ## Planning principles
 
@@ -16,17 +16,17 @@ The project is currently a research prototype. The source package declares versi
 
 ### Already shipped in the source tree
 
-The current implementation provides a generic `Kernel<O, E>` over observer and executor adapters, default L0 prediction/decision components, case/strategy/CAS memory, L1 patch reflection and sandbox validation, L2 fixed-point scoring and bounded modulation, consequence feedback and defensive mode, schema-versioned snapshots, atomic saves, append-only audit events, byte-offset audit polling, trajectory replay, checkpoints, rollback, status JSON, strategy-weight nudges, TOML configuration, async adapters, Python bindings, examples, and a GUI dashboard.
+The current implementation provides a generic `Kernel<O, D, E>` over observer, decision maker, and executor adapters, a default model-based predictor, case/strategy/CAS memory, L1 patch reflection and sandbox validation, L2 fixed-point scoring and bounded modulation, consequence feedback and defensive mode, schema-versioned snapshots, atomic saves, append-only audit events, byte-offset audit polling, trajectory replay, checkpoints, rollback, status JSON, strategy-weight nudges, TOML configuration, async adapters, Python bindings, examples, and a GUI dashboard.
 
 ### Known baseline gaps
 
-The repository still has version narrative drift between source version and tags. The API notes and architecture version labels lag behind current schema/L2 behavior. The L2 benchmark records a current no-reward-improvement finding, so effectiveness claims need evidence. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
+The UCB-based nonstationary benchmark treatment records a small positive task-performance delta, but the differing decision policies do not isolate L2's contribution. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
 
 ## Phase 0 — Stabilize and release the current line
 
 **Priority:** P0
 
-**Objective:** Make the current 0.5.x behavior easy to verify, document, and release before adding new policy mechanisms.
+**Objective:** Make the current 0.6.x behavior easy to verify, document, and release before adding new policy mechanisms.
 
 ### Work items
 
@@ -35,7 +35,7 @@ The repository still has version narrative drift between source version and tags
 - Update `ARCHITECTURE.md` to identify the current source baseline and schema version rather than the historical 0.5.1 label.
 - Complete the default, `--all-features`, Python, async, GUI, no-std, and WASM verification matrix in CI or document intentional exclusions.
 - Add release notes for the current source line and make `RELEASING.md` use version variables instead of stale historical branch/tag examples.
-- Establish a reproducible L2 benchmark report with fixed seeds, baseline configuration, action diversity, switching behavior, post-commit consequences, and explicit “no improvement” outcomes.
+- Establish a reproducible benchmark report with fixed seeds, baseline configuration, action diversity, switching behavior, post-commit consequences, and explicit improvement or no-improvement outcomes.
 - Add a documented compatibility policy for snapshot migration and additive audit-event changes.
 
 ### Exit criteria

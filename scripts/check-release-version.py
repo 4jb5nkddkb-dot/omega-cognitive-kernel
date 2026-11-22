@@ -26,7 +26,7 @@ def cargo_lock_version() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", nargs="?", help="release tag, for example v0.5.25")
+    parser.add_argument("tag", nargs="?", help="release tag, for example v0.6.0")
     args = parser.parse_args()
     with (ROOT / "Cargo.toml").open("rb") as handle:
         rust_version = tomllib.load(handle)["package"]["version"]
