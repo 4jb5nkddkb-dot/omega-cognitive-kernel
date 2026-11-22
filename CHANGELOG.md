@@ -10,6 +10,7 @@
   - `steps_since_last_patch` — the L1 patch cooldown survives restart instead of resetting.
   - `l2_rollback_effect` — the pre-commit policy needed for negative-feedback rollback survives an L2 commit + restart.
   - v0/v1 snapshots migrate up automatically; the new fields default to the safe pre-v2 behavior (L1 disabled, warm cooldown, no rollback effect).
+- **L2 default disabled**: `L2MetaLayer` now starts with `enabled = false`. The monitor still evaluates metrics for observability and baseline comparisons, but no biases, constraints, or `RuleEffect` are modified unless the caller explicitly enables L2 with `Kernel::set_l2_enabled(true)`. This aligns with the current nonstationary bandit baseline (commits occur, but mean reward and best-arm rate are unchanged) and the project's evidence-before-claims principle.
 
 ### Maintenance
 - Honor explicit `--state` and configuration paths in `demo`, isolate the default demo's sidecar files, and add an end-to-end demo/status/audit regression test.
@@ -30,7 +31,7 @@
 - `release-pypi.yml` is split into build → test → publish: macOS (universal2) wheels and an sdist are added, every wheel is installed and `pytest`-tested on its native platform/version before publication, and publication is gated on those tests passing (Trusted Publishing via the `release` environment).
 
 ### Documentation
-- Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (default `true`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
+- Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (now default `false`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
 - `RELEASING.md` documents the PyPI build/test/publish pipeline and the one-time Trusted Publisher setup.
 - Clarify version mapping in `README.md`: distinguish between current source version (0.5.25) and newest repository tag (v0.5.30), which may include unreleased changes.
 - Add `docs/TROUBLESHOOTING.md` with common issues and solutions for installation, runtime, configuration, performance, and Python-specific problems.
