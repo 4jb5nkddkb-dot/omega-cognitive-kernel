@@ -123,7 +123,10 @@ mod tests {
     fn audit_panel_handles_missing_state() {
         // Use a unique temp subdirectory to avoid interference from other tests
         // that might create audit logs in the same temp directory.
-        let unique_dir = temp_dir().join(format!("omega-audit-test-{}", omega_cognitive_kernel::new_uuid()));
+        let unique_dir = temp_dir().join(format!(
+            "omega-audit-test-{}",
+            omega_cognitive_kernel::new_uuid()
+        ));
         std::fs::create_dir_all(&unique_dir).unwrap();
         let path = unique_dir.join("nonexistent_state.json");
         let log = AuditLog::beside_state(&path);
