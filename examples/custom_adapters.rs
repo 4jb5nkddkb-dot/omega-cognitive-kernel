@@ -5,7 +5,9 @@
 //! cargo run --example custom_adapters
 //! ```
 
-use omega_cognitive_kernel::{FileObserver, Kernel, LoggingExecutor, Result, l0::decision::ConstrainedDecisionMaker};
+use omega_cognitive_kernel::{
+    l0::decision::ConstrainedDecisionMaker, FileObserver, Kernel, LoggingExecutor, Result,
+};
 use std::io::Write;
 use std::path::PathBuf;
 

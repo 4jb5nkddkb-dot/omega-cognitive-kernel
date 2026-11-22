@@ -5,6 +5,9 @@
 //! the existing ConstrainedDecisionMaker and is intended for bandit benchmarks
 //! and similar discrete choice tasks.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::error::Result;
 use crate::l0::decision::DecisionMaker;
 use crate::types::{Action, Intent, Prediction};
@@ -28,7 +31,7 @@ impl Default for BanditUcbDecisionMaker {
             means: [0.5, 0.5],
             counts: [0, 0],
             total: 0,
-            c: 1.41421356237, // sqrt(2)
+            c: core::f64::consts::SQRT_2,
         }
     }
 }
@@ -64,7 +67,7 @@ impl BanditUcbDecisionMaker {
             return f64::INFINITY; // force initial exploration
         }
         let mean = self.means[arm];
-        let bonus = self.c * ((self.total.max(1) as f64).ln() / n as f64).sqrt();
+        let bonus = self.c * libm::sqrt(libm::log(self.total.max(1) as f64) / n as f64);
         mean + bonus
     }
 
@@ -89,7 +92,10 @@ impl DecisionMaker for BanditUcbDecisionMaker {
         let name = if arm == 1 { "explore" } else { "stabilize" };
 
         let mut params = HashMap::new();
-        params.insert("goal".into(), serde_json::Value::String(intent.goal.clone()));
+        params.insert(
+            "goal".into(),
+            serde_json::Value::String(intent.goal.clone()),
+        );
         params.insert("arm".into(), serde_json::json!(arm));
         params.insert("ucb0".into(), serde_json::json!(self.ucb(0)));
         params.insert("ucb1".into(), serde_json::json!(self.ucb(1)));

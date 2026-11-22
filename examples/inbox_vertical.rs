@@ -28,7 +28,9 @@ use omega_cognitive_kernel::types::{Action, Modality};
 #[cfg(feature = "toml")]
 use omega_cognitive_kernel::Executor;
 #[cfg(feature = "toml")]
-use omega_cognitive_kernel::{Kernel, KernelConfig, Observation, Observer, Result, l0::decision::ConstrainedDecisionMaker};
+use omega_cognitive_kernel::{
+    l0::decision::ConstrainedDecisionMaker, Kernel, KernelConfig, Observation, Observer, Result,
+};
 #[cfg(feature = "toml")]
 use serde_json::json;
 #[cfg(feature = "toml")]
@@ -273,7 +275,8 @@ fn main() -> Result<()> {
     // ── Mount plugins (this is the whole integration surface) ───────────────
     let observer = EventQueueObserver::new(inbox.clone());
     let executor = PolicyGateExecutor::new(whitelist(), &actions_path);
-    let mut kernel = Kernel::with_adapters_and_path(observer, executor, ConstrainedDecisionMaker, &state_path);
+    let mut kernel =
+        Kernel::with_adapters_and_path(observer, executor, ConstrainedDecisionMaker, &state_path);
     kernel.apply_config(&KernelConfig::load(&cfg_path)?);
 
     let goal = cfg.default_goal.clone().unwrap();

@@ -110,8 +110,6 @@ fn arm_for_action(action: &str) -> usize {
     }
 }
 
-
-
 pub fn run_bandit_task(
     kernel: &mut Kernel,
     episodes: u32,
@@ -130,7 +128,11 @@ pub fn run_bandit_task_seeded(
 }
 
 fn run_bandit_task_seeded_scenario<D>(
-    kernel: &mut Kernel<crate::l0::observer::MultiModalObserver, D, crate::l0::executor::SandboxedExecutor>,
+    kernel: &mut Kernel<
+        crate::l0::observer::MultiModalObserver,
+        D,
+        crate::l0::executor::SandboxedExecutor,
+    >,
     episodes: u32,
     steps_per_episode: u32,
     seed: u64,
