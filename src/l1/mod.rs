@@ -24,6 +24,10 @@ pub struct L1Result {
     pub patch_id: Option<uuid::Uuid>,
     pub reason: Option<String>,
     pub effect_damping: Option<f64>,
+    /// Present only after an accepted effect is restored due to harmful feedback.
+    /// Rejected patches are exposed separately as safety_degraded.
+    pub rollback_effect: Option<crate::types::RuleEffect>,
+    pub safety_degraded: bool,
 }
 
 pub struct L1CognitiveLayer {
@@ -38,6 +42,8 @@ pub struct L1CognitiveLayer {
     /// Master switch: when false, no cognitive code/rule patches are applied.
     /// Set from KernelConfig.self_modify_enabled (default false).
     pub self_modify_enabled: bool,
+    pub previous_effect: Option<crate::types::RuleEffect>,
+    pub pending_rollback: bool,
 }
 
 impl L1CognitiveLayer {
@@ -50,6 +56,8 @@ impl L1CognitiveLayer {
             learner: Learner::default(),
             steps_since_last_patch: 100, // allow first patch immediately when enabled
             self_modify_enabled: false,
+            previous_effect: None,
+            pending_rollback: false,
         }
     }
 
@@ -69,6 +77,8 @@ impl L1CognitiveLayer {
                 patch_id: None,
                 reason: Some("self_modify_enabled=false".into()),
                 effect_damping: None,
+                rollback_effect: None,
+                safety_degraded: false,
             });
         }
 
@@ -96,6 +106,8 @@ impl L1CognitiveLayer {
             let report = self.sandbox.validate(&patch)?;
             if report.accepted {
                 let damping = patch.effect.error_damping;
+                self.previous_effect = Some(memory.cognitive_effect.clone());
+                self.pending_rollback = true;
                 memory.cognitive_effect = patch.effect.clone();
                 self.store.commit(patch, &report)?;
                 self.steps_since_last_patch = 0;
@@ -104,6 +116,8 @@ impl L1CognitiveLayer {
                     patch_id: Some(report.patch_id),
                     reason: None,
                     effect_damping: Some(damping),
+                    rollback_effect: None,
+                    safety_degraded: false,
                 });
             } else {
                 return Ok(L1Result {
@@ -111,6 +125,8 @@ impl L1CognitiveLayer {
                     patch_id: None,
                     reason: Some(report.message),
                     effect_damping: None,
+                    rollback_effect: None,
+                    safety_degraded: true,
                 });
             }
         }
@@ -120,7 +136,23 @@ impl L1CognitiveLayer {
             patch_id: None,
             reason: None,
             effect_damping: None,
+            rollback_effect: None,
+            safety_degraded: false,
         })
+    }
+    /// A worsening error after an accepted patch makes its previous RuleEffect
+    /// eligible for a real rollback. Rejected patches never enter this path.
+    pub fn observe_consequence(&mut self, error_delta: f64) -> bool {
+        if self.pending_rollback && error_delta > 0.05 {
+            return true;
+        }
+        self.pending_rollback = false;
+        false
+    }
+
+    pub fn take_rollback_effect(&mut self) -> Option<crate::types::RuleEffect> {
+        self.pending_rollback = false;
+        self.previous_effect.take()
     }
 }
 

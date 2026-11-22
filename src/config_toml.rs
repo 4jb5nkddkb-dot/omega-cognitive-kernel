@@ -42,6 +42,8 @@ mod tests {
         assert_eq!(c2.intervention.friction_threshold, 2);
         assert!(!c2.self_modify_enabled);
         assert!(c2.dump_trajectory);
+        assert_eq!(c2.bandit.min_dwell_steps, 3);
+        assert!((c2.bandit.switch_margin - 0.05).abs() < 1e-9);
     }
 
     #[test]

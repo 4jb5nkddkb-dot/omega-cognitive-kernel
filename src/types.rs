@@ -46,6 +46,73 @@ pub struct Action {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BanditConfig {
+    /// Minimum decisions to keep an arm before considering a switch.
+    pub min_dwell_steps: u64,
+    /// Required UCB advantage over the incumbent arm.
+    pub switch_margin: f64,
+    /// Multiplier for rollback/safety-degradation signals in the UCB reward.
+    pub rollback_penalty: f64,
+    /// Cost charged to the destination arm when changing arms.
+    pub switch_cost: f64,
+}
+
+impl Default for BanditConfig {
+    fn default() -> Self {
+        Self {
+            min_dwell_steps: 3,
+            switch_margin: 0.05,
+            rollback_penalty: 0.35,
+            switch_cost: 0.02,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum L2DecisionReason {
+    InitialExplore,
+    Exploit,
+    Explore,
+    Switched,
+    DwellHold,
+    MarginHold,
+    SafetyOverride,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct L2DecisionRecord {
+    pub selected_arm: usize,
+    pub selected_bias: String,
+    pub candidate_arm: usize,
+    pub mean_reward: f64,
+    /// Multiplicative exploration term of the selected arm.
+    pub exploration_bonus: f64,
+    /// UCB score of the selected arm; null while that arm is still unexplored.
+    pub ucb_score: Option<f64>,
+    pub candidate_ucb_score: Option<f64>,
+    pub current_ucb_score: Option<f64>,
+    pub reason: L2DecisionReason,
+    pub dwell_steps: u64,
+    pub dwell_suppressed: bool,
+    pub margin_suppressed: bool,
+    pub switched: bool,
+    pub safety_override: bool,
+    pub adjusted_reward: Option<f64>,
+    pub rollback_count: u64,
+    pub switch_cost_applied: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DecisionFeedback {
+    pub l1_rollback: bool,
+    pub safety_degradation: bool,
+    /// Error improvement is a positive reward contribution.
+    pub error_delta: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trajectory {
     pub observations: Vec<Observation>,
     pub predictions: Vec<Prediction>,

@@ -113,6 +113,9 @@ impl Kernel {
             last_l2_consequence_score: status.last_l2_consequence_score,
             l2_defensive_mode: status.l2_defensive_mode,
             l2_negative_consequence_streak: status.l2_negative_consequence_streak,
+            last_l2_decision: status
+                .last_l2_decision
+                .and_then(|decision| serde_json::to_string(&decision).ok()),
         };
         Ok(py_status)
     }

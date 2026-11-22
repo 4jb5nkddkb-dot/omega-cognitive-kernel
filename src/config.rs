@@ -111,6 +111,8 @@ pub struct KernelConfig {
     /// If true, every step appends a full trajectory record to trajectory.jsonl
     /// beside the state file. Default true for auditability.
     pub dump_trajectory: bool,
+    /// Hysteresis and consequence costs for UCB-backed bandit decisions.
+    pub bandit: crate::types::BanditConfig,
 }
 
 impl Default for KernelConfig {
@@ -126,6 +128,7 @@ impl Default for KernelConfig {
             intervention: InterventionPolicy::default(),
             self_modify_enabled: false,
             dump_trajectory: true,
+            bandit: crate::types::BanditConfig::default(),
         }
     }
 }

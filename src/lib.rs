@@ -89,6 +89,7 @@ pub use task::{
 pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
+pub use l0::bandit_decision::{BanditUcbDecisionMaker, BanditUcbSnapshot};
 pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]

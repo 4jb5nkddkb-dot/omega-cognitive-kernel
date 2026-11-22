@@ -46,6 +46,13 @@ pub struct BanditReport {
     pub mean_l2_consequence_score: f64,
     pub final_score_breakdown: HashMap<String, f64>,
     pub final_alignment_score: f64,
+    pub recovery_steps: Option<u32>,
+    pub l1_rollback_count: u64,
+    pub l2_rollback_count: u64,
+    pub dayan_converged: bool,
+    pub final_dayan_residual: f64,
+    pub dwell_hold_count: u64,
+    pub margin_hold_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,6 +78,14 @@ pub struct L2BenchmarkAggregate {
     pub mean_l2_consequence_score: f64,
     pub mean_final_score_breakdown: HashMap<String, f64>,
     pub mean_final_alignment_score: f64,
+    pub mean_recovery_steps: Option<f64>,
+    pub recovery_rate: f64,
+    pub mean_l1_rollback_count: f64,
+    pub mean_l2_rollback_count: f64,
+    pub dayan_convergence_rate: f64,
+    pub mean_final_dayan_residual: f64,
+    pub mean_dwell_hold_count: f64,
+    pub mean_margin_hold_count: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -159,6 +174,16 @@ where
     let mut consequence_sum = 0.0;
     let mut early_err = None;
     let mut final_score_breakdown = HashMap::new();
+    let mut recovery_steps = None;
+    let mut recovery_streak = 0;
+    let mut l1_rollback_count = 0;
+    let mut l2_rollback_count = 0;
+    let mut final_dayan_residual = 1.0;
+    let mut dwell_hold_count = 0;
+    let mut margin_hold_count = 0;
+    let total_steps = episodes.saturating_mul(steps_per_episode);
+    let shift_step = total_steps / 2;
+    let recovery_target = total_steps.saturating_sub(shift_step) / 3;
 
     for ep in 0..episodes {
         // Non-stationary: best arm flips halfway (and once more late if many episodes).
@@ -177,8 +202,21 @@ where
         }
         let mut ep_reward = 0.0;
 
-        for _ in 0..steps_per_episode {
-            let before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+        for step_in_episode in 0..steps_per_episode {
+            let global_step = ep * steps_per_episode + step_in_episode;
+            let best = if scenario == "regime_shift" && global_step >= shift_step {
+                1
+            } else {
+                best
+            };
+            let mut before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+            if scenario == "regime_shift" && global_step >= shift_step {
+                // Inject observation noise before learning and preserve the
+                // same pre-step error for the consequence calculation.
+                kernel.inner.l0.memory.cas.avg_prediction_error =
+                    if global_step == shift_step { 0.9 } else { 0.65 };
+                before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
+            }
             let r = kernel
                 .step("maintain coherent self-model omega dayan while maximizing bandit reward")?;
             let after_err = kernel.inner.l0.memory.cas.avg_prediction_error;
@@ -188,6 +226,8 @@ where
             if r.l1.patched {
                 patches += 1;
             }
+            let l1_rolled_back = kernel.observe_l1_consequence(after_err - before_err);
+            let l1_rollback = l1_rolled_back || r.l1.rollback_effect.is_some();
             if r.l2.effect_nudge.is_some() {
                 l2_nudges += 1;
             }
@@ -198,6 +238,11 @@ where
                 l2_commits += 1;
             }
             max_fixed_point_dwell = max_fixed_point_dwell.max(r.l2.dwell_steps);
+            final_dayan_residual = r.l2.dayan_residual;
+            if let Some(decision) = &r.l2.decision {
+                dwell_hold_count += u64::from(decision.dwell_suppressed);
+                margin_hold_count += u64::from(decision.margin_suppressed);
+            }
             if !r.l2.score_breakdown.is_empty() {
                 final_score_breakdown = r.l2.score_breakdown.clone();
             }
@@ -242,11 +287,32 @@ where
             let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
 
             kernel.inner.l0.memory.record_reward(&action, reward);
-            // Feed reward back to the decision maker (UCB updates for BanditUcbDecisionMaker)
-            kernel.inner.l0.decision.observe(arm, reward);
+            // External reward is separated from error improvement and explicit
+            // L1 safety costs so a rollback cannot disappear behind a good error.
+            kernel.inner.l0.decision.observe_with_feedback(
+                arm,
+                reward,
+                crate::types::DecisionFeedback {
+                    l1_rollback,
+                    safety_degradation: r.l1.safety_degraded,
+                    error_delta: after_err - before_err,
+                },
+            );
             let consequence_score = 0.60 * (reward - 0.5) - 0.25 * (after_err - before_err);
             consequence_sum += consequence_score;
             kernel.observe_l2_consequence(reward - 0.5, after_err - before_err, 0.0);
+            if kernel.inner.l2.last_consequence_score < -0.05
+                && kernel.inner.l2.rollback_effect.is_some()
+            {
+                l2_rollback_count += 1;
+            }
+            l1_rollback_count += u64::from(l1_rollback);
+            if scenario == "regime_shift" && global_step >= shift_step && recovery_steps.is_none() {
+                recovery_streak = if arm == best { recovery_streak + 1 } else { 0 };
+                if recovery_streak >= recovery_target.max(1) {
+                    recovery_steps = Some(global_step - shift_step + 1);
+                }
+            }
 
             ep_reward += reward;
             total_reward += reward;
@@ -312,6 +378,13 @@ where
         },
         final_score_breakdown,
         final_alignment_score: status.last_alignment_score,
+        recovery_steps,
+        l1_rollback_count,
+        l2_rollback_count,
+        dayan_converged: final_dayan_residual <= 0.18,
+        final_dayan_residual,
+        dwell_hold_count,
+        margin_hold_count,
     })
 }
 
@@ -340,6 +413,14 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             mean_l2_consequence_score: 0.0,
             mean_final_score_breakdown: HashMap::new(),
             mean_final_alignment_score: 0.0,
+            mean_recovery_steps: None,
+            recovery_rate: 0.0,
+            mean_l1_rollback_count: 0.0,
+            mean_l2_rollback_count: 0.0,
+            dayan_convergence_rate: 0.0,
+            mean_final_dayan_residual: 0.0,
+            mean_dwell_hold_count: 0.0,
+            mean_margin_hold_count: 0.0,
         };
     }
     let n = reports.len() as f64;
@@ -374,6 +455,22 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             out
         },
         mean_final_alignment_score: mean(|r| r.final_alignment_score),
+        mean_recovery_steps: {
+            let recovered: Vec<u32> = reports.iter().filter_map(|r| r.recovery_steps).collect();
+            (!recovered.is_empty())
+                .then(|| recovered.iter().sum::<u32>() as f64 / recovered.len() as f64)
+        },
+        recovery_rate: reports
+            .iter()
+            .filter(|r| r.recovery_steps.is_some())
+            .count() as f64
+            / n,
+        mean_l1_rollback_count: mean(|r| r.l1_rollback_count as f64),
+        mean_l2_rollback_count: mean(|r| r.l2_rollback_count as f64),
+        dayan_convergence_rate: reports.iter().filter(|r| r.dayan_converged).count() as f64 / n,
+        mean_final_dayan_residual: mean(|r| r.final_dayan_residual),
+        mean_dwell_hold_count: mean(|r| r.dwell_hold_count as f64),
+        mean_margin_hold_count: mean(|r| r.margin_hold_count as f64),
     }
 }
 
@@ -437,7 +534,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
     negative_reward_required: u32,
 ) -> Result<L2BenchmarkReport> {
     let scenario = match scenario {
-        "stable" | "nonstationary" | "degraded" | "fixedpoint" => scenario,
+        "stable" | "nonstationary" | "degraded" | "fixedpoint" | "regime_shift" => scenario,
         other => {
             return Err(crate::error::OmegaError::Config(format!(
                 "unknown benchmark scenario: {other}"
@@ -470,6 +567,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
             .active
             .insert("cognitive_rules".into(), "self-model bias damp rule".into());
         base.set_l2_enabled(false);
+        base.inner.l1.self_modify_enabled = true;
         baseline.push(run_bandit_task_seeded_scenario(
             &mut base,
             episodes,
@@ -499,6 +597,12 @@ pub fn run_l2_benchmark_scenario_with_gate(
         l2.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
         l2.inner.l2.negative_reward_required = negative_reward_required.max(1);
         l2.set_l2_enabled(true);
+        l2.inner.l1.self_modify_enabled = true;
+        if scenario == "regime_shift" {
+            let mut state = l2.inner.l0.decision.snapshot();
+            state.discount_factor = 0.85;
+            l2.inner.l0.decision.restore(state);
+        }
         treatment.push(run_bandit_task_seeded_scenario(
             &mut l2,
             episodes,
@@ -589,6 +693,19 @@ mod tests {
         // max_idle_steps should be tracked (may be 0 if all actions stay hot)
         let _ = report.max_idle_steps;
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn regime_shift_benchmark_exposes_recovery_and_residual() {
+        let report = run_l2_benchmark_scenario("regime_shift", 2, 8, 8, 73).unwrap();
+        assert_eq!(report.scenario, "regime_shift");
+        for branch in [&report.baseline_l2_disabled, &report.treatment_l2_enabled] {
+            assert!(branch.recovery_rate >= 0.0 && branch.recovery_rate <= 1.0);
+            assert!(branch.mean_final_dayan_residual.is_finite());
+            assert!(branch.mean_l1_rollback_count >= 0.0);
+            assert!(branch.mean_dwell_hold_count >= 0.0);
+        }
+        assert!(report.treatment_l2_enabled.mean_dwell_hold_count > 0.0);
     }
 
     #[test]

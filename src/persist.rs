@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
 /// Current on-disk schema. Bump only with a migration path.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 fn default_schema_version() -> u32 {
     0
@@ -67,7 +67,7 @@ fn default_l2_detector_cooldown() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
     /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
-    /// [`CURRENT_SCHEMA_VERSION`] (currently 2) on load.
+    /// [`CURRENT_SCHEMA_VERSION`] (currently 3) on load.
     #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
@@ -138,6 +138,18 @@ pub struct KernelSnapshot {
     /// restart retains the pre-commit policy needed for negative-feedback rollback.
     #[serde(default)]
     pub l2_rollback_effect: Option<RuleEffect>,
+    /// Last UCB-backed L2 decision, available to status and trajectory replay.
+    #[serde(default)]
+    pub last_l2_decision: Option<crate::types::L2DecisionRecord>,
+    /// Complete local bandit state when the kernel uses BanditUcbDecisionMaker.
+    #[serde(default)]
+    pub bandit_ucb: Option<crate::l0::bandit_decision::BanditUcbSnapshot>,
+    #[serde(default)]
+    pub bandit_config: crate::types::BanditConfig,
+    #[serde(default)]
+    pub l1_previous_effect: Option<RuleEffect>,
+    #[serde(default)]
+    pub l1_pending_rollback: bool,
 }
 
 impl Default for KernelSnapshot {
@@ -181,6 +193,11 @@ impl Default for KernelSnapshot {
             self_modify_enabled: false,
             steps_since_last_patch: default_steps_since_last_patch(),
             l2_rollback_effect: None,
+            last_l2_decision: None,
+            bandit_ucb: None,
+            bandit_config: crate::types::BanditConfig::default(),
+            l1_previous_effect: None,
+            l1_pending_rollback: false,
         }
     }
 }
@@ -209,6 +226,11 @@ impl KernelSnapshot {
             // defaults are intentionally the *safe* pre-v2 behavior: L1 disabled
             // and a warm cooldown. Nothing to backfill beyond stamping the version.
             self.version = 2;
+        }
+        if self.version < 3 {
+            // v3 adds optional UCB statistics and decision explanations. Their
+            // defaults preserve the old policy and never enable self-modification.
+            self.version = 3;
         }
         Ok(self)
     }
@@ -366,6 +388,8 @@ mod tests {
         assert!(!loaded.self_modify_enabled);
         assert_eq!(loaded.steps_since_last_patch, 100);
         assert!(loaded.l2_rollback_effect.is_none());
+        assert!(loaded.last_l2_decision.is_none());
+        assert_eq!(loaded.bandit_config.min_dwell_steps, 3);
         let _ = fs::remove_file(&path);
     }
 

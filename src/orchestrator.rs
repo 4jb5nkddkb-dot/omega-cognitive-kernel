@@ -70,7 +70,7 @@ where
         };
 
         let current_effect = self.l0.memory.cognitive_effect.clone();
-        let l2_result = self.l2.step(
+        let mut l2_result = self.l2.step(
             &state,
             self.biases.clone(),
             self.constraints.clone(),
@@ -78,6 +78,7 @@ where
         )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
+        l2_result.decision = self.l0.decision.l2_decision();
 
         if let Some(nudged) = &l2_result.effect_nudge {
             self.l0.memory.cognitive_effect = nudged.clone();

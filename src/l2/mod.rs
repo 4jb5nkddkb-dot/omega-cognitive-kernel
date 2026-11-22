@@ -32,6 +32,10 @@ pub struct L2Result {
     pub score_breakdown: HashMap<String, f64>,
     /// Soft-updated RuleEffect after L2 modulation (if any).
     pub effect_nudge: Option<RuleEffect>,
+    /// The local UCB selection that caused this step's L1/L2 consequences.
+    pub decision: Option<crate::types::L2DecisionRecord>,
+    /// Latest candidate fixed-point residual: alignment target minus raw alignment.
+    pub dayan_residual: f64,
 }
 
 pub struct L2MetaLayer {
@@ -139,6 +143,8 @@ impl L2MetaLayer {
                 modulation_gain,
                 score_breakdown,
                 effect_nudge: None,
+                decision: None,
+                dayan_residual: 1.0,
             });
         }
 
@@ -250,6 +256,8 @@ impl L2MetaLayer {
             modulation_gain,
             score_breakdown,
             effect_nudge,
+            decision: None,
+            dayan_residual: (1.0 - candidate_alignment_score).abs(),
         })
     }
 

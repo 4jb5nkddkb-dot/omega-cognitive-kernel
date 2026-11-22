@@ -79,6 +79,7 @@ pub struct KernelStatus {
     pub last_l2_consequence_score: f64,
     pub l2_defensive_mode: bool,
     pub l2_negative_consequence_streak: u32,
+    pub last_l2_decision: Option<crate::types::L2DecisionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +113,7 @@ pub struct TrajectoryReplayRow {
     pub patched: bool,
     pub avg_err: Option<f64>,
     pub goal: Option<String>,
+    pub l2_decision: Option<crate::types::L2DecisionRecord>,
 }
 
 fn default_allowed_actions() -> Vec<String> {
@@ -173,6 +175,10 @@ pub fn replay_trajectory_file(path: &Path, tail_n: usize) -> Result<TrajectoryRe
             patched,
             avg_err,
             goal,
+            l2_decision: v
+                .get("l2_decision")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
         });
     }
 
@@ -349,6 +355,7 @@ where
         self.autosave = cfg.autosave;
         self.auto_checkpoint_on_patch = cfg.auto_checkpoint_on_patch;
         self.dump_trajectory = cfg.dump_trajectory;
+        self.inner.l0.decision.set_bandit_config(cfg.bandit.clone());
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
         self.inner.l1.self_modify_enabled = cfg.self_modify_enabled;
@@ -384,7 +391,21 @@ where
             .observe_consequence(reward_delta, error_delta, risk_delta);
         if let Some(effect) = self.inner.l2.take_rollback_effect() {
             self.inner.l0.memory.cognitive_effect = effect;
+            self.inner.l0.decision.request_safety_override();
         }
+    }
+
+    /// Apply L1 RuleEffect rollback independently of L2's own safety rollback.
+    /// Returns whether an actual previous effect was restored.
+    pub fn observe_l1_consequence(&mut self, error_delta: f64) -> bool {
+        if !self.inner.l1.observe_consequence(error_delta) {
+            return false;
+        }
+        if let Some(effect) = self.inner.l1.take_rollback_effect() {
+            self.inner.l0.memory.cognitive_effect = effect;
+            return true;
+        }
+        false
     }
 
     fn emit_event(&mut self, event: &AuditEvent) {
@@ -452,6 +473,7 @@ where
             "l2_modulation_committed": result.l2.modulation_committed,
             "l2_modulation_gain": result.l2.modulation_gain,
             "l2_score_breakdown": result.l2.score_breakdown,
+            "l2_decision": result.l2.decision,
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
@@ -618,10 +640,17 @@ where
             last_l2_consequence_score: self.inner.l2.last_consequence_score,
             l2_defensive_mode: self.inner.l2.defensive_mode,
             l2_negative_consequence_streak: self.inner.l2.negative_consequence_streak,
+            last_l2_decision: self.inner.l0.decision.l2_decision(),
         }
     }
 
     pub fn snapshot(&self) -> KernelSnapshot {
+        let mut snapshot = self.snapshot_base();
+        snapshot.bandit_ucb = self.inner.l0.decision.bandit_snapshot();
+        snapshot
+    }
+
+    fn snapshot_base(&self) -> KernelSnapshot {
         let (cases, cap) = self.inner.l0.memory.case.snapshot();
         let (active, history) = self.inner.l1.store.snapshot();
         KernelSnapshot {
@@ -663,10 +692,23 @@ where
             self_modify_enabled: self.inner.l1.self_modify_enabled,
             steps_since_last_patch: self.inner.l1.steps_since_last_patch,
             l2_rollback_effect: self.inner.l2.rollback_effect.clone(),
+            last_l2_decision: self.inner.l0.decision.l2_decision(),
+            bandit_ucb: None,
+            bandit_config: crate::types::BanditConfig::default(),
+            l1_previous_effect: self.inner.l1.previous_effect.clone(),
+            l1_pending_rollback: self.inner.l1.pending_rollback,
         }
     }
 
-    pub fn apply_snapshot(&mut self, snap: KernelSnapshot) {
+    pub fn apply_snapshot(&mut self, mut snap: KernelSnapshot) {
+        let bandit_ucb = snap.bandit_ucb.take();
+        self.apply_snapshot_base(snap);
+        if let Some(bandit) = bandit_ucb {
+            self.inner.l0.decision.restore_bandit_snapshot(bandit);
+        }
+    }
+
+    fn apply_snapshot_base(&mut self, snap: KernelSnapshot) {
         self.inner.total_steps = snap.total_steps;
         self.inner.biases = snap.biases;
         self.inner.constraints = snap.constraints;
@@ -705,6 +747,12 @@ where
         self.inner.l1.self_modify_enabled = snap.self_modify_enabled;
         self.inner.l1.steps_since_last_patch = snap.steps_since_last_patch;
         self.inner.l2.rollback_effect = snap.l2_rollback_effect;
+        self.inner.l1.previous_effect = snap.l1_previous_effect;
+        self.inner.l1.pending_rollback = snap.l1_pending_rollback;
+        self.inner.l0.decision.set_bandit_config(snap.bandit_config);
+        if let Some(decision) = snap.last_l2_decision {
+            self.inner.l0.decision.restore_l2_decision(decision);
+        }
     }
 
     pub fn snapshot_json(&self) -> Result<String> {
@@ -780,6 +828,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l0::decision::DecisionMaker;
     use std::env::temp_dir;
     use std::io::Write;
 
@@ -1054,6 +1103,68 @@ mod tests {
     }
 
     #[test]
+    fn l1_effect_rollback_is_independent_of_restored_error() {
+        let path = temp_dir().join(format!("omega-l1-effect-rb-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.inner.l1.previous_effect = Some(crate::types::RuleEffect::default());
+        kernel.inner.l1.pending_rollback = true;
+        kernel.inner.l0.memory.cognitive_effect.error_damping = 1.4;
+        assert!(kernel.observe_l1_consequence(0.1));
+        assert_eq!(kernel.inner.l0.memory.cognitive_effect.error_damping, 1.0);
+        assert!(!kernel.observe_l1_consequence(-0.1));
+        kernel.inner.l0.decision.observe_with_feedback(
+            0,
+            1.0,
+            crate::types::DecisionFeedback {
+                l1_rollback: true,
+                error_delta: -0.1,
+                ..crate::types::DecisionFeedback::default()
+            },
+        );
+        let decision = kernel.inner.l0.decision.l2_decision().unwrap();
+        assert_eq!(decision.rollback_count, 1);
+        assert!(decision.adjusted_reward.unwrap() < 1.0);
+        let _ = std::fs::remove_file(kernel.state_path);
+    }
+
+    #[test]
+    fn bandit_decision_replay_and_restart_are_auditable() {
+        let dir = temp_dir().join(format!("omega-bandit-replay-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut kernel = Kernel::with_bandit_ucb(&path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.inner.l0.decision.observe_with_feedback(
+            0,
+            1.0,
+            crate::types::DecisionFeedback::default(),
+        );
+        kernel.step("audit local UCB").unwrap();
+        kernel.observe_l2_consequence(0.5, 0.0, 0.0);
+        let decision = kernel.status().last_l2_decision.expect("UCB explanation");
+        assert_eq!(decision.selected_bias, "explore");
+        assert!(decision.exploration_bonus >= 0.0);
+        kernel.save().unwrap();
+
+        let mut restarted = Kernel::with_bandit_ucb(&path);
+        restarted.load().unwrap();
+        restarted.observe_l2_consequence(0.5, 0.0, 0.0);
+        assert_eq!(
+            restarted.inner.l0.decision.snapshot().counts,
+            kernel.inner.l0.decision.snapshot().counts
+        );
+        assert!(restarted.status().last_l2_decision.is_some());
+        let replay = restarted.replay_trajectory(1).unwrap();
+        let replayed = replay.tail[0].l2_decision.as_ref().expect("replay UCB");
+        assert_eq!(replayed.selected_arm, 1);
+        assert_eq!(replayed.reason, crate::types::L2DecisionReason::Switched);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn replay_trajectory_file_works() {
         let path = temp_dir().join(format!("omega-traj-{}.jsonl", crate::new_uuid()));
         let mut f = std::fs::File::create(&path).unwrap();
@@ -1079,6 +1190,7 @@ mod tests {
         assert!((sum.first_avg_err.unwrap() - 0.5).abs() < 1e-9);
         assert!((sum.last_avg_err.unwrap() - 0.3).abs() < 1e-9);
         assert_eq!(sum.tail.len(), 2);
+        assert!(sum.tail.iter().all(|row| row.l2_decision.is_none()));
         let _ = std::fs::remove_file(&path);
     }
 }
