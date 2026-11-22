@@ -44,7 +44,7 @@ L1 is disabled by default. The patch metadata may contain descriptive code and e
 
 L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it applies bounded changes to biases, constraints, and `RuleEffect`. L2 stores the pre-commit effect and accepts later reward/error/risk feedback through `observe_l2_consequence`.
 
-L2 is an independent channel: disabling L1 with `self_modify_enabled = false` does **not** disable L2. To freeze all policy mutation, disable both L1 and L2 with `set_l2_enabled(false)`.
+L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain over the disabled baseline.
 
 ## Installation
 
@@ -174,7 +174,7 @@ For custom world integration, implement the public `Observer` and `Executor` tra
 | `min_steps_between_patches` | `3` | L1 patch cooldown |
 | `max_risk` | `0.65` | L0 decision constraint |
 | `self_modify_enabled` | `false` | L1 discrete patch gate |
-| `l2.enabled` | `true` | L2 modulation gate |
+| `l2.enabled` | `false` | L2 modulation gate (enable only after evidence) |
 
 Example configuration:
 
