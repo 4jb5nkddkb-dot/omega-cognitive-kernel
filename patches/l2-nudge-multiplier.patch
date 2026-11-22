@@ -1,0 +1,18 @@
+diff --git a/src/api.rs b/src/api.rs
+index 5aed623..0000000 100644
+--- a/src/api.rs
++++ b/src/api.rs
+@@ -340,6 +340,13 @@ impl<O, E> Kernel<O, E>
+             self.inner.l2.dwell_steps = 0;
+         }
+     }
++
++    /// Experimental: scale L2 modulation gain (default 1.0).
++    /// Values > 1.0 amplify explore_bonus / bias deltas so they can move decisions.
++    /// Still subject to RuleEffect::sanitize bounds. For nonstationary bandit experiments.
++    pub fn set_l2_nudge_gain_multiplier(&mut self, multiplier: f64) {
++        self.inner.l2.nudge_gain_multiplier = multiplier.max(0.0);
++    }
+ 
+     /// Feed back the short-term consequence of the latest L2 modulation.
+     pub fn observe_l2_consequence(&mut self, reward_delta: f64, error_delta: f64, risk_delta: f64) {
