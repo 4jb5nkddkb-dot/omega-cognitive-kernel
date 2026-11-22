@@ -10,7 +10,7 @@
 //! cargo run --example drop_inbox_loop
 //! ```
 
-use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result};
+use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result, l0::decision::ConstrainedDecisionMaker};
 use std::env::temp_dir;
 use std::fs;
 use std::thread;
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     .with_log_file(&action_log)
     .echo_stdout(true);
 
-    let mut kernel = Kernel::with_adapters_and_path(observer, executor, &state_path);
+    let mut kernel = Kernel::with_adapters_and_path(observer, executor, ConstrainedDecisionMaker, &state_path);
     kernel.apply_config(&KernelConfig::load(&cfg_path)?);
 
     let goal = cfg

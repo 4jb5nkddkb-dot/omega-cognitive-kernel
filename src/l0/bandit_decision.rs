@@ -102,4 +102,8 @@ impl DecisionMaker for BanditUcbDecisionMaker {
             constraints_checked: true,
         }])
     }
+
+    fn observe(&mut self, arm: usize, reward: f64) {
+        BanditUcbDecisionMaker::observe(self, arm, reward);
+    }
 }

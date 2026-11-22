@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 use crate::api::Kernel;
 use crate::error::Result;
+use crate::l0::decision::DecisionMaker;
 use hashbrown::HashMap;
 use serde::Serialize;
 use std::env::temp_dir;
@@ -109,38 +110,7 @@ fn arm_for_action(action: &str) -> usize {
     }
 }
 
-/// Lightweight local UCB tracker used by the standard bandit path.
-/// Drives the existing decision maker by boosting the recommended action's strategy weight.
-struct LocalUcb {
-    means: [f64; 2],
-    counts: [u64; 2],
-    total: u64,
-    c: f64,
-}
 
-impl LocalUcb {
-    fn new() -> Self {
-        Self { means: [0.5, 0.5], counts: [0, 0], total: 0, c: 1.414 }
-    }
-
-    fn observe(&mut self, arm: usize, reward: f64) {
-        if arm > 1 { return; }
-        let r = reward.clamp(0.0, 1.0);
-        let n = self.counts[arm];
-        self.means[arm] = if n == 0 { r } else { (self.means[arm] * n as f64 + r) / (n as f64 + 1.0) };
-        self.counts[arm] += 1;
-        self.total += 1;
-    }
-
-    fn recommend(&self) -> usize {
-        let score = |arm: usize| -> f64 {
-            let n = self.counts[arm];
-            if n == 0 { return f64::INFINITY; }
-            self.means[arm] + self.c * ((self.total.max(1) as f64).ln() / n as f64).sqrt()
-        };
-        if score(1) > score(0) { 1 } else { 0 }
-    }
-}
 
 pub fn run_bandit_task(
     kernel: &mut Kernel,
@@ -159,15 +129,17 @@ pub fn run_bandit_task_seeded(
     run_bandit_task_seeded_scenario(kernel, episodes, steps_per_episode, seed, "nonstationary")
 }
 
-fn run_bandit_task_seeded_scenario(
-    kernel: &mut Kernel,
+fn run_bandit_task_seeded_scenario<D>(
+    kernel: &mut Kernel<crate::l0::observer::MultiModalObserver, D, crate::l0::executor::SandboxedExecutor>,
     episodes: u32,
     steps_per_episode: u32,
     seed: u64,
     scenario: &str,
-) -> Result<BanditReport> {
+) -> Result<BanditReport>
+where
+    D: DecisionMaker,
+{
     let mut rng = Rng::new(seed);
-    let mut ucb = LocalUcb::new();
     let mut total_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;
@@ -204,12 +176,6 @@ fn run_bandit_task_seeded_scenario(
         let mut ep_reward = 0.0;
 
         for _ in 0..steps_per_episode {
-            // Standard UCB path: recommend arm and boost its strategy weight so the decision maker follows it.
-            let rec_arm = ucb.recommend();
-            let rec_action = if rec_arm == 1 { "explore" } else { "stabilize" };
-            let _ = kernel.set_strategy_weight(rec_action, 3.0);
-            let _ = kernel.set_strategy_weight(if rec_arm == 1 { "stabilize" } else { "explore" }, 0.5);
-
             let before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
             let r = kernel
                 .step("maintain coherent self-model omega dayan while maximizing bandit reward")?;
@@ -274,7 +240,8 @@ fn run_bandit_task_seeded_scenario(
             let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
 
             kernel.inner.l0.memory.record_reward(&action, reward);
-            ucb.observe(arm, reward);
+            // Feed reward back to the decision maker (UCB updates for BanditUcbDecisionMaker)
+            kernel.inner.l0.decision.observe(arm, reward);
             let consequence_score = 0.60 * (reward - 0.5) - 0.25 * (after_err - before_err);
             consequence_sum += consequence_score;
             kernel.observe_l2_consequence(reward - 0.5, after_err - before_err, 0.0);
@@ -510,7 +477,8 @@ pub fn run_l2_benchmark_scenario_with_gate(
         )?);
         cleanup_benchmark_files(&base_path);
 
-        let mut l2 = Kernel::with_state_path(&treatment_path);
+        // Treatment: use BanditUcbDecisionMaker for true UCB-based arm selection
+        let mut l2 = Kernel::with_bandit_ucb(&treatment_path);
         l2.autosave = false;
         l2.auto_checkpoint_on_patch = false;
         l2.dump_trajectory = false;
