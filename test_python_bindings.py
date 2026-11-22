@@ -97,11 +97,12 @@ def test_strategy_weight(kernel):
 
 
 def test_l2_settings(kernel):
-    assert kernel.status().l2_enabled is True
-    kernel.set_l2_enabled(False)
+    # L2 is disabled by default (evidence-before-claims principle)
     assert kernel.status().l2_enabled is False
     kernel.set_l2_enabled(True)
     assert kernel.status().l2_enabled is True
+    kernel.set_l2_enabled(False)
+    assert kernel.status().l2_enabled is False
 
 
 def test_trajectory_replay(kernel):

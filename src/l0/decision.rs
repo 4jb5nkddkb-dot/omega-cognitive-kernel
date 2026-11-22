@@ -13,6 +13,10 @@ pub trait DecisionMaker {
         constraints: &HashMap<String, f64>,
         memory_ctx: &HashMap<String, serde_json::Value>,
     ) -> Result<Vec<Action>>;
+
+    /// Optional: observe reward for an arm (for bandit-style decision makers).
+    /// Default implementation does nothing.
+    fn observe(&mut self, _arm: usize, _reward: f64) {}
 }
 
 pub struct ConstrainedDecisionMaker;

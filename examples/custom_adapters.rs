@@ -5,7 +5,9 @@
 //! cargo run --example custom_adapters
 //! ```
 
-use omega_cognitive_kernel::{FileObserver, Kernel, LoggingExecutor, Result};
+use omega_cognitive_kernel::{
+    l0::decision::ConstrainedDecisionMaker, FileObserver, Kernel, LoggingExecutor, Result,
+};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -35,7 +37,7 @@ fn main() -> Result<()> {
     .with_log_file(&log_path)
     .echo_stdout(true);
 
-    let mut kernel = Kernel::with_adapters(observer, executor);
+    let mut kernel = Kernel::with_adapters(observer, executor, ConstrainedDecisionMaker);
     kernel.autosave = false;
     kernel.auto_checkpoint_on_patch = false;
 

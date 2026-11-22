@@ -5,7 +5,10 @@
 //! ```
 
 #[cfg(feature = "toml")]
-use omega_cognitive_kernel::{DirSnapshotObserver, Kernel, KernelConfig, LoggingExecutor, Result};
+use omega_cognitive_kernel::{
+    l0::decision::ConstrainedDecisionMaker, DirSnapshotObserver, Kernel, KernelConfig,
+    LoggingExecutor, Result,
+};
 #[cfg(feature = "toml")]
 use std::env::temp_dir;
 
@@ -43,7 +46,8 @@ fn main() -> Result<()> {
     ])
     .echo_stdout(true);
 
-    let mut kernel = Kernel::with_adapters_and_path(observer, executor, &state_path);
+    let mut kernel =
+        Kernel::with_adapters_and_path(observer, executor, ConstrainedDecisionMaker, &state_path);
     kernel.apply_config(&KernelConfig::load(&cfg_path)?);
 
     let report = kernel.run("monitor drop directory and stabilize under uncertainty", 4)?;

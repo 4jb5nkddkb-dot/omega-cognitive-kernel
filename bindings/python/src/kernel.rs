@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub struct Kernel {
     inner: omega_cognitive_kernel::Kernel<
         omega_cognitive_kernel::l0::observer::MultiModalObserver,
+        omega_cognitive_kernel::l0::decision::ConstrainedDecisionMaker,
         omega_cognitive_kernel::l0::executor::SandboxedExecutor,
     >,
 }

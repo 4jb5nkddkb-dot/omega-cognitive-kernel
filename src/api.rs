@@ -9,6 +9,7 @@ use crate::config::KernelConfig;
 #[cfg(feature = "toml")]
 use crate::config_toml;
 use crate::error::{OmegaError, Result};
+use crate::l0::bandit_decision::BanditUcbDecisionMaker;
 use crate::l0::decision::ConstrainedDecisionMaker;
 use crate::l0::executor::{Executor, SandboxedExecutor};
 use crate::l0::observer::{MultiModalObserver, Observer};
@@ -29,18 +30,22 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Default concrete kernel type (simulation observer + sandboxed executor).
-pub type DefaultKernel = Kernel<MultiModalObserver, SandboxedExecutor>;
+pub type DefaultKernel = Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor>;
+
+/// Kernel using standard UCB decision maker for bandit tasks.
+pub type BanditKernel = Kernel<MultiModalObserver, BanditUcbDecisionMaker, SandboxedExecutor>;
 
 /// In-process event callback (after audit append).
 pub type EventHook = Box<dyn FnMut(&AuditEvent) + Send>;
 
-/// Product-facing kernel. Generic over world I/O so callers can inject adapters.
-pub struct Kernel<O = MultiModalObserver, E = SandboxedExecutor>
+/// Product-facing kernel. Generic over world I/O and decision maker so callers can inject adapters.
+pub struct Kernel<O = MultiModalObserver, D = ConstrainedDecisionMaker, E = SandboxedExecutor>
 where
     O: Observer,
+    D: crate::l0::decision::DecisionMaker,
     E: Executor,
 {
-    pub inner: OmegaOrchestrator<O, ModelBasedPredictor, ConstrainedDecisionMaker, E>,
+    pub inner: OmegaOrchestrator<O, ModelBasedPredictor, D, E>,
     pub state_path: PathBuf,
     pub autosave: bool,
     pub auto_checkpoint_on_patch: bool,
@@ -191,7 +196,7 @@ pub fn replay_trajectory_file(path: &Path, tail_n: usize) -> Result<TrajectoryRe
     })
 }
 
-impl Kernel<MultiModalObserver, SandboxedExecutor> {
+impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
     pub fn new() -> Self {
         Self::with_state_path(DEFAULT_STATE_PATH)
     }
@@ -206,6 +211,33 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
             learner: Learner::default(),
         };
         Self {
+            inner: OmegaOrchestrator {
+                l0,
+                l1: L1CognitiveLayer::new(),
+                l2: L2MetaLayer::new(),
+                biases: HashMap::new(),
+                constraints: safety::default_constraints(),
+                total_steps: 0,
+            },
+            state_path: path.into(),
+            autosave: true,
+            auto_checkpoint_on_patch: true,
+            dump_trajectory: true,
+            event_hook: None,
+        }
+    }
+
+    /// Construct a Kernel with the standard UCB bandit decision maker.
+    pub fn with_bandit_ucb(path: impl Into<PathBuf>) -> BanditKernel {
+        let l0 = L0WorldLayer {
+            observer: MultiModalObserver::new(),
+            predictor: ModelBasedPredictor,
+            decision: BanditUcbDecisionMaker::default(),
+            executor: SandboxedExecutor::new(default_allowed_actions()),
+            memory: MemoryFacade::new(),
+            learner: Learner::default(),
+        };
+        BanditKernel {
             inner: OmegaOrchestrator {
                 l0,
                 l1: L1CognitiveLayer::new(),
@@ -263,26 +295,32 @@ impl Kernel<MultiModalObserver, SandboxedExecutor> {
     }
 }
 
-impl Default for Kernel<MultiModalObserver, SandboxedExecutor> {
+impl Default for Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<O, E> Kernel<O, E>
+impl<O, D, E> Kernel<O, D, E>
 where
     O: Observer,
+    D: crate::l0::decision::DecisionMaker,
     E: Executor,
 {
-    pub fn with_adapters(observer: O, executor: E) -> Self {
-        Self::with_adapters_and_path(observer, executor, DEFAULT_STATE_PATH)
+    pub fn with_adapters(observer: O, executor: E, decision: D) -> Self {
+        Self::with_adapters_and_path(observer, executor, decision, DEFAULT_STATE_PATH)
     }
 
-    pub fn with_adapters_and_path(observer: O, executor: E, path: impl Into<PathBuf>) -> Self {
+    pub fn with_adapters_and_path(
+        observer: O,
+        executor: E,
+        decision: D,
+        path: impl Into<PathBuf>,
+    ) -> Self {
         let l0 = L0WorldLayer {
             observer,
             predictor: ModelBasedPredictor,
-            decision: ConstrainedDecisionMaker,
+            decision,
             executor,
             memory: MemoryFacade::new(),
             learner: Learner::default(),
@@ -907,6 +945,8 @@ mod tests {
         k.inner.l2.detector.pred_threshold = 0.3;
         k.inner.l2.detector.self_ref_threshold = 0.3;
         k.inner.l2.detector.cooldown_steps = 0;
+        // Enable L2 so it can modulate RuleEffect while self_modify stays off
+        k.set_l2_enabled(true);
         // Seed an active rule module so L2 can reach fixed-point alignment
         // without any L1 patch being committed (the benchmark does the same).
         // This is what lets L2 modulate RuleEffect while self_modify stays off.
