@@ -5,6 +5,7 @@ pub mod decision;
 pub mod executor;
 pub mod observer;
 pub mod predictor;
+pub mod bandit_decision;
 
 // Re-export async traits and adapters when async feature is enabled
 #[cfg(feature = "async")]
