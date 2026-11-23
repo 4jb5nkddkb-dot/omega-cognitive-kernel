@@ -193,6 +193,13 @@ impl AuditRecord {
     }
 }
 
+impl From<omega_cognitive_kernel::AuditRecord> for AuditRecord {
+    fn from(record: omega_cognitive_kernel::AuditRecord) -> Self {
+        serde_json::from_value(serde_json::to_value(record).expect("audit record serialization"))
+            .expect("compatible Python audit record")
+    }
+}
+
 /// Audit summary
 #[pyclass(get_all)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

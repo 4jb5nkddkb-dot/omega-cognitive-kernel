@@ -85,6 +85,7 @@ pub use persist::{KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
 pub use task::{
     run_bandit_task, run_l2_benchmark, run_l2_benchmark_scenario,
     run_l2_benchmark_scenario_with_gate, BanditReport, L2BenchmarkAggregate, L2BenchmarkReport,
+    L2PairedRun, PairedMeanDifference,
 };
 pub use types::*;
 

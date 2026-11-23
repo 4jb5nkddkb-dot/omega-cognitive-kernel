@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Correctness / verification
+- Document the current source's schema v5 state and add legacy-migration and Python snapshot coverage without changing the historical 0.6.0 schema-v2 release notes.
+- Return path/line/byte-offset errors for malformed audit records in Rust and Python; retain incomplete trailing records for subsequent polling.
+- Add per-seed paired L2 benchmark reports with descriptive 95% intervals so non-intervention differences cannot be mistaken for demonstrated L0 influence. Isolate task/tool-gate/audit-panel test state and benchmark sidecars in per-run directories.
+- Fix the Rust 1.74 Clippy gate, cover the active development branch in CI, and stop recursively deriving auto-commit subjects from previous commits.
+
 ## [0.6.0] — 2026-11-22
 
 ### Highlights

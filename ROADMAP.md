@@ -2,7 +2,7 @@
 
 This roadmap describes the next development sequence for Omega Cognitive Kernel based on the current source tree, Memory Bank, changelog, benchmarks, and the existing 0.5 roadmap.
 
-The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `2`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
+The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `5`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
 
 ## Planning principles
 
@@ -20,7 +20,7 @@ The current implementation provides a generic `Kernel<O, D, E>` over observer, d
 
 ### Known baseline gaps
 
-The UCB-based nonstationary benchmark treatment records a small positive task-performance delta, but the differing decision policies do not isolate L2's contribution. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
+The paired UCB nonstationary treatment records a small measured task-performance delta, but the current scenarios produce no executable L2 commits. This does not demonstrate an L2 benefit. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
 
 ## Phase 0 — Stabilize and release the current line
 
@@ -31,7 +31,7 @@ The UCB-based nonstationary benchmark treatment records a small positive task-pe
 ### Work items
 
 - Align `Cargo.toml`, Python package metadata, README, API notes, architecture notes, release notes, and tags around a single declared source/release story.
-- Update `docs/API_0.5.md` to cover schema v2, L1/L2 independent gates, L2 consequence feedback, rollback state, current status fields, and fail-closed persistence semantics.
+- Update `docs/API_0.5.md` to cover schema v5, L1/L2 independent gates, L2 consequence feedback, rollback state, current status fields, and fail-closed persistence semantics.
 - Update `ARCHITECTURE.md` to identify the current source baseline and schema version rather than the historical 0.5.1 label.
 - Complete the default, `--all-features`, Python, async, GUI, no-std, and WASM verification matrix in CI or document intentional exclusions.
 - Add release notes for the current source line and make `RELEASING.md` use version variables instead of stale historical branch/tag examples.
@@ -42,7 +42,7 @@ The UCB-based nonstationary benchmark treatment records a small positive task-pe
 
 - A clean checkout can run the documented Rust and Python verification commands.
 - The declared source version, Python version, package metadata, release notes, and installation examples agree.
-- API/architecture docs describe the actual schema v2 and current L2 behavior.
+- API/architecture docs describe the actual schema v5 and current L2 behavior.
 - L2 benchmark artifacts can be regenerated and compared across commits.
 - No release is presented as verified when a required matrix entry was skipped.
 
@@ -82,7 +82,7 @@ The UCB-based nonstationary benchmark treatment records a small positive task-pe
 - Improve Python parity for status, audit streaming, consequence feedback, L2 controls, and custom integration boundaries where safe; keep arbitrary Python callbacks out of the core until their safety model is specified.
 - Add integration examples for restart recovery, custom state paths, checkpoint/rollback, audit polling, and bounded tool execution.
 - Add a versioned configuration reference generated or checked against `KernelConfig` defaults.
-- Provide a migration guide for users moving from pre-v2 snapshots and older 0.5.x APIs.
+- Provide a migration guide for users moving from older snapshots and older 0.5.x APIs.
 
 ### Exit criteria
 

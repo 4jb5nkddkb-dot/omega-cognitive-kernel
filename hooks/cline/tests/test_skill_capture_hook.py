@@ -78,6 +78,10 @@ class AutoCommitTests(unittest.TestCase):
         self.assertEqual(auto_commit.changed_paths(work), [])
         self.assertIn("after", auto_commit.run(work, ["git", "show", "HEAD:tracked.txt"]).stdout)
         self.assertEqual(
+            auto_commit.run(work, ["git", "log", "-1", "--format=%s"]).stdout.strip(),
+            "chore: verify completed task changes",
+        )
+        self.assertEqual(
             auto_commit.run(work, ["git", "rev-parse", "HEAD"]).stdout,
             auto_commit.run(work, ["git", "rev-parse", "origin/main"]).stdout,
         )

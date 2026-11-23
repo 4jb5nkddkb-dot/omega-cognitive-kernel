@@ -4,7 +4,7 @@
 
 `benchmark-l2` compares two `BanditUcbDecisionMaker` kernels on the same seeded non-stationary two-armed bandit task. The only intentional policy difference is L2 enablement. UCB/L1 settings, detector and commit parameters, reward discount, persistence switches, and environment seeds are paired.
 
-The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline.
+The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline. The top-level `paired_runs` array retains both raw `BanditReport` values for each seed, the paired reward/best-arm/error deltas, and `treatment_influenced_l0`. The last flag is true only when an L2 commit, applied policy, or effect nudge occurred; cache hits and proposals alone do not qualify. `l0_influenced_runs` counts these runs. `paired_reward_difference` and `paired_best_arm_difference` report the per-seed mean difference and a 95% Student-t interval (using a normal approximation above 30 degrees of freedom); intervals are `null` with fewer than two runs. These descriptive intervals do not turn non-intervention differences into causal evidence. Use these records to diagnose seed-specific differences before attributing a result to L2.
 
 ## Run
 
@@ -137,8 +137,6 @@ State schema v5 stores the resident controller, online Dayan state, bounded cach
 
 ## Historical results
 
-The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally not used as current acceptance evidence.
-
 The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally omitted rather than presented as current acceptance evidence.
 
 ## Current paired result (2026-11-23)
@@ -151,7 +149,7 @@ A release-build run used 20 seeds beginning at `20261115`, with 12 episodes × 1
 | `regime_shift` | 0.787153 → 0.787153 | 0.877431 → 0.877431 | 0.00 / 0.00 | 12.85 | `null` |
 | `cyclic_shift` | 0.584028 → 0.584028 | 0.526736 → 0.526736 | 0.00 / 0.00 | 10.00 | `null` |
 
-The regime and cyclic runs recovered with the same mean external latency in both branches (29.85 and 6.05 steps respectively). Proposals were vetoed by the Lyapunov gate; there were no executable commits. Cache hits therefore provide **no evidence of warm-start benefit**. The tiny nonstationary reward difference is not accompanied by L0 policy intervention and is not an L2 effectiveness claim. Prediction-error improvement also remains unproven.
+The regime and cyclic runs recovered with the same mean external latency in both branches (29.85 and 6.05 steps respectively). Proposals were vetoed by the Lyapunov gate; there were no executable commits. Cache hits therefore provide **no evidence of warm-start benefit**. The tiny nonstationary reward difference is not accompanied by L0 policy intervention and is not an L2 effectiveness claim. Prediction-error improvement also remains unproven. In the current per-seed report, only seed `20261120` has a nonzero reward delta (`0.01388888888888884`), while all 20 runs have `treatment_influenced_l0 = false`.
 
 Reproduce with the recommended command, replacing `nonstationary` with `regime_shift` and `cyclic_shift` for the other two required runs. Retain the JSON as a CI artifact when publishing trend data. Continue to compare other seed ranges before making broader effectiveness claims or enabling L2 by default.
 

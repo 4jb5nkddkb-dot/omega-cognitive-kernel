@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_one_to_two() {
+    fn migrates_version_one_to_current() {
         // A v1 snapshot lacks the v2 safety fields entirely; they must default.
         let path = temp_dir().join(format!("omega-v1-{}.json", crate::new_uuid()));
         let raw = r#"{
@@ -501,6 +501,30 @@ mod tests {
         assert!(!loaded.self_modify_enabled);
         assert!(loaded.l2_rollback_effect.is_none());
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrates_v3_and_v4_without_inventing_l2_permission() {
+        for version in [3, 4] {
+            let mut value = serde_json::to_value(KernelSnapshot::default()).unwrap();
+            value["version"] = serde_json::json!(version);
+            value["l2_enabled"] = serde_json::json!(false);
+            value["l2_controller"]["gate_state"] = serde_json::json!("ACTIVE");
+            value["l2_controller"]["trust"]["alpha"] = serde_json::json!(0.9);
+            value["l2_pending_policy"]["committed"] = serde_json::json!(true);
+            value["l2_applied_policy"]["committed"] = serde_json::json!(true);
+
+            let migrated = KernelSnapshot::from_json(&value.to_string()).unwrap();
+            assert_eq!(migrated.version, CURRENT_SCHEMA_VERSION);
+            assert!(!migrated.l2_enabled);
+            assert_eq!(
+                migrated.l2_controller.gate_state,
+                crate::l2::control::L2GateState::Dormant
+            );
+            assert_eq!(migrated.l2_controller.trust.alpha, 0.0);
+            assert!(!migrated.l2_pending_policy.committed);
+            assert!(!migrated.l2_applied_policy.committed);
+        }
     }
 
     #[test]

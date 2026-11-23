@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'L2改进']
   pull_request:
     branches: [main]
   workflow_dispatch:

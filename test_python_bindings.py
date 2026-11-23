@@ -137,11 +137,28 @@ def test_schema_version_is_current(kernel):
     kernel.run("schema goal", 1)
     kernel.save()
     payload = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
-    # Schema v2 adds self_modify_enabled, steps_since_last_patch, l2_rollback_effect.
-    assert payload["version"] == 2
+    # Schema v5 retains the earlier safety fields and adds resident L2 state.
+    assert payload["version"] == 5
     assert payload["self_modify_enabled"] is False
     assert "steps_since_last_patch" in payload
     assert "l2_rollback_effect" in payload
+    assert "l2_controller" in payload
+    assert "l2_pending_policy" in payload
+    assert "l2_applied_policy" in payload
+    assert "bandit_config" in payload
+
+
+def test_audit_log_reports_corrupt_records(state_path):
+    log = ok.AuditLog.beside_state(str(state_path))
+    audit_path = state_path.parent / "audit.jsonl"
+    audit_path.write_text("{not-json}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="malformed audit record.*line 1"):
+        log.read_all()
+    with pytest.raises(ValueError, match="malformed audit record.*line 1"):
+        log.poll_after(0)
+    with pytest.raises(ValueError, match="malformed audit record.*line 1"):
+        log.summarize()
 
 
 def test_self_modify_flag_survives_restart(state_path):

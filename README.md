@@ -44,7 +44,7 @@ L1 is disabled by default. The patch metadata may contain descriptive code and e
 
 L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it applies bounded changes to biases, constraints, and `RuleEffect`. L2 stores the pre-commit effect and accepts later reward/error/risk feedback through `observe_l2_consequence`.
 
-L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain for the intended task. The current nonstationary UCB treatment has a small positive delta against its constrained-decision baseline, but it does not isolate L2's contribution or justify changing the default. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
+L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain for the intended task. The current nonstationary paired UCB treatment has a small measured delta, but no executable L2 commits occurred. It therefore does not establish an L2 benefit or justify changing the default. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
 
 ## Installation
 
@@ -201,11 +201,11 @@ Given a state path such as `.omega/state.json`, the runtime stores:
 └── checkpoints/        # full rollback snapshots
 ```
 
-The current on-disk schema is version `2`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, L2 detector/fixed-point state, and the pre-commit L2 rollback effect. Older v0/v1 snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
+The current on-disk schema is version `5`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, and the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
 
-State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored.
+State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored. These failures do not roll back an external action that an executor already performed; custom executors need their own timeout, idempotency, and recovery policy.
 
-The audit stream includes `Step`, `PatchAccepted`, `PatchRejected`, `Checkpoint`, `Rollback`, `TaskEpisode`, tool allow/deny events, fixed-point transitions, and L2 modulation proposal/commit events. `set_event_hook` is invoked only after the related audit record has been appended successfully.
+The audit stream includes `Step`, `PatchAccepted`, `PatchRejected`, `Checkpoint`, `Rollback`, `TaskEpisode`, tool allow/deny events, fixed-point transitions, and L2 modulation proposal/commit events. `set_event_hook` is invoked only after the related audit record has been appended successfully. Reading, summarizing, or polling malformed complete JSONL records returns an error with the path, line, and byte offset instead of silently dropping events. Polling retains an incomplete trailing line for a later read.
 
 Trajectory replay reads JSONL and reports row count, accepted patch count, first/last average error, action counts, and a selectable tail. It does not re-execute the world.
 

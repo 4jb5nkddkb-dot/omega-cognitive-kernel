@@ -5,7 +5,7 @@ name: Auto Commit Verified Changes
 # invent or auto-commit unfinished business logic.
 on:
   push:
-    branches: [main, fix/audit-tests]
+    branches: [main, fix/audit-tests, 'L2改进']
   workflow_dispatch:
 
 permissions:

@@ -103,6 +103,24 @@ pub struct L2BenchmarkAggregate {
     pub mean_residual_improvement: f64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PairedMeanDifference {
+    pub mean: f64,
+    pub ci95_low: Option<f64>,
+    pub ci95_high: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2PairedRun {
+    pub seed: u64,
+    pub baseline: BanditReport,
+    pub treatment: BanditReport,
+    pub delta_mean_reward: f64,
+    pub delta_best_arm_rate: f64,
+    pub delta_error_delta: f64,
+    pub treatment_influenced_l0: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct L2BenchmarkReport {
     pub scenario: String,
@@ -115,6 +133,11 @@ pub struct L2BenchmarkReport {
     pub delta_mean_reward: f64,
     pub delta_best_arm_rate: f64,
     pub delta_error_decrease_rate: f64,
+    pub paired_reward_difference: PairedMeanDifference,
+    pub paired_best_arm_difference: PairedMeanDifference,
+    pub l0_influenced_runs: u32,
+    /// Per-seed evidence for diagnosing differences that occur without a commit.
+    pub paired_runs: Vec<L2PairedRun>,
 }
 
 struct Rng {
@@ -638,13 +661,40 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
 }
 
 fn cleanup_benchmark_files(state_path: &std::path::Path) {
-    let parent = state_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let _ = std::fs::remove_file(state_path);
-    let _ = std::fs::remove_file(parent.join("audit.jsonl"));
-    let _ = std::fs::remove_file(parent.join("trajectory.jsonl"));
-    let _ = std::fs::remove_dir_all(parent.join("checkpoints"));
+    if let Some(parent) = state_path.parent() {
+        let _ = std::fs::remove_dir_all(parent);
+    }
+}
+
+fn paired_difference(differences: &[f64]) -> PairedMeanDifference {
+    let n = differences.len() as f64;
+    let mean = differences.iter().sum::<f64>() / n;
+    if differences.len() < 2 {
+        return PairedMeanDifference {
+            mean,
+            ci95_low: None,
+            ci95_high: None,
+        };
+    }
+    let variance = differences
+        .iter()
+        .map(|difference| (difference - mean).powi(2))
+        .sum::<f64>()
+        / (n - 1.0);
+    // Student t critical values (df=1..30, two-sided 95%); normal for df>30.
+    const T95: [f64; 30] = [
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160,
+        2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056,
+        2.052, 2.048, 2.045, 2.042,
+    ];
+    let df = differences.len() - 1;
+    let critical = T95.get(df - 1).copied().unwrap_or(1.96);
+    let half_width = critical * (variance / n).sqrt();
+    PairedMeanDifference {
+        mean,
+        ci95_low: Some(mean - half_width),
+        ci95_high: Some(mean + half_width),
+    }
 }
 
 /// Compare identical seeded bandit runs with L2 interventions disabled/enabled.
@@ -707,17 +757,26 @@ pub fn run_l2_benchmark_scenario_with_gate(
         }
     };
     let runs = runs.max(1);
-    let mut baseline = Vec::with_capacity(runs as usize);
-    let mut treatment = Vec::with_capacity(runs as usize);
+    let mut paired_runs = Vec::with_capacity(runs as usize);
 
     for i in 0..runs {
         let run_seed = seed.wrapping_add(i as u64);
-        let base_path = temp_dir().join(format!(
-            "omega-l2-benchmark-{}-base.json",
+        let base_dir = temp_dir().join(format!(
+            "omega-l2-benchmark-{}-{}-base",
+            std::process::id(),
             crate::new_uuid()
         ));
-        let treatment_path =
-            temp_dir().join(format!("omega-l2-benchmark-{}-l2.json", crate::new_uuid()));
+        let treatment_dir = temp_dir().join(format!(
+            "omega-l2-benchmark-{}-{}-l2",
+            std::process::id(),
+            crate::new_uuid()
+        ));
+        std::fs::create_dir_all(&base_dir)
+            .map_err(|error| crate::error::OmegaError::Persist(error.to_string()))?;
+        std::fs::create_dir_all(&treatment_dir)
+            .map_err(|error| crate::error::OmegaError::Persist(error.to_string()))?;
+        let base_path = base_dir.join("state.json");
+        let treatment_path = treatment_dir.join("state.json");
 
         let mut base = Kernel::with_bandit_ucb(&base_path);
         let mut l2 = Kernel::with_bandit_ucb(&treatment_path);
@@ -765,26 +824,58 @@ pub fn run_l2_benchmark_scenario_with_gate(
             state.discount_factor = 0.85;
             base.inner.l0.decision.restore(state);
         }
-        baseline.push(run_bandit_task_seeded_scenario(
+        let base_report = run_bandit_task_seeded_scenario(
             &mut base,
             episodes,
             steps_per_episode,
             run_seed,
             scenario,
-        )?);
+        )?;
         cleanup_benchmark_files(&base_path);
-        treatment.push(run_bandit_task_seeded_scenario(
+        let treatment_report = run_bandit_task_seeded_scenario(
             &mut l2,
             episodes,
             steps_per_episode,
             run_seed,
             scenario,
-        )?);
+        )?;
         cleanup_benchmark_files(&treatment_path);
+        paired_runs.push(L2PairedRun {
+            seed: run_seed,
+            delta_mean_reward: treatment_report.mean_reward - base_report.mean_reward,
+            delta_best_arm_rate: treatment_report.best_arm_rate - base_report.best_arm_rate,
+            delta_error_delta: (treatment_report.final_avg_error
+                - treatment_report.initial_avg_error)
+                - (base_report.final_avg_error - base_report.initial_avg_error),
+            treatment_influenced_l0: treatment_report.l2_commits > 0
+                || treatment_report.committed_policies_applied > 0
+                || treatment_report.l2_nudges > 0,
+            baseline: base_report,
+            treatment: treatment_report,
+        });
     }
 
+    let baseline: Vec<_> = paired_runs.iter().map(|run| run.baseline.clone()).collect();
+    let treatment: Vec<_> = paired_runs
+        .iter()
+        .map(|run| run.treatment.clone())
+        .collect();
     let baseline = aggregate(&baseline);
     let treatment = aggregate(&treatment);
+    let reward_differences: Vec<_> = paired_runs
+        .iter()
+        .map(|run| run.delta_mean_reward)
+        .collect();
+    let best_arm_differences: Vec<_> = paired_runs
+        .iter()
+        .map(|run| run.delta_best_arm_rate)
+        .collect();
+    let paired_reward_difference = paired_difference(&reward_differences);
+    let paired_best_arm_difference = paired_difference(&best_arm_differences);
+    let l0_influenced_runs = paired_runs
+        .iter()
+        .filter(|run| run.treatment_influenced_l0)
+        .count() as u32;
     Ok(L2BenchmarkReport {
         scenario: scenario.into(),
         episodes,
@@ -794,8 +885,12 @@ pub fn run_l2_benchmark_scenario_with_gate(
         delta_mean_reward: treatment.mean_reward - baseline.mean_reward,
         delta_best_arm_rate: treatment.best_arm_rate - baseline.best_arm_rate,
         delta_error_decrease_rate: treatment.error_decrease_rate - baseline.error_decrease_rate,
+        paired_reward_difference,
+        paired_best_arm_difference,
+        l0_influenced_runs,
         baseline_l2_disabled: baseline,
         treatment_l2_enabled: treatment,
+        paired_runs,
     })
 }
 
@@ -804,9 +899,20 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
 
+    fn test_path(label: &str) -> std::path::PathBuf {
+        let dir = temp_dir().join(format!(
+            "omega-task-{}-{}-{}",
+            std::process::id(),
+            label,
+            crate::new_uuid()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("state.json")
+    }
+
     #[test]
     fn bandit_runs() {
-        let path = temp_dir().join(format!("omega-bandit-{}.json", crate::new_uuid()));
+        let path = test_path("bandit");
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         let report = run_bandit_task_seeded(&mut k, 4, 3, 42).unwrap();
@@ -818,7 +924,7 @@ mod tests {
 
     #[test]
     fn reward_feeds_strategy_memory() {
-        let path = temp_dir().join(format!("omega-rw-{}.json", crate::new_uuid()));
+        let path = test_path("reward");
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         k.auto_checkpoint_on_patch = false;
@@ -833,8 +939,8 @@ mod tests {
 
     #[test]
     fn seeded_bandit_is_deterministic() {
-        let p1 = temp_dir().join(format!("omega-d1-{}.json", crate::new_uuid()));
-        let p2 = temp_dir().join(format!("omega-d2-{}.json", crate::new_uuid()));
+        let p1 = test_path("deterministic-a");
+        let p2 = test_path("deterministic-b");
         let mut k1 = Kernel::with_state_path(&p1);
         let mut k2 = Kernel::with_state_path(&p2);
         k1.autosave = false;
@@ -852,7 +958,7 @@ mod tests {
 
     #[test]
     fn bandit_reports_strategy_decay_metrics() {
-        let path = temp_dir().join(format!("omega-decay-{}.json", crate::new_uuid()));
+        let path = test_path("decay");
         let mut k = Kernel::with_state_path(&path);
         k.autosave = false;
         k.auto_checkpoint_on_patch = false;
@@ -893,6 +999,21 @@ mod tests {
         assert!(report.treatment_l2_enabled.mean_dwell_hold_count > 0.0);
         // A proposal/cache hit is not evidence that L2 influenced L0. Any
         // actual commit must be attributed to its immutable applied snapshot.
+        assert_eq!(report.paired_reward_difference.ci95_low, None);
+        assert_eq!(report.paired_reward_difference.ci95_high, None);
+        assert_eq!(report.l0_influenced_runs, 0);
+        assert_eq!(report.paired_runs.len(), 1);
+        let paired = &report.paired_runs[0];
+        assert_eq!(paired.seed, 42);
+        assert_eq!(
+            paired.delta_mean_reward,
+            paired.treatment.mean_reward - paired.baseline.mean_reward
+        );
+        assert_eq!(
+            paired.delta_best_arm_rate,
+            paired.treatment.best_arm_rate - paired.baseline.best_arm_rate
+        );
+        assert!(!paired.treatment_influenced_l0);
         assert!(
             report.treatment_l2_enabled.mean_committed_policies_applied
                 <= report.treatment_l2_enabled.mean_l2_commits

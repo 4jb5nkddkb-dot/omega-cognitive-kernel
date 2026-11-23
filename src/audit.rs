@@ -171,6 +171,13 @@ pub struct AuditLog {
 }
 
 impl AuditLog {
+    fn malformed_record(&self, line: usize, offset: u64, error: serde_json::Error) -> OmegaError {
+        OmegaError::Persist(format!(
+            "malformed audit record in {} at line {line}, byte offset {offset}: {error}",
+            self.path.display()
+        ))
+    }
+
     pub fn beside_state(state_path: &Path) -> Self {
         let path = state_path
             .parent()
@@ -205,17 +212,28 @@ impl AuditLog {
         Ok(rows)
     }
 
+    /// Read and validate every complete JSONL record.
+    ///
+    /// A malformed trailing line is an error here; use `poll_after` to retain
+    /// an incomplete trailing record while a writer is still appending.
     pub fn read_all(&self) -> Result<Vec<AuditRecord>> {
         if !self.path.exists() {
             return Ok(vec![]);
         }
         let data =
             fs::read_to_string(&self.path).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        let rows: Vec<AuditRecord> = data
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str(l).ok())
-            .collect();
+        let mut rows = Vec::new();
+        let mut offset = 0u64;
+        for (index, line) in data.split_inclusive('\n').enumerate() {
+            let line_number = index + 1;
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if !trimmed.trim().is_empty() {
+                let record = serde_json::from_str(trimmed)
+                    .map_err(|error| self.malformed_record(line_number, offset, error))?;
+                rows.push(record);
+            }
+            offset += line.len() as u64;
+        }
         Ok(rows)
     }
 
@@ -253,7 +271,7 @@ impl AuditLog {
 
         let mut rows = Vec::new();
         let mut consumed = 0usize;
-        for line in buf.split_inclusive('\n') {
+        for (index, line) in buf.split_inclusive('\n').enumerate() {
             let trimmed = line.trim_end_matches(['\r', '\n']);
             if trimmed.is_empty() {
                 consumed += line.len();
@@ -263,9 +281,10 @@ impl AuditLog {
             if !line.ends_with('\n') {
                 break;
             }
-            if let Ok(rec) = serde_json::from_str::<AuditRecord>(trimmed) {
-                rows.push(rec);
-            }
+            let record = serde_json::from_str::<AuditRecord>(trimmed).map_err(|error| {
+                self.malformed_record(index + 1, offset + consumed as u64, error)
+            })?;
+            rows.push(record);
             consumed += line.len();
         }
         let new_offset = offset + consumed as u64;
@@ -300,6 +319,75 @@ mod tests {
         let sum = log.summarize().unwrap();
         assert_eq!(sum.steps, 1);
         assert_eq!(sum.action_counts[0].0, "observe");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn malformed_records_are_not_silently_dropped() {
+        let path = temp_dir().join(format!("omega-corrupt-{}.jsonl", crate::new_uuid()));
+        fs::write(&path, b"{not-json}\n").unwrap();
+        let log = AuditLog { path: path.clone() };
+
+        let error = log.read_all().unwrap_err().to_string();
+        assert!(error.contains("line 1"), "{error}");
+        assert!(error.contains("byte offset 0"), "{error}");
+        let error = log.poll_after(0).unwrap_err().to_string();
+        assert!(error.contains("line 1"), "{error}");
+        assert!(log.summarize().is_err());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn poll_after_reports_corruption_with_absolute_offset() {
+        let path = temp_dir().join(format!(
+            "omega-tail-{}-{}.jsonl",
+            std::process::id(),
+            crate::new_uuid()
+        ));
+        let log = AuditLog { path: path.clone() };
+        log.append(AuditEvent::Step {
+            step: 1,
+            goal: "g".into(),
+            action: "observe".into(),
+            avg_err: 0.5,
+            damping: 1.0,
+        })
+        .unwrap();
+        let offset = log.byte_len().unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"{not-json}\n")
+            .unwrap();
+        let error = log.poll_after(0).unwrap_err().to_string();
+        assert!(error.contains("line 2"), "{error}");
+        assert!(error.contains(&format!("byte offset {offset}")), "{error}");
+
+        log.append(AuditEvent::Step {
+            step: 2,
+            goal: "g".into(),
+            action: "explore".into(),
+            avg_err: 0.4,
+            damping: 1.0,
+        })
+        .unwrap();
+        let complete = fs::read_to_string(&path).unwrap();
+        let partial = complete.trim_end().to_string();
+        fs::write(&path, partial).unwrap();
+        let error = log.poll_after(0).unwrap_err().to_string();
+        assert!(error.contains("line 2"), "{error}");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn poll_after_keeps_an_incomplete_trailing_record() {
+        let path = temp_dir().join(format!("omega-partial-{}.jsonl", crate::new_uuid()));
+        fs::write(&path, b"{\"ts\":").unwrap();
+        let log = AuditLog { path: path.clone() };
+        let (rows, offset) = log.poll_after(0).unwrap();
+        assert!(rows.is_empty());
+        assert_eq!(offset, 0);
         let _ = fs::remove_file(&path);
     }
 

@@ -1,7 +1,7 @@
 # Architecture — Omega Cognitive Kernel
 
 **Source baseline:** `0.6.0`
-**State schema:** `2`
+**State schema:** `5`
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
 ```text
@@ -102,7 +102,7 @@ consequence_score =
 
 A score below `-0.05` marks a negative consequence, extends cooldown, leaves fixed-point mode, and can activate defensive mode after repeated negatives. The saved `rollback_effect` is returned when the negative consequence qualifies. Positive consequences increase stable consequence steps, clear negative streaks, and can recover defensive mode after a strong enough result.
 
-## Persistence model and schema v2
+## Persistence model and schema v5
 
 The default state path is `.omega/state.json`. Sidecars are placed beside it:
 
@@ -114,11 +114,11 @@ The default state path is `.omega/state.json`. Sidecars are placed beside it:
 └── checkpoints/        # complete rollback snapshots
 ```
 
-`KernelSnapshot` persists total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L2 detector/fixed-point/consequence state, L1 self-modification state, patch cooldown, and `l2_rollback_effect`.
+`KernelSnapshot` persists total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L1 self-modification/cooldown state, UCB decision state, and the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots.
 
-Loading migrates v0 or missing-version snapshots through v1 and then to v2. Missing v2 safety fields use safe defaults: L1 disabled, a warm patch cooldown, and no rollback effect. A snapshot with a version newer than the supported schema is rejected. A schema bump requires a migration function, compatibility tests, and release documentation.
+Loading migrates v0 or missing-version snapshots through v1, v2, v3, and v4 to v5. Missing legacy safety fields default to L1/L2 disabled, a warm patch cooldown, no rollback effect, and `KEEP_L0` policy snapshots. Migrating with L2 disabled clears any restored pending/applied intervention and forces the controller dormant. A snapshot with a version newer than the supported schema is rejected. A schema bump requires a migration function, compatibility tests, and release documentation.
 
-Saving serializes schema v2 to a same-directory temporary file, call `sync_all`, and atomically renames it over the state path. Temporary files are removed on failure. Audit append, trajectory write, and autosave errors propagate through `Kernel::step`; a step must not report success after dropping a durable transition.
+Saving serializes schema v5 to a same-directory temporary file, calls `sync_all`, and atomically renames it over the state path. Temporary files are removed on failure. Audit append, trajectory write, and autosave errors propagate through `Kernel::step`; a step must not report success after dropping a durable transition. External execution happens before these writes, so a returned error cannot imply that an executor's side effect was rolled back.
 
 ## Audit and replay ordering
 
@@ -134,7 +134,7 @@ Step
 -> autosave, if enabled
 ```
 
-In-process event hooks fire only after each individual audit append succeeds. External consumers can use `AuditLog::byte_len` and `poll_after` to read complete JSONL records from a byte cursor; incomplete trailing lines are retained for a later poll and file truncation causes resynchronization.
+In-process event hooks fire only after each individual audit append succeeds. External consumers can use `AuditLog::byte_len` and `poll_after` to read complete JSONL records from a byte cursor; incomplete trailing lines are retained for a later poll and file truncation causes resynchronization. Malformed complete records return a path, line, and byte-offset error rather than being silently discarded.
 
 Trajectory replay summarizes existing JSONL rows without re-executing the world. It reports row/patch counts, first/last average error, action counts, and a tail of step/action/patch/error/goal fields.
 

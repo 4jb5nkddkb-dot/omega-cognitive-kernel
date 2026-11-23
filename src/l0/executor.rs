@@ -516,7 +516,13 @@ mod tests {
     fn tool_gate_denies_dangerous_tool() {
         use crate::audit::AuditLog;
         use std::env::temp_dir;
-        let path = temp_dir().join(format!("omega-gate-{}.json", crate::new_uuid()));
+        let dir = temp_dir().join(format!(
+            "omega-gate-{}-{}",
+            std::process::id(),
+            crate::new_uuid()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
         let audit = AuditLog::beside_state(&path);
         let mut gate = ToolGateExecutor::new(["search_docs".into(), "http_get".into()])
             .deny(["delete_database".into(), "shell_exec".into()])
@@ -528,7 +534,7 @@ mod tests {
         let rows = AuditLog::beside_state(&path).read_all().unwrap();
         assert!(rows.len() >= 2);
         let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
