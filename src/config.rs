@@ -113,6 +113,114 @@ pub struct KernelConfig {
     pub dump_trajectory: bool,
     /// Hysteresis and consequence costs for UCB-backed bandit decisions.
     pub bandit: crate::types::BanditConfig,
+    /// Resident L2 controller. Monitoring is always on; the intervention
+    /// permission remains false until explicitly enabled.
+    pub l2: L2Config,
+}
+
+/// Pure-numeric resident-control parameters. Bounds are checked when applied
+/// to the controller so untrusted configuration cannot invalidate the safety
+/// certificate or EXP3 support assumptions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct L2Config {
+    pub enabled: bool,
+    pub commit_threshold: f64,
+    pub commit_cooldown_steps: u64,
+    pub negative_reward_required: u32,
+    pub alpha_max: f64,
+    pub alpha_rise_rate: f64,
+    pub trust_cooldown_steps: u32,
+    pub error_margin: f64,
+    pub reward_drop_margin: f64,
+    pub rollback_wakeup: u32,
+    pub calm_required: u32,
+    pub window_size: usize,
+    pub beta_max: f64,
+    pub lyapunov_gamma: f64,
+    pub lyapunov_epsilon: f64,
+    pub hedge_forgetting: f64,
+    pub hedge_learning_rate: f64,
+    pub dayan_relaxation: f64,
+    pub meta_cache_capacity: usize,
+    pub meta_cache_hit_threshold: f64,
+}
+
+impl Default for L2Config {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            commit_threshold: 0.82,
+            commit_cooldown_steps: 5,
+            negative_reward_required: 3,
+            alpha_max: 0.35,
+            alpha_rise_rate: 0.08,
+            trust_cooldown_steps: 3,
+            error_margin: 0.04,
+            reward_drop_margin: 0.18,
+            rollback_wakeup: 2,
+            calm_required: 3,
+            window_size: 16,
+            beta_max: 2.0,
+            lyapunov_gamma: 0.05,
+            lyapunov_epsilon: 0.01,
+            hedge_forgetting: 0.97,
+            hedge_learning_rate: 0.35,
+            dayan_relaxation: 0.35,
+            meta_cache_capacity: 16,
+            meta_cache_hit_threshold: 0.78,
+        }
+    }
+}
+
+fn finite_or(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
+}
+
+impl L2Config {
+    pub fn apply_to(&self, layer: &mut crate::l2::L2MetaLayer) {
+        layer.enabled = self.enabled;
+        layer.commit_threshold = finite_or(self.commit_threshold, 0.82).clamp(0.0, 1.0);
+        layer.commit_cooldown_steps = self.commit_cooldown_steps.min(10_000);
+        layer.commit_cooldown_remaining = layer
+            .commit_cooldown_remaining
+            .min(layer.commit_cooldown_steps);
+        layer.negative_reward_required = self.negative_reward_required.max(1);
+        let controller = &mut layer.controller;
+        controller.trust.alpha_max = finite_or(self.alpha_max, 0.35).clamp(0.0, 0.35);
+        controller.trust.rise_rate = finite_or(self.alpha_rise_rate, 0.08).clamp(0.0, 0.35);
+        controller.trust.cooldown_steps = self.trust_cooldown_steps.min(10_000);
+        controller.trust.alpha = controller.trust.alpha.min(controller.trust.alpha_max);
+        controller.error_margin = finite_or(self.error_margin, 0.04).clamp(0.0, 1.0);
+        controller.reward_drop_margin = finite_or(self.reward_drop_margin, 0.18).clamp(0.0, 1.0);
+        controller.rollback_wakeup = self.rollback_wakeup.max(1);
+        controller.calm_required = self.calm_required.max(1);
+        controller.max_error_history = self.window_size.clamp(2, 1024);
+        controller.errors.truncate(controller.max_error_history);
+        controller.rewards.truncate(controller.max_error_history);
+        controller.beta_max = finite_or(self.beta_max, 2.0).clamp(0.0, 100.0);
+        controller.certificate.gamma = finite_or(self.lyapunov_gamma, 0.05).clamp(0.0, 1.0);
+        controller.certificate.epsilon = finite_or(self.lyapunov_epsilon, 0.01).clamp(0.0, 1.0);
+        controller.experts.forgetting = finite_or(self.hedge_forgetting, 0.97).clamp(0.0, 0.999999);
+        controller.experts.learning_rate =
+            finite_or(self.hedge_learning_rate, 0.35).clamp(0.0, 1.0);
+        controller.dayan_relaxation = finite_or(self.dayan_relaxation, 0.35).clamp(0.01, 1.0);
+        controller.cache.capacity = self.meta_cache_capacity.clamp(1, 256);
+        controller.cache.entries.truncate(controller.cache.capacity);
+        controller.cache.hit_threshold =
+            finite_or(self.meta_cache_hit_threshold, 0.78).clamp(0.0, 1.0);
+        if !self.enabled {
+            controller.gate_state = crate::l2::control::L2GateState::Dormant;
+            controller.retire_requested = false;
+            controller.trust.alpha = 0.0;
+            layer.pending_policy = crate::types::L2Policy::default();
+            layer.applied_policy = crate::types::L2Policy::default();
+        }
+    }
 }
 
 impl Default for KernelConfig {
@@ -129,6 +237,7 @@ impl Default for KernelConfig {
             self_modify_enabled: false,
             dump_trajectory: true,
             bandit: crate::types::BanditConfig::default(),
+            l2: L2Config::default(),
         }
     }
 }
@@ -145,6 +254,45 @@ impl KernelConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn l2_config_bounds_nonfinite_values_and_preserves_bandit_settings() {
+        let mut layer = crate::l2::L2MetaLayer::new();
+        let config = L2Config {
+            enabled: false,
+            commit_threshold: f64::NAN,
+            commit_cooldown_steps: u64::MAX,
+            alpha_max: f64::NAN,
+            alpha_rise_rate: f64::INFINITY,
+            error_margin: f64::NAN,
+            reward_drop_margin: f64::NEG_INFINITY,
+            beta_max: f64::NAN,
+            lyapunov_gamma: f64::NAN,
+            lyapunov_epsilon: f64::INFINITY,
+            hedge_forgetting: f64::NAN,
+            hedge_learning_rate: f64::INFINITY,
+            dayan_relaxation: f64::NAN,
+            meta_cache_hit_threshold: f64::NAN,
+            ..L2Config::default()
+        };
+        config.apply_to(&mut layer);
+        assert_eq!(layer.commit_threshold, 0.82);
+        assert_eq!(layer.commit_cooldown_steps, 10_000);
+        assert_eq!(layer.controller.trust.alpha_max, 0.35);
+        assert_eq!(layer.controller.trust.rise_rate, 0.08);
+        assert_eq!(layer.controller.error_margin, 0.04);
+        assert_eq!(layer.controller.reward_drop_margin, 0.18);
+        assert_eq!(layer.controller.beta_max, 2.0);
+        assert_eq!(layer.controller.certificate.gamma, 0.05);
+        assert_eq!(layer.controller.certificate.epsilon, 0.01);
+        assert_eq!(layer.controller.experts.forgetting, 0.97);
+        assert_eq!(layer.controller.experts.learning_rate, 0.35);
+        assert_eq!(layer.controller.dayan_relaxation, 0.35);
+        assert_eq!(layer.controller.cache.hit_threshold, 0.78);
+        assert!(!layer.enabled);
+        assert!(!layer.pending_policy.committed);
+        assert!(!layer.applied_policy.committed);
+    }
 
     #[test]
     fn intervention_strict_blocks_alternative() {

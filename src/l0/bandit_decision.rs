@@ -184,20 +184,22 @@ impl BanditUcbDecisionMaker {
     }
 
     fn candidate(&self) -> usize {
-        if !self.state.l2_policy.committed || self.state.l2_policy.beta <= 0.0 {
+        // Revalidate the immutable snapshot at the final injection boundary.
+        // Neither a stale restore nor a diagnostic gate/beta value can leak.
+        let policy = self.state.l2_policy.effective();
+        if !policy.committed {
             return if self.ucb(1) > self.ucb(0) { 1 } else { 0 };
         }
-        let policy = self.kl_policy();
-        // Only the greedy maximizer is executed; the full soft distribution is
-        // retained in params for deterministic audit/replay.
-        usize::from(policy[1] > policy[0])
+        let distribution = self.kl_policy();
+        // Execute the deterministic maximizer; retain the full distribution
+        // for replay and action-entropy fingerprints.
+        usize::from(distribution[1] > distribution[0])
     }
 
-    /// The closed-form optimizer is used only for an already validated commit.
-    /// In particular DORMANT, KEEP_L0, holds, vetoes, and cooldown all return
-    /// beta=0 here, so they cannot perturb either candidate selection or scores.
+    /// Exact solution of E[R] - beta KL(pi || prior) for a validated commit.
     pub fn kl_policy(&self) -> [f64; 2] {
-        if !self.state.l2_policy.committed || self.state.l2_policy.beta <= 0.0 {
+        let policy = self.state.l2_policy.effective();
+        if !policy.committed {
             return [
                 f64::from(self.ucb(0) >= self.ucb(1)),
                 f64::from(self.ucb(1) > self.ucb(0)),
@@ -215,18 +217,21 @@ impl BanditUcbDecisionMaker {
                 self.ucb(1)
             },
         ];
-        let mut prior = self.state.l2_policy.prior;
-        // L2 guides the local estimate rather than declaring an absolute best
-        // arm. The trust-scaled context term preserves the no-hard-switch rule.
-        if self.state.l2_policy.expert == 1 {
-            let incumbent = usize::from(self.ucb(1) > self.ucb(0));
+        let mut prior = policy.prior;
+        // STABILIZE favors the incumbent selected by unmodified L0, not a new
+        // incumbent selected using the very prior being constructed.
+        if policy.expert == 1 {
+            let incumbent = self
+                .state
+                .current_arm
+                .unwrap_or_else(|| usize::from(self.ucb(1) > self.ucb(0)));
             prior = if incumbent == 0 {
                 [0.9, 0.1]
             } else {
                 [0.1, 0.9]
             };
         }
-        crate::l2::control::kl_regularized_policy(rewards, prior, self.state.l2_policy.beta)
+        crate::l2::control::kl_regularized_policy(rewards, prior, policy.beta)
     }
 
     fn decide_arm(&mut self) -> L2DecisionRecord {
@@ -340,9 +345,9 @@ impl DecisionMaker for BanditUcbDecisionMaker {
                 .map_err(|e| crate::error::OmegaError::Memory(e.to_string()))?,
         );
         params.insert("rule_effect".into(), effect);
-        let policy = self.kl_policy();
-        params.insert("kl_policy".into(), serde_json::json!(policy));
-        params.insert("l2_policy".into(), serde_json::json!(self.state.l2_policy));
+        let applied = self.state.l2_policy.effective();
+        params.insert("kl_policy".into(), serde_json::json!(self.kl_policy()));
+        params.insert("l2_policy".into(), serde_json::json!(applied));
         Ok(vec![Action {
             name,
             params,
@@ -415,6 +420,15 @@ mod tests {
             (crate::l2::control::L2GateState::Active, true, 0.0, 0.3, 2),
             (crate::l2::control::L2GateState::Active, true, 2.0, 0.0, 2),
             (crate::l2::control::L2GateState::Active, true, 2.0, 0.3, 0),
+            // An active KEEP_L0 proposal cannot smuggle a nonzero prior.
+            (crate::l2::control::L2GateState::Dormant, true, 2.0, 0.3, 2),
+            (
+                crate::l2::control::L2GateState::Active,
+                true,
+                f64::NAN,
+                0.3,
+                2,
+            ),
         ] {
             let mut treatment = configured();
             treatment.set_l2_policy(crate::types::L2Policy {
@@ -454,7 +468,8 @@ mod tests {
             committed: true,
             expert: 2,
             gate_state: crate::l2::control::L2GateState::Active,
-            ..crate::types::L2Policy::default()
+            confidence: 0.9,
+            expert_probabilities: [0.05, 0.05, 0.85, 0.05],
         });
         dm.set_bandit_config(BanditConfig {
             switch_margin: 0.75,

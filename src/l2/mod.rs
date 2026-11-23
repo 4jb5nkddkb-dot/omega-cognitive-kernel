@@ -172,12 +172,7 @@ impl L2MetaLayer {
         let candidate_score = fp.score;
         let score_breakdown = fp.breakdown.clone();
         self.last_alignment_score = fp.score;
-        self.controller.residual = (1.0 - candidate_alignment).abs();
-        if self.controller.observations <= 1 {
-            self.controller.initial_residual = self.controller.residual;
-            self.controller.best_residual = self.controller.residual;
-        }
-        self.controller.best_residual = self.controller.best_residual.min(self.controller.residual);
+        self.controller.update_dayan(candidate_alignment);
 
         if !self.enabled {
             self.in_fixed_point = false;
@@ -242,8 +237,10 @@ impl L2MetaLayer {
             }
         }
         let can_propose = self.controller.gate_state == L2GateState::Active
-            && self.controller.trust.cooldown_remaining == 0;
+            && self.controller.trust.cooldown_remaining == 0
+            && !self.controller.retire_requested;
         if can_propose {
+            let probabilities = self.controller.experts.probabilities();
             let selected = if self.controller.meta_cache_hit {
                 (1..4)
                     .max_by(|a, b| {
@@ -281,7 +278,7 @@ impl L2MetaLayer {
                     && !self.controller.certificate.lyapunov_veto
                     && self.commit_cooldown_remaining == 0
                     && !self.defensive_mode
-                    && self.controller.model_confidence >= self.commit_threshold;
+                    && self.controller.model_confidence >= self.commit_threshold.clamp(0.0, 1.0);
                 if allowed {
                     self.pending_policy = crate::types::L2Policy {
                         prior: self.controller.prior(),
@@ -289,7 +286,7 @@ impl L2MetaLayer {
                         alpha: self.controller.trust.alpha,
                         committed: true,
                         expert: selected,
-                        expert_probabilities: self.controller.experts.probabilities(),
+                        expert_probabilities: probabilities,
                         gate_state: self.controller.gate_state,
                         confidence: self.controller.model_confidence,
                     };
@@ -368,7 +365,7 @@ impl L2MetaLayer {
             score_breakdown,
             effect_nudge: None,
             decision: None,
-            dayan_residual: (1.0 - candidate_alignment).abs(),
+            dayan_residual: self.controller.residual,
             gate_state: self.controller.gate_state,
             alpha: self.controller.trust.alpha,
             beta: if self.controller.gate_state == L2GateState::Dormant
@@ -474,6 +471,7 @@ mod tests {
             .active_code
             .insert("cognitive_rules".into(), "self bias damp".into());
         for _ in 0..5 {
+            layer.controller.feedback_settled = false;
             layer.controller.observe(
                 control::ControlFeedback {
                     error: 0.1,
@@ -485,6 +483,7 @@ mod tests {
                 L2Policy::default(),
             );
         }
+        layer.controller.feedback_settled = false;
         layer.controller.observe(
             control::ControlFeedback {
                 error: 0.9,
@@ -504,6 +503,7 @@ mod tests {
         );
         for _ in 0..5 {
             layer.controller.residual = 0.1;
+            layer.controller.feedback_settled = false;
             layer.controller.observe(
                 control::ControlFeedback {
                     error: 0.1,
@@ -543,6 +543,7 @@ mod tests {
         layer.controller.entropy_sum = 0.0;
         layer.controller.gate_state = control::L2GateState::Dormant;
         for _ in 0..5 {
+            layer.controller.feedback_settled = false;
             layer.controller.observe(
                 control::ControlFeedback {
                     error: 0.1,
@@ -554,6 +555,7 @@ mod tests {
                 L2Policy::default(),
             );
         }
+        layer.controller.feedback_settled = false;
         layer.controller.observe(
             control::ControlFeedback {
                 error: 0.9,

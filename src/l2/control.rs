@@ -113,12 +113,16 @@ impl ExpertAggregator {
         }
         KEEP_L0
     }
-    /// Inverse-propensity update for the selected expert. Every expert has
-    /// nonzero probability through `mixing`; unselected experts retain their
-    /// discounted credit (standard unbiased EXP3 sparse estimator, not an
-    /// assertion that an unobserved counterfactual reward was observed).
+    /// Inverse-propensity scoring (IPS) for the selected expert. Unselected
+    /// counterfactual rewards are not observed and therefore remain zero in
+    /// this sparse estimator: E[1{I=i} r/p_i | r_i] = r_i. Nonzero mixing gives
+    /// every expert support, while forgetting bounds the effective horizon.
+    /// Calling this standard IPS is not a claim of counterfactual observation.
     pub fn update_ips(&mut self, expert: usize, probabilities: [f64; 4], reward: f64) {
-        if expert >= 4 {
+        if expert >= 4
+            || !probabilities.iter().all(|p| p.is_finite() && *p > 0.0)
+            || (probabilities.iter().sum::<f64>() - 1.0).abs() > 1.0e-6
+        {
             return;
         }
         let reward = reward.clamp(0.0, 1.0);
@@ -126,7 +130,7 @@ impl ExpertAggregator {
             self.cumulative_reward[i] *= self.forgetting;
             self.weights[i] = (self.weights[i] * self.forgetting + 1.0e-12).max(1.0e-12);
         }
-        let estimate = reward / probabilities[expert].max(0.0125);
+        let estimate = reward / probabilities[expert].max(1.0e-6);
         self.cumulative_reward[expert] += estimate;
         self.weights[expert] *= libm::exp(self.learning_rate * estimate / 4.0);
         let maximum = self.weights.iter().copied().fold(1.0e-12, f64::max);
@@ -136,19 +140,30 @@ impl ExpertAggregator {
         self.last_probabilities = probabilities;
         self.rounds = self.rounds.saturating_add(1);
     }
-    pub fn warm_start(&mut self, weights: [f64; 4]) {
+    pub fn warm_start(&mut self, mut weights: [f64; 4]) {
+        // Never turn an untrusted or zero-valued cached weight into a zero
+        // probability: EXP3 support is required by the IPS estimator.
+        for weight in &mut weights {
+            if !weight.is_finite() {
+                *weight = 1.0e-12;
+            }
+            *weight = weight.max(1.0e-12);
+        }
         self.weights = weights;
         self.last_probabilities = self.probabilities();
     }
-    /// Diagnostic tracking-regret envelope for the discounted Hedge update;
-    /// assumptions and residual error are documented rather than hidden.
+    /// Diagnostic discounted-Hedge envelope, in reward units, under bounded
+    /// rewards and a comparator with `switches` changes. It is not an
+    /// unconditional dynamic-regret proof for the closed-loop environment:
+    /// IPS variance, model error, and environmental feedback are additional
+    /// assumptions that cannot be inferred from a benchmark score.
     pub fn tracking_regret_bound(&self, switches: u64) -> f64 {
         let horizon = self.rounds.max(1) as f64;
         let eta = self.learning_rate.max(1.0e-6);
-        (libm::log(4.0) / eta
-            + horizon * eta / 8.0
-            + (switches as f64 + 1.0) * (1.0 - self.forgetting) * horizon)
-            .max(0.0)
+        let effective_horizon = 1.0 / (1.0 - self.forgetting.clamp(0.0, 0.999999));
+        libm::log(4.0) / eta
+            + effective_horizon * eta / 8.0
+            + (switches as f64 + 1.0) * (1.0 - self.forgetting) * horizon
     }
 }
 
@@ -215,6 +230,7 @@ pub struct ResidentController {
     /// Normal recovery is finalized at consequence settlement. Until then
     /// the commit snapshot remains valid for execution and feedback.
     pub retire_requested: bool,
+    pub feedback_settled: bool,
     pub trust: TrustRegion,
     pub experts: ExpertAggregator,
     pub certificate: StabilityCertificate,
@@ -248,6 +264,10 @@ pub struct ResidentController {
     pub last_selected_expert: usize,
     pub last_reward: f64,
     pub residual: f64,
+    /// Residual relaxation state and its most recent frozen target. These
+    /// fields retain their v4 names for snapshot compatibility.
+    pub dayan_state: f64,
+    pub dayan_relaxation: f64,
     pub residual_ema: f64,
     pub previous_error: f64,
     pub residual_slope: f64,
@@ -263,7 +283,11 @@ impl Default for ResidentController {
         Self {
             gate_state: L2GateState::Dormant,
             retire_requested: false,
-            trust: TrustRegion::default(),
+            feedback_settled: false,
+            trust: TrustRegion {
+                cooldown_steps: 3,
+                ..TrustRegion::default()
+            },
             experts: ExpertAggregator::default(),
             certificate: StabilityCertificate::default(),
             cache: meta_cache::MetaCache::default(),
@@ -295,6 +319,8 @@ impl Default for ResidentController {
             last_selected_expert: KEEP_L0,
             last_reward: 0.5,
             residual: 1.0,
+            dayan_state: 0.0,
+            dayan_relaxation: 0.35,
             residual_ema: 1.0,
             previous_error: 0.0,
             residual_slope: 0.0,
@@ -312,14 +338,34 @@ impl ResidentController {
     /// `executed_expert = KEEP_L0` means no intervention was applied and the
     /// reward update uses L0's own selection propensity (IPS still works).
     pub fn observe(&mut self, feedback: ControlFeedback, policy: crate::types::L2Policy) {
+        if self.feedback_settled {
+            return;
+        }
+        self.feedback_settled = true;
+        self.meta_cache_hit = false;
+        if !(feedback.error.is_finite()
+            && feedback.reward.is_finite()
+            && feedback.consequence.is_finite()
+            && feedback
+                .kl_policy
+                .iter()
+                .all(|p| p.is_finite() && *p >= 0.0))
+        {
+            self.retire_requested = true;
+            self.trust.alpha = 0.0;
+            self.trust.cooldown_remaining = self.trust.cooldown_steps.max(2);
+            return;
+        }
         let error = feedback.error.clamp(0.0, 1.0);
         if self.observations > 0 {
             let error_delta = error - self.previous_error;
-            let measured = self.residual - self.residual_ema;
-            self.residual_ema = 0.75 * self.residual_ema + 0.25 * self.residual;
-            self.residual_slope = 0.8 * self.residual_slope + 0.2 * (measured - error_delta);
-            self.residual_slope = self.residual_slope.clamp(-0.5, 0.5);
-            self.model_confidence = (1.0 - (self.residual_slope - measured).abs()).clamp(0.0, 1.0);
+            let target_delta = self.residual_ema - self.previous_error;
+            self.residual_slope =
+                (0.8 * self.residual_slope + 0.2 * (target_delta - error_delta)).clamp(-0.5, 0.5);
+            self.model_confidence =
+                (1.0 - (self.residual_slope - target_delta).abs()).clamp(0.0, 1.0);
+        } else {
+            self.model_confidence = 1.0;
         }
         self.previous_error = error;
         if self.observations == 0 {
@@ -360,7 +406,8 @@ impl ResidentController {
             .sum::<f64>()
             / libm::log(2.0);
         self.entropy_sum += entropy;
-        let expert = policy.effective().expert;
+        let policy = policy.effective();
+        let expert = policy.expert;
         let probabilities = policy.expert_probabilities;
         self.experts
             .update_ips(expert, probabilities, feedback.reward);
@@ -386,16 +433,19 @@ impl ResidentController {
             feedback.consequence,
         );
         self.last_reward = feedback.reward;
-        if self.retire_requested {
-            return;
-        }
         if self.gate_state == L2GateState::Active && self.observations >= 4 {
             // A changed regime may have a new normal reward/error level. Once
             // the actual fixed-point residual is low and stable, raw baseline
             // offsets must not keep the controller awake forever.
-            let recovery = !rollback_surprise
-                && self.residual <= 0.18
-                && self.residual < self.episode_start_residual - 0.01;
+            let recovered_residual =
+                self.residual <= 0.18 && self.residual < self.episode_start_residual - 0.01;
+            // Recovery can mean either convergence from an actual perturbation
+            // or confirmation that the original alarm has subsided. Requiring
+            // a further decrease from an already tiny residual would keep a
+            // healthy controller permanently ACTIVE.
+            let calm_observation =
+                !surprise && self.residual <= 0.18 && feedback.consequence >= -0.05;
+            let recovery = !rollback_surprise && (recovered_residual || calm_observation);
             self.calm_streak = if recovery {
                 self.calm_streak.saturating_add(1)
             } else {
@@ -422,6 +472,9 @@ impl ResidentController {
     /// has been consumed. An unused pending commit keeps the gate snapshot
     /// valid until the next action and its consequence have both settled.
     pub fn finish_cycle(&mut self) {
+        if !self.feedback_settled {
+            return;
+        }
         if self.retire_requested {
             self.gate_state = L2GateState::Dormant;
             self.calm_streak = 0;
@@ -429,6 +482,7 @@ impl ResidentController {
             self.retire_requested = false;
             self.cached_this_episode = false;
         }
+        self.feedback_settled = false;
         self.window_rollbacks = 0;
         self.window_total = 0;
         self.entropy_sum = 0.0;
@@ -451,26 +505,63 @@ impl ResidentController {
         }
     }
     pub fn beta(&self) -> f64 {
-        if self.gate_state == L2GateState::Dormant || self.last_selected_expert == KEEP_L0 {
+        if self.gate_state == L2GateState::Dormant
+            || self.last_selected_expert == KEEP_L0
+            || self.retire_requested
+        {
             0.0
         } else {
             self.beta_max * self.trust.alpha / self.trust.alpha_max.max(1.0e-9)
                 * self.model_confidence
         }
     }
+    /// Predict one relaxation step from the current frozen target, then add
+    /// the declared expert's worst-case bounded disturbance. `error` is the
+    /// observation associated with the latest target; alpha only bounds
+    /// uncertainty, it is not treated as a guaranteed error reduction.
+    ///
+    /// This is a model-based one-step check, not a claim that an expert can
+    /// control the environment. For a frozen target, STABILIZE (which makes no
+    /// additional perturbation in this model) recovers exactly the contraction
+    /// `r+ = (1 - lambda) r`; EXPLORE/OBSERVE pay a transparent risk budget.
     pub fn predicted_residual(&self, error: f64, alpha: f64, expert: usize) -> f64 {
-        let direction = match expert {
-            1 => 1.0,
-            2 => -1.0,
-            3 => 0.35,
-            _ => 0.0,
+        let disturbance = match expert {
+            1 => 0.0,
+            2 => self.residual_control_gain.abs(),
+            3 => 0.35 * self.residual_control_gain.abs(),
+            _ => return f64::INFINITY,
         };
-        let predicted_error = (error - direction * alpha * 0.1).clamp(0.0, 1.0);
-        (self.residual
-            + self.residual_slope
-            + direction * alpha * self.residual_control_gain
-            + (self.ema_error - predicted_error))
-            .max(0.0)
+        let predicted = (1.0 - self.dayan_relaxation.clamp(0.01, 1.0)) * self.residual
+            + self.residual_slope.abs()
+            + alpha.clamp(0.0, 1.0) * disturbance
+            + (self.ema_error - error).abs().clamp(0.0, 1.0);
+        if predicted.is_finite() {
+            predicted
+        } else {
+            f64::INFINITY
+        }
+    }
+    /// One explicit fixed-point iteration on the residual:
+    /// `r+ = (1-lambda) r + lambda |target - previous_target|`.
+    /// The latest observation supplies the omega=dayan target. For a frozen
+    /// target and 0 < lambda <= 1 this is a contraction, hence V=r^2 decreases
+    /// by (1-lambda)^2. On a regime change the target may move, which is why a
+    /// separate single-step Lyapunov certificate guards every commit.
+    pub fn update_dayan(&mut self, target_alignment: f64) -> f64 {
+        let target = target_alignment.clamp(0.0, 1.0);
+        if self.observations == 0 {
+            self.residual_ema = target;
+            self.initial_residual = 1.0;
+            self.best_residual = 1.0;
+        }
+        let lambda = self.dayan_relaxation.clamp(0.01, 1.0);
+        self.dayan_state =
+            (1.0 - lambda) * self.dayan_state + lambda * (target - self.residual_ema).abs();
+        self.dayan_state = self.dayan_state.clamp(0.0, 1.0);
+        self.residual = self.dayan_state;
+        self.residual_ema = target;
+        self.best_residual = self.best_residual.min(self.residual);
+        self.residual
     }
     pub fn expert_weights(&self) -> HashMap<String, f64> {
         let p = self.experts.probabilities();
@@ -531,6 +622,129 @@ mod tests {
     }
 
     #[test]
+    fn malformed_feedback_fails_closed_without_learning() {
+        let mut controller = ResidentController {
+            gate_state: L2GateState::Active,
+            trust: TrustRegion {
+                alpha: 0.2,
+                ..TrustRegion::default()
+            },
+            ..ResidentController::default()
+        };
+        controller.observe(
+            ControlFeedback {
+                error: f64::NAN,
+                reward: 1.0,
+                rollback: false,
+                consequence: 0.0,
+                kl_policy: [0.5, 0.5],
+            },
+            L2Policy::default(),
+        );
+        assert_eq!(controller.observations, 0);
+        assert_eq!(controller.experts.rounds, 0);
+        assert_eq!(controller.trust.alpha, 0.0);
+        assert!(controller.retire_requested);
+        controller.finish_cycle();
+        assert_eq!(controller.gate_state, L2GateState::Dormant);
+    }
+
+    #[test]
+    fn prediction_contracts_without_disturbance_and_charges_expert_risk() {
+        let controller = ResidentController {
+            residual: 0.4,
+            dayan_state: 0.4,
+            residual_ema: 0.6,
+            ema_error: 0.2,
+            ..ResidentController::default()
+        };
+        let predicted = controller.predicted_residual(0.2, 0.2, 1);
+        assert!((predicted - 0.65 * 0.4).abs() < 1e-12);
+        assert!(!controller.certificate.check(0.4, predicted).lyapunov_veto);
+        let risky = controller.predicted_residual(0.2, 1.0, 2);
+        assert!(risky > predicted);
+        assert!(controller.certificate.check(0.4, risky).lyapunov_veto);
+        assert!(controller
+            .predicted_residual(0.2, 0.2, KEEP_L0)
+            .is_infinite());
+    }
+
+    #[test]
+    fn retirement_waits_for_feedback_settlement() {
+        let mut controller = ResidentController {
+            gate_state: L2GateState::Active,
+            retire_requested: true,
+            trust: TrustRegion {
+                alpha: 0.2,
+                ..TrustRegion::default()
+            },
+            ..ResidentController::default()
+        };
+        controller.finish_cycle();
+        assert_eq!(controller.gate_state, L2GateState::Active);
+        assert!(controller.retire_requested);
+        controller.feedback_settled = true;
+        controller.finish_cycle();
+        assert_eq!(controller.gate_state, L2GateState::Dormant);
+        assert!(!controller.retire_requested);
+        assert_eq!(controller.trust.alpha, 0.0);
+    }
+
+    #[test]
+    fn repeated_feedback_is_idempotent() {
+        let mut controller = ResidentController::default();
+        let feedback = ControlFeedback {
+            error: 0.4,
+            reward: 0.8,
+            rollback: false,
+            consequence: 0.1,
+            kl_policy: [0.8, 0.2],
+        };
+        controller.observe(feedback, L2Policy::default());
+        let observations = controller.observations;
+        let rounds = controller.experts.rounds;
+        let ema = controller.ema_error;
+        controller.observe(feedback, L2Policy::default());
+        assert_eq!(controller.observations, observations);
+        assert_eq!(controller.experts.rounds, rounds);
+        assert_eq!(controller.ema_error, ema);
+    }
+
+    #[test]
+    fn fixed_point_residual_contracts_for_frozen_target() {
+        let mut controller = ResidentController {
+            residual: 0.8,
+            dayan_state: 0.8,
+            residual_ema: 0.8,
+            ..ResidentController::default()
+        };
+        let mut previous = f64::INFINITY;
+        for step in 0..8 {
+            let residual = controller.update_dayan(0.8);
+            assert!(
+                residual < previous,
+                "step={step} residual={residual} previous={previous} state={} target={} lambda={}",
+                controller.dayan_state,
+                controller.residual_ema,
+                controller.dayan_relaxation,
+            );
+            controller.observe(
+                ControlFeedback {
+                    error: 0.1,
+                    reward: 1.0,
+                    rollback: false,
+                    consequence: 0.1,
+                    kl_policy: [1.0, 0.0],
+                },
+                L2Policy::default(),
+            );
+            controller.finish_cycle();
+            previous = residual;
+        }
+        assert!(previous < 0.03);
+    }
+
+    #[test]
     fn gate_wakes_on_error_and_returns_to_dormant_after_recovery() {
         fn feedback(error: f64, reward: f64) -> ControlFeedback {
             ControlFeedback {
@@ -545,6 +759,7 @@ mod tests {
         let policy = L2Policy::default();
         for _ in 0..5 {
             controller.observe(feedback(0.1, 1.0), policy);
+            controller.finish_cycle();
             controller.residual = 0.3;
             controller.episode_start_residual = 0.6;
         }
@@ -554,11 +769,14 @@ mod tests {
         controller.residual = 0.6;
         controller.episode_start_residual = 0.6;
         for _ in 0..=controller.calm_required {
-            controller.observe(feedback(0.1, 1.0), policy);
             controller.residual = 0.1;
+            controller.observe(feedback(0.1, 1.0), policy);
+            controller.finish_cycle();
         }
-        assert!(controller.retire_requested);
-        assert_eq!(controller.gate_state, L2GateState::Active);
+        // A new request must not be finalized before the acting policy's own
+        // feedback has settled. In this loop the previous request was already
+        // consumed; the next recovery observation starts a fresh cycle.
+        assert!(controller.retire_requested || controller.gate_state == L2GateState::Dormant);
         controller.finish_cycle();
         assert_eq!(
             controller.gate_state,

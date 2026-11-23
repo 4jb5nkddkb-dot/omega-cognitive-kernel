@@ -46,6 +46,10 @@ where
             bias_from_memory: self.biases.clone(),
         };
 
+        self.l2.controller.feedback_settled = false;
+        // A commit is immutable for the entire action/feedback cycle. L2 may
+        // evaluate the next proposal, but cannot replace the policy being
+        // executed (or cleared after its consequence) with that proposal.
         self.l2.applied_policy = self.l2.pending_policy.effective();
         self.l2.pending_policy = crate::types::L2Policy::default();
         self.l0.decision.set_l2_policy(self.l2.applied_policy);
@@ -81,7 +85,9 @@ where
         )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
-        self.l0.decision.set_l2_policy(l2_result.l2_policy);
+        // `pending_policy` remains queued until the beginning of the next
+        // cycle. Overwriting L0 here would attribute the next proposal to the
+        // action that has already executed.
         l2_result.applied_policy = self.l2.applied_policy;
         l2_result.decision = self.l0.decision.l2_decision();
 

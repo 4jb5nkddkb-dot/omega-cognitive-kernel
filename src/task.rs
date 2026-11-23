@@ -204,6 +204,8 @@ where
     let mut warm_recovery_latencies = Vec::new();
     let mut recovery_started_at = None;
     let mut recovery_warm = false;
+    let mut recovery_used_commit = false;
+    let mut last_warm_commit: Option<crate::types::L2Policy> = None;
     let mut residual_improvement = 0.0;
     let mut initial_dayan_residual = None;
     let mut previous_dayan_residual = None;
@@ -385,6 +387,15 @@ where
                 l2_rollback_count += 1;
             }
             l1_rollback_count += u64::from(l1_rollback);
+            if r.l2.modulation_committed {
+                last_warm_commit = kernel
+                    .inner
+                    .l2
+                    .controller
+                    .meta_cache_hit
+                    .then_some(r.l2.l2_policy);
+            }
+            recovery_used_commit |= last_warm_commit == Some(applied) && applied.committed;
             if matches!(scenario, "regime_shift" | "cyclic_shift") {
                 let transition = (scenario == "regime_shift" && global_step == shift_step)
                     || (scenario == "cyclic_shift" && global_step > 0 && global_step % 12 == 0);
@@ -392,6 +403,8 @@ where
                     recovery_started_at = Some(global_step);
                     recovery_streak = 0;
                     recovery_warm = false;
+                    recovery_used_commit = false;
+                    last_warm_commit = None;
                 }
                 let target = if scenario == "regime_shift" {
                     recovery_target
@@ -404,7 +417,7 @@ where
                     if recovery_streak >= target.max(1) {
                         let latency = global_step - start + 1;
                         recovery_latencies.push(latency);
-                        if recovery_warm {
+                        if recovery_warm && recovery_used_commit {
                             warm_recovery_latencies.push(latency);
                         }
                         recovery_steps.get_or_insert(latency);
@@ -707,9 +720,36 @@ pub fn run_l2_benchmark_scenario_with_gate(
             temp_dir().join(format!("omega-l2-benchmark-{}-l2.json", crate::new_uuid()));
 
         let mut base = Kernel::with_bandit_ucb(&base_path);
-        base.autosave = false;
-        base.auto_checkpoint_on_patch = false;
-        base.dump_trajectory = false;
+        let mut l2 = Kernel::with_bandit_ucb(&treatment_path);
+        for branch in [&mut base, &mut l2] {
+            branch.autosave = false;
+            branch.auto_checkpoint_on_patch = false;
+            branch.dump_trajectory = false;
+            branch.inner.l1.self_modify_enabled = true;
+            branch
+                .inner
+                .l1
+                .store
+                .active
+                .insert("cognitive_rules".into(), "self-model bias damp rule".into());
+            branch.inner.l2.detector.window = 2;
+            branch.inner.l2.detector.pred_threshold = 0.30;
+            branch.inner.l2.detector.self_ref_threshold = 0.30;
+            branch.inner.l2.detector.cooldown_steps = 0;
+            branch.inner.l2.commit_threshold = commit_threshold.clamp(0.0, 1.0);
+            branch.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
+            branch.inner.l2.negative_reward_required = negative_reward_required.max(1);
+            if matches!(scenario, "regime_shift" | "cyclic_shift") {
+                let mut state = branch.inner.l0.decision.snapshot();
+                state.discount_factor = 0.85;
+                branch.inner.l0.decision.restore(state);
+            }
+        }
+        // Only the intervention permission differs. Every other policy,
+        // feedback, persistence, and environment parameter is paired.
+        base.set_l2_enabled(false);
+        l2.set_l2_enabled(true);
+
         // Both arms start from the same coherent policy context. This makes
         // fixed-point entry observable while preserving a fair intervention
         // comparison: only L2 is disabled in the baseline.
@@ -733,33 +773,6 @@ pub fn run_l2_benchmark_scenario_with_gate(
             scenario,
         )?);
         cleanup_benchmark_files(&base_path);
-
-        // Treatment: use BanditUcbDecisionMaker for true UCB-based arm selection
-        let mut l2 = Kernel::with_bandit_ucb(&treatment_path);
-        l2.autosave = false;
-        l2.auto_checkpoint_on_patch = false;
-        l2.dump_trajectory = false;
-        l2.inner
-            .l1
-            .store
-            .active
-            .insert("cognitive_rules".into(), "self-model bias damp rule".into());
-        l2.inner.l2.detector.window = 2;
-        l2.inner.l2.detector.pred_threshold = 0.30;
-        l2.inner.l2.detector.self_ref_threshold = 0.30;
-        l2.inner.l2.detector.cooldown_steps = 0;
-        // The five-signal score is intentionally exercised at 0.55 in this
-        // short fixture; production/default L2 remains conservative at 0.82.
-        l2.inner.l2.commit_threshold = commit_threshold.clamp(0.0, 1.0);
-        l2.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
-        l2.inner.l2.negative_reward_required = negative_reward_required.max(1);
-        l2.set_l2_enabled(true);
-        l2.inner.l1.self_modify_enabled = true;
-        if matches!(scenario, "regime_shift" | "cyclic_shift") {
-            let mut state = l2.inner.l0.decision.snapshot();
-            state.discount_factor = 0.85;
-            l2.inner.l0.decision.restore(state);
-        }
         treatment.push(run_bandit_task_seeded_scenario(
             &mut l2,
             episodes,
@@ -866,13 +879,20 @@ mod tests {
     }
 
     #[test]
-    fn l2_benchmark_reports_intervention_delta() {
+    fn l2_benchmark_is_paired_and_reports_intervention_limits() {
         let report = run_l2_benchmark(1, 8, 8, 42).unwrap();
         assert_eq!(report.runs, 1);
         assert_eq!(report.baseline_l2_disabled.mean_l2_nudges, 0.0);
+        assert_eq!(report.baseline_l2_disabled.mean_l2_proposals, 0.0);
+        assert_eq!(report.baseline_l2_disabled.mean_l2_commits, 0.0);
+        assert_eq!(
+            report.baseline_l2_disabled.mean_committed_policies_applied,
+            0.0
+        );
         assert!(report.treatment_l2_enabled.mean_final_alignment_score > 0.0);
-        assert!(report.treatment_l2_enabled.mean_l2_commits > 0.0);
-        assert!(report.treatment_l2_enabled.mean_committed_policies_applied > 0.0);
+        assert!(report.treatment_l2_enabled.mean_dwell_hold_count > 0.0);
+        // A proposal/cache hit is not evidence that L2 influenced L0. Any
+        // actual commit must be attributed to its immutable applied snapshot.
         assert!(
             report.treatment_l2_enabled.mean_committed_policies_applied
                 <= report.treatment_l2_enabled.mean_l2_commits

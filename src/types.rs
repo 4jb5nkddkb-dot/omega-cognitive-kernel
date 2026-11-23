@@ -135,10 +135,16 @@ impl L2Policy {
         Self::default()
     }
 
-    /// Validate the immutable policy snapshot captured at the commit boundary.
-    /// L2 defers a normal retirement until the next cycle boundary, so a queued
-    /// commit cannot be invalidated by recovery before it executes and settles.
+    /// The only value that may cross the L2 -> L0 commit boundary.
+    ///
+    /// This is deliberately a second validation at the consumer as well as at
+    /// the producer. A proposal, an L0 dwell/margin hold, a dormant controller,
+    /// KEEP_L0, a veto, and a malformed snapshot all collapse to exactly the
+    /// same zero policy. Keeping this check here prevents a future producer
+    /// from accidentally turning a diagnostic field into an intervention.
     pub fn effective(self) -> Self {
+        let probabilities_sum = self.expert_probabilities.iter().sum::<f64>();
+        let prior_sum = self.prior.iter().sum::<f64>();
         let valid = self.committed
             && self.gate_state == crate::l2::control::L2GateState::Active
             && self.expert > 0
@@ -148,12 +154,15 @@ impl L2Policy {
             && self.alpha.is_finite()
             && self.beta > 0.0
             && self.beta.is_finite()
-            && self.prior.iter().all(|p| p.is_finite() && *p >= 0.0)
-            && self.prior.iter().sum::<f64>() > 0.0
+            && self.confidence.is_finite()
+            && (0.0..=1.0).contains(&self.confidence)
+            && self.prior.iter().all(|p| p.is_finite() && *p > 0.0)
+            && (prior_sum - 1.0).abs() < 1.0e-6
             && self
                 .expert_probabilities
                 .iter()
-                .all(|p| p.is_finite() && *p > 0.0);
+                .all(|p| p.is_finite() && *p > 0.0)
+            && (probabilities_sum - 1.0).abs() < 1.0e-6;
         if valid {
             self
         } else {

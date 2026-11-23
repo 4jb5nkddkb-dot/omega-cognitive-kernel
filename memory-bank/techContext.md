@@ -18,9 +18,9 @@ The default features are `std`, `ureq`, and `toml`. `gui` enables eframe/egui/rf
 
 ## On-disk artifacts
 
-The default state file is `.omega/state.json`. Audit and trajectory files are placed beside it as `audit.jsonl` and `trajectory.jsonl`; checkpoint snapshots are stored under a sibling `checkpoints/` directory. The state schema is `CURRENT_SCHEMA_VERSION = 2` and includes total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L2 state/detector history, L1 self-modification state, patch cooldown, and the optional L2 rollback effect.
+The default state file is `.omega/state.json`. Audit and trajectory files are placed beside it as `audit.jsonl` and `trajectory.jsonl`; checkpoint snapshots are stored under a sibling `checkpoints/` directory. The state schema is `CURRENT_SCHEMA_VERSION = 5` and includes total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L1 state, the resident L2 controller, bounded Meta-Cache, online Dayan residual, validated pending/applied policy snapshots, and UCB explanations.
 
-`KernelSnapshot::load_from` deserializes and migrates older versions. v0 is promoted through v1, and v1 is promoted to v2 with safe defaults: L1 disabled, a warm patch cooldown, and no rollback effect. A newer unsupported schema is rejected. `save_to` writes pretty JSON to a synced same-directory temporary file and atomically renames it.
+`KernelSnapshot::load_from` deserializes and migrates older versions through v5. Missing legacy L2 permissions default to `false`; malformed or noncommitted policy snapshots fail closed to `KEEP_L0`. A newer unsupported schema is rejected. `save_to` writes pretty JSON to a synced same-directory temporary file and atomically renames it.
 
 ## Configuration defaults
 

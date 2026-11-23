@@ -5,11 +5,11 @@
 The kernel now has a host-independent library build path for WebAssembly:
 
 ```bash
-cargo build --lib --no-default-features --target wasm32-wasip1
+cargo build --lib --no-default-features --features std --target wasm32-wasip1
 cargo build --lib --no-default-features --target wasm32-unknown-unknown
 ```
 
-Both targets compile successfully in CI-like checks. The binary CLI and filesystem/network adapters remain host surfaces; the wasm library build keeps the core orchestration, memory, L1/L2 state machine, serde types, and snapshot logic while making HTTP adapters return an explicit `ExecutionBlocked` result instead of pulling native networking dependencies into wasm.
+The core browser library builds without `std`. The WASI smoke example uses the host facade and therefore builds with `--no-default-features --features std`. Running it additionally requires a Wasmtime executable; a successful compile alone is not a runtime verification.
 
 The repeatable runtime-level integration test is:
 
@@ -28,7 +28,10 @@ The `uuid/js` feature supplies randomness for `wasm32-unknown-unknown`; `ureq` i
 - fixed-point state, dwell count, alignment score;
 - commit threshold and cooldown state;
 - consequence, defensive-mode, recovery, and negative-reward counters;
-- emergence detector history, thresholds, and cooldown.
+- emergence detector history, thresholds, and cooldown;
+- resident trust/expert/IPS state, online Dayan residual, bounded Meta-Cache, and validated pending/applied policy snapshots (schema v5).
+
+Restoring starts a fresh feedback cycle. It does not reapply an already executed policy to L0, and malformed or noncommitted snapshots collapse to `KEEP_L0`. Missing legacy `l2_enabled` fields default to `false`.
 
 The public in-memory transport is:
 

@@ -29,7 +29,7 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     assert!(status.status.success());
     let status: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
     assert_eq!(status["total_steps"], 3);
-    assert_eq!(status["schema_version"], 4);
+    assert_eq!(status["schema_version"], 5);
     assert_eq!(status["l2_gate_state"], "DORMANT");
     assert!(status["last_l2_decision"].is_null());
 

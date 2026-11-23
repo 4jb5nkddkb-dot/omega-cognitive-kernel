@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
 /// Current on-disk schema. Bump only with a migration path.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 fn default_schema_version() -> u32 {
     0
@@ -33,7 +33,8 @@ fn default_steps_since_last_patch() -> u64 {
 }
 
 fn default_l2_enabled() -> bool {
-    true
+    // Missing legacy flags must not acquire permission to alter L0 on upgrade.
+    false
 }
 
 fn default_l2_commit_threshold() -> f64 {
@@ -67,7 +68,7 @@ fn default_l2_detector_cooldown() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
     /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
-    /// [`CURRENT_SCHEMA_VERSION`] (currently 4) on load.
+    /// [`CURRENT_SCHEMA_VERSION`] (currently 5) on load.
     #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
@@ -180,7 +181,7 @@ impl Default for KernelSnapshot {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: Vec::new(),
-            l2_enabled: true,
+            l2_enabled: false,
             l2_in_fixed_point: false,
             l2_dwell_steps: 0,
             l2_last_alignment_score: 0.0,
@@ -255,6 +256,21 @@ impl KernelSnapshot {
             self.l2_pending_policy = crate::types::L2Policy::default();
             self.l2_applied_policy = crate::types::L2Policy::default();
             self.version = 4;
+        }
+        if self.version < 5 {
+            // v5 makes the online Dayan state, duplicate-feedback guard and
+            // normalized propensity snapshots explicit. Missing v4 fields are
+            // safe serde defaults; permission remains opt-in, never inferred
+            // from the presence of a resident controller or a cache entry.
+            self.l2_pending_policy = self.l2_pending_policy.effective();
+            self.l2_applied_policy = self.l2_applied_policy.effective();
+            if !self.l2_enabled {
+                self.l2_pending_policy = crate::types::L2Policy::default();
+                self.l2_applied_policy = crate::types::L2Policy::default();
+                self.l2_controller.gate_state = crate::l2::control::L2GateState::Dormant;
+                self.l2_controller.trust.alpha = 0.0;
+            }
+            self.version = 5;
         }
         Ok(self)
     }

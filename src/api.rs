@@ -87,7 +87,9 @@ pub struct KernelStatus {
     pub l2_lyapunov_potential: f64,
     pub l2_lyapunov_veto: bool,
     pub l2_meta_cache_hit: bool,
+    pub l2_dayan_residual: f64,
     pub l2_applied_policy: crate::types::L2Policy,
+    pub l2_pending_policy: crate::types::L2Policy,
     pub l2_meta_cache_entries: usize,
     pub l2_last_rejection_reason: Option<String>,
 }
@@ -131,6 +133,9 @@ pub struct TrajectoryReplayRow {
     pub l2_lyapunov_potential: f64,
     pub l2_lyapunov_veto: bool,
     pub l2_meta_cache_hit: bool,
+    pub l2_dayan_residual: f64,
+    pub l2_applied_policy: crate::types::L2Policy,
+    pub l2_pending_policy: crate::types::L2Policy,
 }
 
 fn default_allowed_actions() -> Vec<String> {
@@ -226,6 +231,20 @@ pub fn replay_trajectory_file(path: &Path, tail_n: usize) -> Result<TrajectoryRe
                 .get("l2_meta_cache_hit")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            l2_dayan_residual: v
+                .get("l2_dayan_residual")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0),
+            l2_applied_policy: v
+                .get("l2_applied_policy")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
+            l2_pending_policy: v
+                .get("l2_pending_policy")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
         });
     }
 
@@ -406,6 +425,11 @@ where
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
         self.inner.l1.self_modify_enabled = cfg.self_modify_enabled;
+        cfg.l2.apply_to(&mut self.inner.l2);
+        self.inner
+            .l0
+            .decision
+            .set_l2_policy(self.inner.l2.pending_policy.effective());
         self.inner
             .constraints
             .insert("max_risk".into(), cfg.max_risk);
@@ -451,7 +475,10 @@ where
             self.inner.l2.controller.trust.cooldown_remaining =
                 self.inner.l2.controller.trust.cooldown_steps.max(2);
         }
-        if self.inner.l2.applied_policy.committed || reward_delta < -0.15 {
+        if self.inner.l2.applied_policy.committed
+            || reward_delta < -0.15
+            || self.inner.l2.controller.retire_requested
+        {
             self.inner.l2.pending_policy = crate::types::L2Policy::default();
             self.inner
                 .l0
@@ -494,6 +521,18 @@ where
                 .l0
                 .decision
                 .set_l2_policy(crate::types::L2Policy::default());
+            self.inner.l2.controller.retire_requested = true;
+        }
+        // A recovery request can be raised by either resident feedback or a
+        // harmful external consequence. Do not require a committed policy:
+        // KEEP_L0/dormant recovery must also be able to finish its cycle.
+        if self.inner.l2.controller.feedback_settled && self.inner.l2.controller.retire_requested {
+            self.inner.l2.pending_policy = crate::types::L2Policy::default();
+            self.inner
+                .l0
+                .decision
+                .set_l2_policy(crate::types::L2Policy::default());
+            self.inner.l2.controller.finish_cycle();
         }
     }
 
@@ -585,7 +624,8 @@ where
             "l2_lyapunov_veto": result.l2.lyapunov_veto,
             "l2_meta_cache_hit": result.l2.meta_cache_hit,
             "l2_rejection_reason": result.l2.rejection_reason,
-            "l2_applied_policy": result.l2.applied_policy,
+            "l2_applied_policy": result.l2.applied_policy.effective(),
+            "l2_pending_policy": self.inner.l2.pending_policy.effective(),
             "l2_selected_expert": result.l2.selected_expert,
             "l2_dayan_residual": result.l2.dayan_residual,
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
@@ -762,7 +802,9 @@ where
             l2_lyapunov_potential: self.inner.l2.controller.residual.powi(2),
             l2_lyapunov_veto: self.inner.l2.controller.certificate.lyapunov_veto,
             l2_meta_cache_hit: self.inner.l2.controller.meta_cache_hit,
-            l2_applied_policy: self.inner.l2.applied_policy,
+            l2_dayan_residual: self.inner.l2.controller.residual,
+            l2_applied_policy: self.inner.l2.applied_policy.effective(),
+            l2_pending_policy: self.inner.l2.pending_policy.effective(),
             l2_meta_cache_entries: self.inner.l2.controller.cache.entries.len(),
             l2_last_rejection_reason: self.inner.l2.last_rejection_reason.clone(),
         }
@@ -822,8 +864,8 @@ where
             l1_previous_effect: self.inner.l1.previous_effect.clone(),
             l1_pending_rollback: self.inner.l1.pending_rollback,
             l2_controller: self.inner.l2.controller.clone(),
-            l2_pending_policy: self.inner.l2.pending_policy,
-            l2_applied_policy: self.inner.l2.applied_policy,
+            l2_pending_policy: self.inner.l2.pending_policy.effective(),
+            l2_applied_policy: self.inner.l2.applied_policy.effective(),
             l2_pending_l1_rollback: self.inner.l2.pending_l1_rollback,
             l2_last_reward: self.inner.l2.last_reward,
         }
@@ -879,8 +921,30 @@ where
         self.inner.l1.previous_effect = snap.l1_previous_effect;
         self.inner.l1.pending_rollback = snap.l1_pending_rollback;
         self.inner.l2.controller = snap.l2_controller;
-        self.inner.l2.pending_policy = snap.l2_pending_policy.effective();
-        self.inner.l2.applied_policy = snap.l2_applied_policy.effective();
+        self.inner.l2.controller.gate_state = if self.inner.l2.enabled {
+            self.inner.l2.controller.gate_state
+        } else {
+            crate::l2::control::L2GateState::Dormant
+        };
+        if !self.inner.l2.enabled {
+            self.inner.l2.controller.trust.alpha = 0.0;
+        }
+        self.inner.l2.pending_policy = if self.inner.l2.enabled {
+            snap.l2_pending_policy.effective()
+        } else {
+            crate::types::L2Policy::default()
+        };
+        self.inner.l2.applied_policy = if self.inner.l2.enabled {
+            snap.l2_applied_policy.effective()
+        } else {
+            crate::types::L2Policy::default()
+        };
+        // Restore starts a fresh action cycle. The previous applied policy is
+        // retained for audit/replay, but must not be paired with the restored
+        // controller's partially settled feedback state.
+        self.inner.l2.controller.feedback_settled = false;
+        self.inner.l2.controller.retire_requested = false;
+        self.inner.l2.controller.surprise_started = false;
         self.inner.l2.pending_l1_rollback = snap.l2_pending_l1_rollback;
         self.inner.l2.last_reward = snap.l2_last_reward;
         self.inner
@@ -1178,6 +1242,67 @@ mod tests {
     }
 
     #[test]
+    fn repeated_l2_feedback_does_not_update_twice() {
+        let path = temp_dir().join(format!("omega-idempotent-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = false;
+        kernel
+            .step("maintain coherent self-model omega dayan")
+            .unwrap();
+        kernel.observe_l2_feedback(1.0, 0.1, false, 0.1, [0.8, 0.2]);
+        let observations = kernel.inner.l2.controller.observations;
+        let rounds = kernel.inner.l2.controller.experts.rounds;
+        kernel.observe_l2_feedback(0.0, 0.9, true, -1.0, [0.2, 0.8]);
+        assert_eq!(kernel.inner.l2.controller.observations, observations);
+        assert_eq!(kernel.inner.l2.controller.experts.rounds, rounds);
+    }
+
+    #[test]
+    fn snapshot_preserves_valid_policy_queue_and_rejects_malformed_commit() {
+        let path = temp_dir().join(format!("omega-policy-restore-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let policy = crate::types::L2Policy {
+            prior: [0.8, 0.2],
+            beta: 0.4,
+            alpha: 0.2,
+            committed: true,
+            expert: 1,
+            expert_probabilities: [0.05, 0.85, 0.05, 0.05],
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence: 0.9,
+        };
+        kernel.set_l2_enabled(true);
+        kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;
+        kernel.inner.l2.pending_policy = policy;
+        kernel.inner.l2.controller.feedback_settled = true;
+        kernel.inner.l2.controller.retire_requested = true;
+
+        let mut restored = Kernel::with_bandit_ucb(&kernel.state_path);
+        restored.apply_snapshot(kernel.snapshot());
+        assert_eq!(restored.inner.l2.pending_policy, policy);
+        assert_eq!(restored.inner.l0.decision.snapshot().l2_policy, policy);
+        assert!(!restored.inner.l2.controller.feedback_settled);
+        assert!(!restored.inner.l2.controller.retire_requested);
+
+        let mut malformed = kernel.snapshot();
+        malformed.l2_pending_policy.prior = [f64::NAN, 0.5];
+        restored.apply_snapshot(malformed);
+        assert_eq!(
+            restored.inner.l2.pending_policy,
+            crate::types::L2Policy::default()
+        );
+        assert_eq!(
+            restored.inner.l0.decision.snapshot().l2_policy,
+            crate::types::L2Policy::default()
+        );
+        let _ = std::fs::remove_file(kernel.state_path);
+    }
+
+    #[test]
     fn checkpoint_and_rollback_emit_audit_events() {
         // Unique subdirectory so the shared `<parent>/audit.jsonl` and
         // `<parent>/checkpoints/` sidecars are isolated per test.
@@ -1278,10 +1403,43 @@ mod tests {
         // Recovery is observed before the next step. L2 waits until that
         // policy acts and its feedback settles before finalizing retirement.
         kernel.observe_l2_feedback(1.0, 0.1, false, 0.3, [0.8, 0.2]);
-        kernel.inner.l2.controller.residual = 0.1;
         kernel.inner.l2.controller.episode_start_residual = 0.6;
+        kernel.inner.l2.controller.residual = 0.1;
+        kernel.inner.l2.controller.dayan_state = 0.1;
+        // The intermediate observation settles the pending commit and allows
+        // the already calm controller to retire normally.
+        kernel
+            .step("settle the next resident feedback cycle")
+            .unwrap();
         kernel.observe_l2_feedback(1.0, 0.1, false, 0.3, [0.8, 0.2]);
-        assert!(kernel.inner.l2.controller.retire_requested);
+        assert_eq!(
+            kernel.inner.l2.controller.gate_state,
+            crate::l2::control::L2GateState::Dormant
+        );
+        kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;
+        kernel.inner.l2.controller.retire_requested = true;
+        kernel.inner.l2.controller.trust.alpha = 0.0;
+        kernel.inner.l2.controller.trust.cooldown_remaining = 3;
+        kernel.inner.l2.controller.feedback_settled = false;
+        kernel.inner.l2.controller.residual = 0.1;
+        kernel.inner.l2.controller.dayan_state = 0.1;
+        kernel.inner.l2.controller.episode_start_residual = 0.6;
+        // An already queued commit is immutable. Retirement prevents a new
+        // proposal, not the execution or feedback attribution of that commit.
+        assert!(
+            kernel.inner.l2.controller.retire_requested,
+            "gate={:?} obs={} residual={} start={} ema={} base={} reward={} reward_base={} calm={} settled={}",
+            kernel.inner.l2.controller.gate_state,
+            kernel.inner.l2.controller.observations,
+            kernel.inner.l2.controller.residual,
+            kernel.inner.l2.controller.episode_start_residual,
+            kernel.inner.l2.controller.ema_error,
+            kernel.inner.l2.controller.baseline_error,
+            kernel.inner.l2.controller.ema_reward,
+            kernel.inner.l2.controller.baseline_reward,
+            kernel.inner.l2.controller.calm_streak,
+            kernel.inner.l2.controller.feedback_settled,
+        );
         assert_eq!(
             kernel.inner.l2.controller.gate_state,
             crate::l2::control::L2GateState::Active
@@ -1307,7 +1465,7 @@ mod tests {
         assert!(after > before);
         assert_eq!(
             kernel.inner.l2.controller.gate_state,
-            crate::l2::control::L2GateState::Active
+            crate::l2::control::L2GateState::Dormant
         );
         assert!(!kernel.inner.l2.pending_policy.committed);
         kernel.observe_l2_consequence(0.5, -0.1, 0.0);
@@ -1400,6 +1558,11 @@ mod tests {
         let replayed = replay.tail[0].l2_decision.as_ref().expect("replay UCB");
         assert_eq!(replayed.selected_arm, 1);
         assert_eq!(replayed.reason, crate::types::L2DecisionReason::Switched);
+        assert_eq!(
+            replay.tail[0].l2_applied_policy,
+            crate::types::L2Policy::default()
+        );
+        assert!(replay.tail[0].l2_dayan_residual.is_finite());
         let _ = std::fs::remove_dir_all(dir);
     }
 

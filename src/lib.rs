@@ -76,7 +76,7 @@ pub use api::{
 #[cfg(feature = "std")]
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
 #[cfg(feature = "std")]
-pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig};
+pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig, L2Config};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
 #[cfg(feature = "std")]

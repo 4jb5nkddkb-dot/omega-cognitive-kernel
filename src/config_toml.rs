@@ -42,6 +42,9 @@ mod tests {
         assert_eq!(c2.intervention.friction_threshold, 2);
         assert!(!c2.self_modify_enabled);
         assert!(c2.dump_trajectory);
+        assert!(!c2.l2.enabled);
+        assert_eq!(c2.l2.commit_cooldown_steps, 5);
+        assert_eq!(c2.l2.dayan_relaxation, 0.35);
         assert_eq!(c2.bandit.min_dwell_steps, 3);
         assert!((c2.bandit.switch_margin - 0.05).abs() < 1e-9);
     }
@@ -64,6 +67,33 @@ self_modify_enabled = true
             crate::config::InterventionMode::Exploration
         );
         assert!(c.self_modify_enabled);
+    }
+
+    #[test]
+    fn parse_l2_table_and_preserve_bandit() {
+        let c = KernelConfig::from_toml(
+            r#"
+[bandit]
+min_dwell_steps = 4
+switch_margin = 0.08
+rollback_penalty = 0.4
+switch_cost = 0.01
+[l2]
+enabled = true
+commit_threshold = 0.65
+commit_cooldown_steps = 4
+dayan_relaxation = 0.4
+meta_cache_hit_threshold = 0.8
+"#,
+        )
+        .unwrap();
+        assert_eq!(c.bandit.min_dwell_steps, 4);
+        assert_eq!(c.bandit.switch_margin, 0.08);
+        assert!(c.l2.enabled);
+        assert_eq!(c.l2.commit_threshold, 0.65);
+        assert_eq!(c.l2.commit_cooldown_steps, 4);
+        assert_eq!(c.l2.dayan_relaxation, 0.4);
+        assert_eq!(c.l2.meta_cache_hit_threshold, 0.8);
     }
 
     #[test]
