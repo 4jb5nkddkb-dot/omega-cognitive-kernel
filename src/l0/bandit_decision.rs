@@ -27,6 +27,8 @@ pub struct BanditUcbSnapshot {
     pub safety_override: bool,
     pub last_decision: Option<L2DecisionRecord>,
     pub config: BanditConfig,
+    #[serde(default)]
+    pub l2_policy: crate::types::L2Policy,
     /// Optional nonstationary discount in (0, 1]; 1 retains classic UCB means.
     pub discount_factor: f64,
 }
@@ -42,6 +44,7 @@ impl Default for BanditUcbSnapshot {
             safety_override: false,
             last_decision: None,
             config: BanditConfig::default(),
+            l2_policy: crate::types::L2Policy::default(),
             discount_factor: 1.0,
         }
     }
@@ -75,7 +78,9 @@ impl BanditUcbDecisionMaker {
     }
 
     pub fn restore(&mut self, snapshot: BanditUcbSnapshot) {
+        let policy = self.state.l2_policy.effective();
         self.state = snapshot;
+        self.state.l2_policy = policy;
     }
 
     pub fn mean_reward(&self, arm: usize) -> Option<f64> {
@@ -178,8 +183,54 @@ impl BanditUcbDecisionMaker {
         score.is_finite().then_some(score)
     }
 
+    fn candidate(&self) -> usize {
+        if !self.state.l2_policy.committed || self.state.l2_policy.beta <= 0.0 {
+            return if self.ucb(1) > self.ucb(0) { 1 } else { 0 };
+        }
+        let policy = self.kl_policy();
+        // Only the greedy maximizer is executed; the full soft distribution is
+        // retained in params for deterministic audit/replay.
+        usize::from(policy[1] > policy[0])
+    }
+
+    /// The closed-form optimizer is used only for an already validated commit.
+    /// In particular DORMANT, KEEP_L0, holds, vetoes, and cooldown all return
+    /// beta=0 here, so they cannot perturb either candidate selection or scores.
+    pub fn kl_policy(&self) -> [f64; 2] {
+        if !self.state.l2_policy.committed || self.state.l2_policy.beta <= 0.0 {
+            return [
+                f64::from(self.ucb(0) >= self.ucb(1)),
+                f64::from(self.ucb(1) > self.ucb(0)),
+            ];
+        }
+        let rewards = [
+            if self.state.counts[0] == 0 {
+                1.0
+            } else {
+                self.ucb(0)
+            },
+            if self.state.counts[1] == 0 {
+                1.0
+            } else {
+                self.ucb(1)
+            },
+        ];
+        let mut prior = self.state.l2_policy.prior;
+        // L2 guides the local estimate rather than declaring an absolute best
+        // arm. The trust-scaled context term preserves the no-hard-switch rule.
+        if self.state.l2_policy.expert == 1 {
+            let incumbent = usize::from(self.ucb(1) > self.ucb(0));
+            prior = if incumbent == 0 {
+                [0.9, 0.1]
+            } else {
+                [0.1, 0.9]
+            };
+        }
+        crate::l2::control::kl_regularized_policy(rewards, prior, self.state.l2_policy.beta)
+    }
+
     fn decide_arm(&mut self) -> L2DecisionRecord {
-        let candidate = if self.ucb(1) > self.ucb(0) { 1 } else { 0 };
+        let candidate = self.candidate();
         let incumbent = self.state.current_arm;
         let previous_dwell = self.state.dwell_steps;
         let mut selected = incumbent.unwrap_or(candidate);
@@ -289,6 +340,9 @@ impl DecisionMaker for BanditUcbDecisionMaker {
                 .map_err(|e| crate::error::OmegaError::Memory(e.to_string()))?,
         );
         params.insert("rule_effect".into(), effect);
+        let policy = self.kl_policy();
+        params.insert("kl_policy".into(), serde_json::json!(policy));
+        params.insert("l2_policy".into(), serde_json::json!(self.state.l2_policy));
         Ok(vec![Action {
             name,
             params,
@@ -306,6 +360,10 @@ impl DecisionMaker for BanditUcbDecisionMaker {
 
     fn set_bandit_config(&mut self, config: BanditConfig) {
         self.state.config = Self::sanitized_config(config);
+    }
+
+    fn set_l2_policy(&mut self, policy: crate::types::L2Policy) {
+        self.state.l2_policy = policy.effective();
     }
 
     fn l2_decision(&self) -> Option<L2DecisionRecord> {
@@ -346,6 +404,69 @@ mod tests {
             switch_cost: 0.0,
         });
         dm
+    }
+
+    #[test]
+    fn all_noncommitted_l2_states_are_identical_to_keep_l0() {
+        let baseline = configured();
+        for (gate_state, committed, beta, alpha, expert) in [
+            (crate::l2::control::L2GateState::Dormant, false, 2.0, 0.3, 2),
+            (crate::l2::control::L2GateState::Active, false, 2.0, 0.3, 2),
+            (crate::l2::control::L2GateState::Active, true, 0.0, 0.3, 2),
+            (crate::l2::control::L2GateState::Active, true, 2.0, 0.0, 2),
+            (crate::l2::control::L2GateState::Active, true, 2.0, 0.3, 0),
+        ] {
+            let mut treatment = configured();
+            treatment.set_l2_policy(crate::types::L2Policy {
+                prior: [0.0, 1.0],
+                beta,
+                alpha,
+                committed,
+                expert,
+                gate_state,
+                ..crate::types::L2Policy::default()
+            });
+            let mut plain = baseline.clone();
+            let expected = decision(&mut plain);
+            let actual = decision(&mut treatment);
+            assert_eq!(actual.selected_arm, expected.selected_arm);
+            assert_eq!(actual.reason, expected.reason);
+            assert_eq!(treatment.kl_policy(), plain.kl_policy());
+            assert!(!treatment.snapshot().l2_policy.committed);
+        }
+    }
+
+    #[test]
+    fn valid_commit_uses_kl_prior() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            means: [0.8, 0.2],
+            counts: [32, 32],
+            total: 256,
+            current_arm: Some(0),
+            dwell_steps: 5,
+            ..dm.snapshot()
+        });
+        dm.set_l2_policy(crate::types::L2Policy {
+            prior: [0.01, 0.99],
+            beta: 0.5,
+            alpha: 0.1,
+            committed: true,
+            expert: 2,
+            gate_state: crate::l2::control::L2GateState::Active,
+            ..crate::types::L2Policy::default()
+        });
+        dm.set_bandit_config(BanditConfig {
+            switch_margin: 0.75,
+            ..dm.config().clone()
+        });
+        assert!(dm.kl_policy()[1] > 0.5);
+        let record = decision(&mut dm);
+        assert_eq!(record.candidate_arm, 1);
+        // KL guidance cannot bypass L0's independent switch-margin gate.
+        assert_eq!(record.selected_arm, 0);
+        assert!(record.margin_suppressed);
+        assert_eq!(record.reason, L2DecisionReason::MarginHold);
     }
 
     #[test]

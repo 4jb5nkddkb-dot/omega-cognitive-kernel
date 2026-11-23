@@ -1,13 +1,16 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
+pub mod control;
 pub mod emergence;
 pub mod fixed_point;
+pub mod meta_cache;
 pub mod modulator;
 pub mod monitor;
 
 use crate::error::Result;
 use crate::types::{MetaMetrics, RuleEffect, SystemState};
+use control::{L2GateState, ResidentController, KEEP_L0};
 use emergence::EmergenceDetector;
 use fixed_point::{OmegaDayanFixedPoint, ScoreSignals};
 use hashbrown::HashMap;
@@ -36,6 +39,20 @@ pub struct L2Result {
     pub decision: Option<crate::types::L2DecisionRecord>,
     /// Latest candidate fixed-point residual: alignment target minus raw alignment.
     pub dayan_residual: f64,
+    pub gate_state: L2GateState,
+    pub alpha: f64,
+    pub beta: f64,
+    pub expert_weights: HashMap<String, f64>,
+    pub lyapunov_potential: f64,
+    pub lyapunov_veto: bool,
+    pub meta_cache_hit: bool,
+    pub selected_expert: String,
+    pub l2_policy: crate::types::L2Policy,
+    /// Policy that governed the L0 action in this result, not the policy queued
+    /// for the next action. This distinction makes IPS and replay causal.
+    pub applied_policy: crate::types::L2Policy,
+    pub veto_reason: Option<String>,
+    pub rejection_reason: Option<String>,
 }
 
 pub struct L2MetaLayer {
@@ -68,6 +85,16 @@ pub struct L2MetaLayer {
     pub awaiting_consequence: bool,
     pub negative_reward_streak: u32,
     pub negative_reward_required: u32,
+    pub controller: ResidentController,
+    pub pending_l1_rollback: bool,
+    pub last_rejection_reason: Option<String>,
+    pub pending_policy: crate::types::L2Policy,
+    /// Validated policy used by the current L0 decision and its outcome.
+    pub applied_policy: crate::types::L2Policy,
+    pub last_error: Option<f64>,
+    pub last_reward: f64,
+    pub consecutive_l1_rollbacks: u32,
+    pub current_cycle_recoveries: u32,
 }
 
 impl L2MetaLayer {
@@ -95,6 +122,15 @@ impl L2MetaLayer {
             awaiting_consequence: false,
             negative_reward_streak: 0,
             negative_reward_required: 3,
+            controller: ResidentController::default(),
+            pending_l1_rollback: false,
+            pending_policy: crate::types::L2Policy::default(),
+            last_rejection_reason: None,
+            applied_policy: crate::types::L2Policy::default(),
+            last_error: None,
+            last_reward: 0.5,
+            consecutive_l1_rollbacks: 0,
+            current_cycle_recoveries: 0,
         }
     }
 
@@ -103,161 +139,259 @@ impl L2MetaLayer {
         state: &SystemState,
         biases: HashMap<String, f64>,
         constraints: HashMap<String, f64>,
-        current_effect: &RuleEffect,
+        _current_effect: &RuleEffect,
     ) -> Result<L2Result> {
         let metrics = self.monitor.evaluate(state)?;
-
-        let mut new_biases = biases;
-        let mut new_constraints = constraints;
         let mut entered = false;
         let mut exited = false;
-        let mut alignment_score = self.last_alignment_score;
-        let mut candidate_alignment_score = 0.0;
-        let mut effect_nudge = None;
-        let mut candidate_score = 0.0;
+        if self.pending_l1_rollback {
+            self.consecutive_l1_rollbacks = self.consecutive_l1_rollbacks.saturating_add(1);
+            self.pending_l1_rollback = false;
+        } else {
+            self.consecutive_l1_rollbacks = 0;
+        }
+        self.commit_cooldown_remaining = self.commit_cooldown_remaining.saturating_sub(1);
+        self.controller.meta_cache_hit = false;
+        self.controller.certificate.lyapunov_veto = false;
         let mut modulation_proposed = false;
         let mut modulation_committed = false;
         let mut modulation_gain = 0.0;
-        let mut score_breakdown = HashMap::new();
+        let mut rejection_reason = None;
 
-        self.commit_cooldown_remaining = self.commit_cooldown_remaining.saturating_sub(1);
-        let attention = self.external_attention;
-        self.external_attention = false;
+        // Refresh observability even when the intervention switch is off. A
+        // disabled baseline therefore reports the real residual, not a sentinel.
+        let fp = self.fixed_point.enter_with_signals(
+            state,
+            ScoreSignals {
+                reward_change_score: self.reward_change_score,
+                error_change_score: self.error_change_score,
+                stability_score: metrics.self_ref_stability,
+            },
+        )?;
+        let candidate_alignment = fp.alignment_score;
+        let candidate_score = fp.score;
+        let score_breakdown = fp.breakdown.clone();
+        self.last_alignment_score = fp.score;
+        self.controller.residual = (1.0 - candidate_alignment).abs();
+        if self.controller.observations <= 1 {
+            self.controller.initial_residual = self.controller.residual;
+            self.controller.best_residual = self.controller.residual;
+        }
+        self.controller.best_residual = self.controller.best_residual.min(self.controller.residual);
 
         if !self.enabled {
             self.in_fixed_point = false;
             self.dwell_steps = 0;
-            return Ok(L2Result {
+            self.controller.gate_state = L2GateState::Dormant;
+            self.controller.retire_requested = false;
+            self.controller.trust.alpha = 0.0;
+            self.controller.last_selected_expert = KEEP_L0;
+            self.pending_policy = crate::types::L2Policy::default();
+            return self.result(
                 metrics,
-                in_fixed_point: false,
-                biases: new_biases,
-                constraints: new_constraints,
-                entered_fixed_point: false,
-                exited_fixed_point: false,
-                alignment_score: 0.0,
-                candidate_alignment_score,
-                dwell_steps: 0,
+                biases,
+                constraints,
+                candidate_score,
+                candidate_alignment,
+                score_breakdown,
+                false,
+                false,
+                false,
+                0,
                 candidate_score,
                 modulation_proposed,
                 modulation_committed,
                 modulation_gain,
-                score_breakdown,
-                effect_nudge: None,
-                decision: None,
-                dayan_residual: 1.0,
-            });
+            );
         }
 
+        if self.consecutive_l1_rollbacks >= self.controller.rollback_wakeup {
+            self.controller.trust.alpha = 0.0;
+            self.controller.trust.cooldown_remaining = self.controller.trust.cooldown_steps;
+        }
         if self.in_fixed_point {
             self.dwell_steps = self.dwell_steps.saturating_add(1);
             if self.detector.should_exit(&metrics) || self.dwell_steps > 40 {
                 self.in_fixed_point = false;
                 self.dwell_steps = 0;
                 exited = true;
-            } else if self.dwell_steps % 6 == 0 {
-                let fp = self.fixed_point.enter_with_signals(
-                    state,
-                    ScoreSignals {
-                        reward_change_score: self.reward_change_score,
-                        error_change_score: self.error_change_score,
-                        stability_score: metrics.self_ref_stability,
-                    },
-                )?;
-                alignment_score = fp.score;
-                candidate_alignment_score = fp.alignment_score;
-                self.last_alignment_score = fp.score;
-                candidate_score = fp.score;
-                score_breakdown = fp.breakdown.clone();
-                modulation_proposed = true;
-                if fp.score >= self.commit_threshold
-                    && self.commit_cooldown_remaining == 0
-                    && !self.defensive_mode
-                    && (self.stable_consequence_steps < 8 || attention)
-                {
-                    modulation_committed = true;
-                    modulation_gain = ((fp.score - self.commit_threshold)
-                        / (1.0 - self.commit_threshold))
-                        .clamp(0.10, 1.0);
-                    let (b, c) = self.modulator.apply_scaled(
-                        &fp,
-                        modulation_gain,
-                        new_biases,
-                        new_constraints,
-                    );
-                    new_biases = b;
-                    new_constraints = c;
-                    effect_nudge = Some(self.modulator.apply_to_effect_scaled(
-                        &fp,
-                        modulation_gain,
-                        current_effect,
-                    ));
-                    self.commit_cooldown_remaining = self.commit_cooldown_steps;
-                    self.awaiting_consequence = true;
-                }
             }
-        } else if self.detector.should_trigger(&metrics) || attention {
-            let fp = self.fixed_point.enter_with_signals(
-                state,
-                ScoreSignals {
-                    reward_change_score: self.reward_change_score,
-                    error_change_score: self.error_change_score,
-                    stability_score: metrics.self_ref_stability,
-                },
-            )?;
-            candidate_score = fp.score;
-            score_breakdown = fp.breakdown.clone();
-            modulation_proposed = true;
-            alignment_score = fp.score;
-            candidate_alignment_score = fp.alignment_score;
-            self.last_alignment_score = fp.score;
+        } else if self.detector.should_trigger(&metrics) || self.external_attention {
             entered = fp.aligned;
             self.in_fixed_point = fp.aligned;
             if fp.aligned {
                 self.dwell_steps = 1;
             }
-            if fp.score >= self.commit_threshold
-                && self.commit_cooldown_remaining == 0
-                && !self.defensive_mode
-                && (self.stable_consequence_steps < 8 || attention)
+        }
+        self.external_attention = false;
+
+        self.pending_policy = crate::types::L2Policy::default();
+        if self.controller.gate_state == L2GateState::Active && self.controller.surprise_started {
+            // Recording a recovery context is independent of proposal trust.
+            // A cooldown suppresses intervention, not the episode's cache key.
+            self.controller.cache_prepared = true;
+            self.controller.cache_prepared_fingerprint = self.controller.surprise_fingerprint;
+            self.controller.episode_start_residual = self.controller.residual;
+            if let Some((_index, weights, alpha)) =
+                self.controller.cache.lookup(&self.controller.fingerprint())
             {
-                modulation_committed = true;
-                modulation_gain = ((fp.score - self.commit_threshold)
-                    / (1.0 - self.commit_threshold))
-                    .clamp(0.10, 1.0);
-                let (b, c) =
-                    self.modulator
-                        .apply_scaled(&fp, modulation_gain, new_biases, new_constraints);
-                new_biases = b;
-                new_constraints = c;
-                effect_nudge = Some(self.modulator.apply_to_effect_scaled(
-                    &fp,
-                    modulation_gain,
-                    current_effect,
-                ));
-                self.rollback_effect = Some(current_effect.clone());
-                self.commit_cooldown_remaining = self.commit_cooldown_steps;
-                self.awaiting_consequence = true;
+                self.controller.experts.warm_start(weights);
+                self.controller.trust.alpha = alpha.min(self.controller.trust.alpha_max);
+                self.controller.meta_cache_hit = true;
+                self.controller.cache_hits = self.controller.cache_hits.saturating_add(1);
             }
         }
+        let can_propose = self.controller.gate_state == L2GateState::Active
+            && self.controller.trust.cooldown_remaining == 0;
+        if can_propose {
+            let selected = if self.controller.meta_cache_hit {
+                (1..4)
+                    .max_by(|a, b| {
+                        self.controller.experts.weights[*a]
+                            .partial_cmp(&self.controller.experts.weights[*b])
+                            .unwrap_or(core::cmp::Ordering::Equal)
+                    })
+                    .unwrap_or(1)
+            } else {
+                self.controller.experts.select(self.controller.ema_error)
+            };
+            self.controller.last_selected_expert = selected;
+            modulation_proposed = selected != KEEP_L0;
+            if selected != KEEP_L0 {
+                let predicted_residual = self.controller.predicted_residual(
+                    state.avg_prediction_error,
+                    self.controller.trust.alpha,
+                    selected,
+                );
+                self.controller.certificate = self
+                    .controller
+                    .certificate
+                    .check(self.controller.residual, predicted_residual);
+                if self.controller.certificate.lyapunov_veto {
+                    self.controller.veto_count = self.controller.veto_count.saturating_add(1);
+                }
+                let beta = self.controller.beta();
+                // A high anomaly score is evidence for waking up, not evidence
+                // that an intervention will help. Commit confidence comes from
+                // the residual model; the Lyapunov certificate is the final
+                // predicted-stability guard. This preserves the public
+                // commit_threshold knob as a conservative confidence gate.
+                let allowed = self.controller.trust.alpha > 0.0
+                    && beta > 0.0
+                    && !self.controller.certificate.lyapunov_veto
+                    && self.commit_cooldown_remaining == 0
+                    && !self.defensive_mode
+                    && self.controller.model_confidence >= self.commit_threshold;
+                if allowed {
+                    self.pending_policy = crate::types::L2Policy {
+                        prior: self.controller.prior(),
+                        beta,
+                        alpha: self.controller.trust.alpha,
+                        committed: true,
+                        expert: selected,
+                        expert_probabilities: self.controller.experts.probabilities(),
+                        gate_state: self.controller.gate_state,
+                        confidence: self.controller.model_confidence,
+                    };
+                    modulation_committed = true;
+                    modulation_gain = self.controller.trust.alpha;
+                    self.commit_cooldown_remaining = self.commit_cooldown_steps;
+                    self.awaiting_consequence = true;
+                } else if self.controller.certificate.lyapunov_veto {
+                    rejection_reason = Some("lyapunov_veto".into());
+                } else if self.controller.trust.alpha <= 0.0 || beta <= 0.0 {
+                    rejection_reason = Some("trust_or_confidence_zero".into());
+                } else if self.commit_cooldown_remaining != 0 {
+                    rejection_reason = Some("commit_cooldown".into());
+                } else if self.defensive_mode {
+                    rejection_reason = Some("defensive_mode".into());
+                } else {
+                    rejection_reason = Some("commit_threshold".into());
+                }
+            }
+        } else {
+            self.controller.last_selected_expert = KEEP_L0;
+        }
+        let mut result = self.result(
+            metrics,
+            biases,
+            constraints,
+            candidate_score,
+            candidate_alignment,
+            score_breakdown,
+            entered,
+            exited,
+            self.in_fixed_point,
+            self.dwell_steps,
+            candidate_score,
+            modulation_proposed,
+            modulation_committed,
+            modulation_gain,
+        )?;
+        result.rejection_reason = rejection_reason.clone();
+        self.last_rejection_reason = rejection_reason;
+        Ok(result)
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn result(
+        &self,
+        metrics: crate::types::MetaMetrics,
+        biases: HashMap<String, f64>,
+        constraints: HashMap<String, f64>,
+        candidate_score: f64,
+        candidate_alignment: f64,
+        score_breakdown: HashMap<String, f64>,
+        entered: bool,
+        exited: bool,
+        in_fixed_point: bool,
+        dwell_steps: u64,
+        _legacy_score: f64,
+        modulation_proposed: bool,
+        modulation_committed: bool,
+        modulation_gain: f64,
+    ) -> Result<L2Result> {
         Ok(L2Result {
             metrics,
-            in_fixed_point: self.in_fixed_point,
-            biases: new_biases,
-            constraints: new_constraints,
+            in_fixed_point,
+            biases,
+            constraints,
             entered_fixed_point: entered,
             exited_fixed_point: exited,
-            alignment_score,
-            candidate_alignment_score,
-            dwell_steps: self.dwell_steps,
+            alignment_score: candidate_score,
+            candidate_alignment_score: candidate_alignment,
+            dwell_steps,
             candidate_score,
             modulation_proposed,
             modulation_committed,
             modulation_gain,
             score_breakdown,
-            effect_nudge,
+            effect_nudge: None,
             decision: None,
-            dayan_residual: (1.0 - candidate_alignment_score).abs(),
+            dayan_residual: (1.0 - candidate_alignment).abs(),
+            gate_state: self.controller.gate_state,
+            alpha: self.controller.trust.alpha,
+            beta: if self.controller.gate_state == L2GateState::Dormant
+                || self.controller.last_selected_expert == KEEP_L0
+                || !self.pending_policy.committed
+            {
+                0.0
+            } else {
+                self.controller.beta()
+            },
+            expert_weights: self.controller.expert_weights(),
+            lyapunov_potential: self.controller.residual * self.controller.residual,
+            lyapunov_veto: self.controller.certificate.lyapunov_veto,
+            meta_cache_hit: self.controller.meta_cache_hit,
+            selected_expert: control::EXPERT_NAMES[self.controller.last_selected_expert].into(),
+            l2_policy: self.pending_policy,
+            applied_policy: crate::types::L2Policy::default(),
+            veto_reason: self
+                .controller
+                .certificate
+                .lyapunov_veto
+                .then(|| "lyapunov_veto".into()),
+            rejection_reason: None,
         })
     }
 
@@ -319,9 +453,139 @@ impl Default for L2MetaLayer {
 
 #[cfg(test)]
 mod tests {
-    use super::L2MetaLayer;
-    use crate::types::{RuleEffect, SystemState};
+    use super::{control, L2MetaLayer};
+    use crate::types::{L2Policy, RuleEffect, SystemState};
     use hashbrown::HashMap;
+
+    #[test]
+    fn repeated_surprise_warm_starts_recovered_expert() {
+        let mut layer = L2MetaLayer::new();
+        layer.enabled = true;
+        layer.commit_threshold = 0.0;
+        layer.controller.calm_required = 1;
+        let mut state = SystemState {
+            highest_attractor: "maintain coherent self-model omega dayan".into(),
+            generative_base: Some("auxiliary_base".into()),
+            avg_prediction_error: 0.1,
+            total_steps: 12,
+            ..SystemState::default()
+        };
+        state
+            .active_code
+            .insert("cognitive_rules".into(), "self bias damp".into());
+        for _ in 0..5 {
+            layer.controller.observe(
+                control::ControlFeedback {
+                    error: 0.1,
+                    reward: 1.0,
+                    rollback: false,
+                    consequence: 0.1,
+                    kl_policy: [0.8, 0.2],
+                },
+                L2Policy::default(),
+            );
+        }
+        layer.controller.observe(
+            control::ControlFeedback {
+                error: 0.9,
+                reward: 1.0,
+                rollback: false,
+                consequence: 0.0,
+                kl_policy: [0.8, 0.2],
+            },
+            L2Policy::default(),
+        );
+        assert!(layer.controller.surprise_started);
+        let _ = layer.step(
+            &state,
+            HashMap::new(),
+            HashMap::new(),
+            &RuleEffect::default(),
+        );
+        for _ in 0..5 {
+            layer.controller.residual = 0.1;
+            layer.controller.observe(
+                control::ControlFeedback {
+                    error: 0.1,
+                    reward: 1.0,
+                    rollback: false,
+                    consequence: 0.1,
+                    kl_policy: [0.8, 0.2],
+                },
+                L2Policy::default(),
+            );
+        }
+        assert!(
+            layer.controller.cache_prepared,
+            "gate={:?} cooldown={} surprise={} residual={} start={}",
+            layer.controller.gate_state,
+            layer.controller.trust.cooldown_remaining,
+            layer.controller.surprise_started,
+            layer.controller.residual,
+            layer.controller.episode_start_residual,
+        );
+        assert!(
+            !layer.controller.cache.entries.is_empty(),
+            "gate={:?} prepared={} residual={} start={} calm={} cached={}",
+            layer.controller.gate_state,
+            layer.controller.cache_prepared,
+            layer.controller.residual,
+            layer.controller.episode_start_residual,
+            layer.controller.calm_streak,
+            layer.controller.cached_this_episode,
+        );
+        let saved_fingerprint = layer.controller.cache.entries[0].fingerprint;
+        layer.controller.finish_cycle();
+        layer.controller.errors.clear();
+        layer.controller.rewards.clear();
+        layer.controller.window_rollbacks = 0;
+        layer.controller.window_total = 0;
+        layer.controller.entropy_sum = 0.0;
+        layer.controller.gate_state = control::L2GateState::Dormant;
+        for _ in 0..5 {
+            layer.controller.observe(
+                control::ControlFeedback {
+                    error: 0.1,
+                    reward: 1.0,
+                    rollback: false,
+                    consequence: 0.1,
+                    kl_policy: [0.8, 0.2],
+                },
+                L2Policy::default(),
+            );
+        }
+        layer.controller.observe(
+            control::ControlFeedback {
+                error: 0.9,
+                reward: 1.0,
+                rollback: false,
+                consequence: 0.0,
+                kl_policy: [0.8, 0.2],
+            },
+            L2Policy::default(),
+        );
+        assert_eq!(layer.controller.fingerprint(), saved_fingerprint);
+        assert!(
+            layer.controller.surprise_started,
+            "gate={:?} ema_error={} baseline_error={} ema_reward={} baseline_reward={}",
+            layer.controller.gate_state,
+            layer.controller.ema_error,
+            layer.controller.baseline_error,
+            layer.controller.ema_reward,
+            layer.controller.baseline_reward,
+        );
+        let result = layer
+            .step(
+                &state,
+                HashMap::new(),
+                HashMap::new(),
+                &RuleEffect::default(),
+            )
+            .unwrap();
+        assert!(result.meta_cache_hit);
+        assert!(result.alpha > 0.0);
+        assert_ne!(result.selected_expert, "KEEP_L0");
+    }
 
     #[test]
     fn defensive_mode_recovers_after_strong_positive_consequence() {

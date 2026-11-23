@@ -26,6 +26,8 @@ pub trait DecisionMaker {
 
     fn set_bandit_config(&mut self, _config: crate::types::BanditConfig) {}
 
+    fn set_l2_policy(&mut self, _policy: crate::types::L2Policy) {}
+
     fn l2_decision(&self) -> Option<L2DecisionRecord> {
         None
     }

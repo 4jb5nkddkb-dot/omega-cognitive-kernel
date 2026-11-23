@@ -104,6 +104,64 @@ pub struct L2DecisionRecord {
     pub switch_cost_applied: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct L2Policy {
+    pub prior: [f64; 2],
+    pub beta: f64,
+    pub alpha: f64,
+    pub committed: bool,
+    pub expert: usize,
+    pub expert_probabilities: [f64; 4],
+    pub gate_state: crate::l2::control::L2GateState,
+    pub confidence: f64,
+}
+impl Default for L2Policy {
+    fn default() -> Self {
+        Self {
+            prior: [0.5, 0.5],
+            beta: 0.0,
+            alpha: 0.0,
+            committed: false,
+            expert: 0,
+            expert_probabilities: [0.25; 4],
+            gate_state: crate::l2::control::L2GateState::Dormant,
+            confidence: 0.0,
+        }
+    }
+}
+impl L2Policy {
+    pub fn keep_l0() -> Self {
+        Self::default()
+    }
+
+    /// Validate the immutable policy snapshot captured at the commit boundary.
+    /// L2 defers a normal retirement until the next cycle boundary, so a queued
+    /// commit cannot be invalidated by recovery before it executes and settles.
+    pub fn effective(self) -> Self {
+        let valid = self.committed
+            && self.gate_state == crate::l2::control::L2GateState::Active
+            && self.expert > 0
+            && self.expert < 4
+            && self.alpha > 0.0
+            && self.alpha <= 0.35
+            && self.alpha.is_finite()
+            && self.beta > 0.0
+            && self.beta.is_finite()
+            && self.prior.iter().all(|p| p.is_finite() && *p >= 0.0)
+            && self.prior.iter().sum::<f64>() > 0.0
+            && self
+                .expert_probabilities
+                .iter()
+                .all(|p| p.is_finite() && *p > 0.0);
+        if valid {
+            self
+        } else {
+            Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DecisionFeedback {
     pub l1_rollback: bool,

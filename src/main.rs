@@ -86,7 +86,7 @@ enum Commands {
     },
     /// Compare identical seeded runs with L2 interventions disabled/enabled.
     BenchmarkL2 {
-        /// stable, nonstationary, degraded, fixedpoint, or regime_shift
+        /// stable, nonstationary, degraded, fixedpoint, regime_shift, or cyclic_shift
         #[arg(long, default_value = "nonstationary")]
         scenario: String,
         #[arg(long, default_value_t = 5)]
@@ -460,9 +460,8 @@ fn main() -> anyhow::Result<()> {
             json,
         } => {
             let commit_threshold =
-                commit_threshold.unwrap_or(if scenario == "degraded" { 0.65 } else { 0.55 });
-            let commit_cooldown =
-                commit_cooldown.unwrap_or(if scenario == "degraded" { 8 } else { 5 });
+                commit_threshold.unwrap_or(if scenario == "degraded" { 0.50 } else { 0.35 });
+            let commit_cooldown = commit_cooldown.unwrap_or(3);
             let negative_reward_required =
                 negative_reward_required.unwrap_or(if scenario == "stable" { 5 } else { 3 });
             let report = run_l2_benchmark_scenario_with_gate(
