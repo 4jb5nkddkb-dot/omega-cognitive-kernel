@@ -1,8 +1,14 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-// Safety invariants and constraint helpers.
-// Currently the main enforcement lives in L0 executor and L1 sandbox.
+pub mod crypto;
+pub mod token_book;
+#[cfg(feature = "std")]
+pub mod vault;
+
+pub use token_book::{ActionBoundary, AuthorizationToken, TokenBook};
+#[cfg(feature = "std")]
+pub use vault::{StorageLock, Vault};
 
 pub fn default_constraints() -> hashbrown::HashMap<String, f64> {
     let mut c = hashbrown::HashMap::new();
