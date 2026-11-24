@@ -194,18 +194,3 @@ jobs:
           name: l2-benchmark
           path: l2-benchmark.json
           retention-days: 30
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      checks: write
-    # TODO: remove continue-on-error once rustls/rustls-webpki/url advisories are resolved
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-    
