@@ -537,8 +537,8 @@ impl ResidentController {
         let lambda = self.dayan_relaxation.clamp(0.01, 1.0);
         let innovation =
             (self.residual_slope.abs() + (self.ema_error - error).abs()).clamp(0.0, 1.0);
-        let disturbance_term = 0.20 * innovation + alpha.clamp(0.0, 1.0) * disturbance;
-        let predicted = (1.0 - lambda) * self.residual + lambda * disturbance_term;
+        let disturbance_term = 0.2 * lambda * innovation + alpha.clamp(0.0, 1.0) * disturbance;
+        let predicted = (1.0 - lambda) * self.residual + disturbance_term;
         if predicted.is_finite() {
             predicted
         } else {
