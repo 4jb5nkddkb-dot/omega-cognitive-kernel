@@ -3,8 +3,8 @@ use crate::prelude::*;
 
 pub mod cas;
 pub mod case;
-pub mod strategy;
 pub mod consolidation;
+pub mod strategy;
 
 use crate::error::Result;
 use crate::types::{RuleEffect, Trajectory};
