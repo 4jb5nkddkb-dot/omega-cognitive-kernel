@@ -137,8 +137,8 @@ def test_schema_version_is_current(kernel):
     kernel.run("schema goal", 1)
     kernel.save()
     payload = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
-    # Schema v2 adds self_modify_enabled, steps_since_last_patch, l2_rollback_effect.
-    assert payload["version"] == 2
+    # Schema v5 includes self_modify_enabled, steps_since_last_patch, l2_rollback_effect.
+    assert payload["version"] == 5
     assert payload["self_modify_enabled"] is False
     assert "steps_since_last_patch" in payload
     assert "l2_rollback_effect" in payload
