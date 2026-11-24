@@ -3,6 +3,7 @@ use crate::prelude::*;
 
 pub mod cas;
 pub mod case;
+pub mod consolidation;
 pub mod strategy;
 
 use crate::error::Result;
