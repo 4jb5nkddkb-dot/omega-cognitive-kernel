@@ -6,7 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+   
 env:
   CARGO_TERM_COLOR: always
   WASMTIME_VERSION: v50.0.1
@@ -15,6 +20,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -41,6 +47,7 @@ jobs:
   python:
     name: Python bindings (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +80,7 @@ jobs:
   gui:
     name: Dashboard GUI
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -91,6 +99,7 @@ jobs:
   wasm:
     name: WASM portability
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -136,6 +145,7 @@ jobs:
   msrv:
     name: MSRV Rust 1.74
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -143,7 +153,8 @@ jobs:
         uses: dtolnay/rust-toolchain@1.74.0
         with:
           components: rustfmt, clippy
-
+      - uses: Swatinem/rust-cache@v2
+      
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -159,6 +170,7 @@ jobs:
   l2-benchmark:
     name: L2 Baseline Regression
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -182,3 +194,13 @@ jobs:
           name: l2-benchmark
           path: l2-benchmark.json
           retention-days: 30
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+    
