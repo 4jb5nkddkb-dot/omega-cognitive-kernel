@@ -46,6 +46,13 @@ where
             bias_from_memory: self.biases.clone(),
         };
 
+        self.l2.controller.feedback_settled = false;
+        // A commit is immutable for the entire action/feedback cycle. L2 may
+        // evaluate the next proposal, but cannot replace the policy being
+        // executed (or cleared after its consequence) with that proposal.
+        self.l2.applied_policy = self.l2.pending_policy.effective();
+        self.l2.pending_policy = crate::types::L2Policy::default();
+        self.l0.decision.set_l2_policy(self.l2.applied_policy);
         let trajectory = self.l0.step(&intent, &self.constraints)?;
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
 
@@ -70,7 +77,7 @@ where
         };
 
         let current_effect = self.l0.memory.cognitive_effect.clone();
-        let l2_result = self.l2.step(
+        let mut l2_result = self.l2.step(
             &state,
             self.biases.clone(),
             self.constraints.clone(),
@@ -78,6 +85,11 @@ where
         )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
+        // `pending_policy` remains queued until the beginning of the next
+        // cycle. Overwriting L0 here would attribute the next proposal to the
+        // action that has already executed.
+        l2_result.applied_policy = self.l2.applied_policy;
+        l2_result.decision = self.l0.decision.l2_decision();
 
         if let Some(nudged) = &l2_result.effect_nudge {
             self.l0.memory.cognitive_effect = nudged.clone();
@@ -261,28 +273,16 @@ mod tests {
     }
 
     #[test]
-    fn l2_soft_nudge_can_change_explore_bonus() {
+    fn l2_uses_kl_policy_not_additive_effect_nudges() {
         let mut kernel = make_kernel();
-        kernel.l2.detector.window = 2;
-        kernel.l2.detector.pred_threshold = 0.3;
-        kernel.l2.detector.self_ref_threshold = 0.3;
-        kernel.l2.detector.cooldown_steps = 0;
-
-        let before = kernel.l0.memory.cognitive_effect.explore_bonus;
-        let mut saw_nudge = false;
+        kernel.l2.enabled = true;
         for _ in 0..12 {
             let r = kernel
                 .run_once("maintain coherent self-model omega dayan")
                 .expect("step");
-            if r.l2.effect_nudge.is_some() {
-                saw_nudge = true;
-            }
+            assert!(r.l2.effect_nudge.is_none());
+            assert!(r.l2.dayan_residual.is_finite());
         }
-        let after = kernel.l0.memory.cognitive_effect.explore_bonus;
-        assert!(
-            saw_nudge || (after - before).abs() > 1e-6,
-            "expected L2 soft-nudge path to fire; before={before} after={after}"
-        );
     }
 
     /// Force fixed-point entry then degrade metrics → should exit.

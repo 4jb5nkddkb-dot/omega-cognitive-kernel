@@ -86,7 +86,7 @@ enum Commands {
     },
     /// Compare identical seeded runs with L2 interventions disabled/enabled.
     BenchmarkL2 {
-        /// stable, nonstationary, degraded, or fixedpoint
+        /// stable, nonstationary, degraded, fixedpoint, regime_shift, or cyclic_shift
         #[arg(long, default_value = "nonstationary")]
         scenario: String,
         #[arg(long, default_value_t = 5)]
@@ -279,6 +279,16 @@ fn main() -> anyhow::Result<()> {
                 println!("l2_consequence    : {:.4}", st.last_l2_consequence_score);
                 println!("l2_defensive      : {}", st.l2_defensive_mode);
                 println!("l2_negative_run   : {}", st.l2_negative_consequence_streak);
+                if let Some(d) = &st.last_l2_decision {
+                    println!(
+                        "last_l2_decision  : arm={} bias={} mean={:.4} bonus={:.4} reason={:?}",
+                        d.selected_arm,
+                        d.selected_bias,
+                        d.mean_reward,
+                        d.exploration_bonus,
+                        d.reason
+                    );
+                }
                 println!("state_path         : {}", st.state_path);
             }
         }
@@ -376,8 +386,18 @@ fn main() -> anyhow::Result<()> {
                         .map(|e| format!("{e:.3}"))
                         .unwrap_or_else(|| "-".into());
                     println!(
-                        "step={:<5} action={:<12} patched={} avg_err={}",
-                        r.step, r.action, r.patched, err
+                        "step={:<5} action={:<12} patched={} avg_err={} l2={}",
+                        r.step,
+                        r.action,
+                        r.patched,
+                        err,
+                        r.l2_decision
+                            .as_ref()
+                            .map(|d| format!(
+                                "arm={} mean={:.3} bonus={} reason={:?}",
+                                d.selected_arm, d.mean_reward, d.exploration_bonus, d.reason
+                            ))
+                            .unwrap_or_else(|| "-".into())
                     );
                 }
             }
@@ -440,9 +460,8 @@ fn main() -> anyhow::Result<()> {
             json,
         } => {
             let commit_threshold =
-                commit_threshold.unwrap_or(if scenario == "degraded" { 0.65 } else { 0.55 });
-            let commit_cooldown =
-                commit_cooldown.unwrap_or(if scenario == "degraded" { 8 } else { 5 });
+                commit_threshold.unwrap_or(if scenario == "degraded" { 0.50 } else { 0.35 });
+            let commit_cooldown = commit_cooldown.unwrap_or(3);
             let negative_reward_required =
                 negative_reward_required.unwrap_or(if scenario == "stable" { 5 } else { 3 });
             let report = run_l2_benchmark_scenario_with_gate(
@@ -538,6 +557,18 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "final alignment   : {:>10.4}    {:>10.4}",
                     base.mean_final_alignment_score, l2.mean_final_alignment_score
+                );
+                println!(
+                    "recovery steps    : {:>10?}    {:>10?}",
+                    base.mean_recovery_steps, l2.mean_recovery_steps
+                );
+                println!(
+                    "L1 rollbacks/run  : {:>10.4}    {:>10.4}",
+                    base.mean_l1_rollback_count, l2.mean_l1_rollback_count
+                );
+                println!(
+                    "Dayan residual    : {:>10.4}    {:>10.4}",
+                    base.mean_final_dayan_residual, l2.mean_final_dayan_residual
                 );
             }
         }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`benchmark-l2` compares the same seeded non-stationary two-armed bandit task with L2 interventions disabled and enabled. It is intended to turn L2 from a qualitative heuristic into a measurable, repeatable capability.
+`benchmark-l2` compares two `BanditUcbDecisionMaker` kernels on the same seeded non-stationary two-armed bandit task. The only intentional policy difference is L2 enablement. UCB/L1 settings, detector and commit parameters, reward discount, persistence switches, and environment seeds are paired.
 
 The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline.
 
@@ -35,14 +35,22 @@ cargo run --release --bin omega-kernel -- benchmark-l2 \
   --json
 ```
 
-The three gate parameters are the treatment-arm commit threshold, post-commit cooldown, and consecutive negative-reward requirement. The recommended defaults are `0.55/5/3` for nonstationary, `0.65/8/3` for degraded, and `0.55/5/5` for stable.
+The three gate parameters are applied identically to both branches. The current defaults are `0.35/3/3` for nonstationary and cyclic scenarios, `0.50/3/3` for degraded, and `0.35/3/5` for stable. They are fixture knobs, not production recommendations.
 
-The two arms use identical seeds:
+The two algorithm branches use identical environment seeds and `BanditUcbDecisionMaker` policies:
 
-- **baseline**: L2 monitor may be evaluated, but L2 cannot modify biases, constraints, or `RuleEffect`;
-- **L2 enabled**: normal L2 detector, fixed-point, modulation, and effect-nudge behavior.
+- **baseline**: L2 interventions disabled; monitoring, fixed-point scoring, and residual observability continue;
+- **treatment**: the same UCB/L1 configuration with resident L2 enabled. Proposals are separate from executable commits, and commits are separate from the immutable policy applied to the current L0 action.
 
-The short benchmark fixture lowers the treatment `commit_threshold` to `0.55` so the five-signal candidate-to-commit path is exercised. The production/default L2 threshold remains `0.82`; this fixture is for mechanism measurement, not a production configuration recommendation.
+Both benchmark branches explicitly enable L1 self-modification so the patch/rollback loop is measured. This does **not** change the runtime default `self_modify_enabled = false`.
+
+UCB decisions use hysteresis: a seen candidate cannot replace the incumbent before `min_dwell_steps`, and its UCB must exceed the incumbent by `switch_margin`. An unseen arm can initialize without waiting. An actual safety rollback can force the stabilizing arm. Defaults are `3` and `0.05`; `switch_cost = 0.02` is charged once to a destination arm after switching.
+
+The UCB reward is `external_reward - 0.25 * error_delta - rollback_penalty * rollback_count - switch_cost`. The default rollback penalty is `0.35`. An accepted L1 patch that worsens error by more than `0.05` on its next observation restores the previous `RuleEffect`; only that actual restoration counts as an L1 rollback. Rejected/cooldown-skipped patches are not rollbacks. Restoring an effect may improve later error, but the rollback cost is still charged to the arm that caused it. Configure these values in `[bandit]`; zeros and `min_dwell_steps = 0` restore legacy switching/reward behavior.
+
+This is an L2-only ablation under the fixture's paired UCB policy, not a comparison of different decision makers. Positive deltas would support an L2 effect in this fixture; they would not establish external validity or statistical significance. L2 remains disabled by default.
+
+The short benchmark fixture lowers both branches' `commit_threshold` to `0.35` (`0.50` for `degraded`) to exercise the controller. The production/default threshold remains `0.82`. This fixture is for mechanism measurement, not a production configuration recommendation.
 
 Available scenarios:
 
@@ -50,6 +58,10 @@ Available scenarios:
 - `nonstationary`: optimal arm switches; tests adaptation;
 - `degraded`: the environment and prediction signal degrade halfway through; tests consequence feedback and exit behavior.
 - `fixedpoint`: holds a low-error coherent window, then injects high error; tests fixed-point enter, dwell, and exit evidence.
+- `regime_shift`: arm 0 is initially optimal; at the global midpoint arm 1 becomes optimal and prediction error is forced high (`0.9`, then `0.65` before subsequent steps). Both branches use a `0.85` reward-mean discount.
+- `cyclic_shift`: the optimal arm alternates every 12 global steps. Early steps in each cycle inject the same observation error in both branches.
+
+For `regime_shift`, recovery is the first post-shift step that completes a streak of optimal-arm choices lasting one third of the remaining steps. `recovery_steps` counts from the shift and is one-based. It is `null` when the run never recovers; aggregate `mean_recovery_steps` averages recovered runs only, while `recovery_rate` includes every run.
 
 Each run uses a fresh temporary state path. Persistent benchmark artifacts are removed after the run.
 
@@ -69,17 +81,27 @@ Each run uses a fresh temporary state path. Persistent benchmark artifacts are r
 - `mean_final_score_breakdown`: weighted fixed-point score components;
 - `mean_fixed_point_enters` / `mean_fixed_point_exits`: L2 regime transition counts;
 - `mean_max_fixed_point_dwell`: maximum observed fixed-point dwell steps;
-- `mean_final_alignment_score`: final L2 alignment score.
+- `mean_final_alignment_score`: final L2 alignment score;
+- `mean_recovery_steps` / `recovery_rate`: regime-shift recovery latency among recovered runs and fraction recovered;
+- `mean_l1_rollback_count`: actual L1 `RuleEffect` restorations after a harmful accepted patch;
+- `mean_l2_rollback_count`: actual L2 effect restorations, counted separately;
+- `dayan_convergence_rate` / `mean_final_dayan_residual`: internal relaxation convergence, measured as the final residual being at most `0.18`, below its initial value, with at least one decreasing update. This is separate from external optimal-arm recovery. For a frozen target, `r+ = (1 - relaxation)r`; moving targets add their absolute target change, so no global contraction claim is made.
+- `mean_committed_policies_applied`: committed snapshots that actually governed an L0 action, as distinct from proposals or queued commits;
+- `mean_dwell_hold_count` / `mean_margin_hold_count`: UCB switch suppressions. `dwell_hold` has priority in the reason field when both gates fail.
+- `mean_lyapunov_vetoes`: proposals rejected by the one-step residual-potential check;
+- `mean_meta_cache_hits`: context-cache lookups, not evidence of improved recovery;
+- `recovery_event_rate` / `mean_recovery_steps`: external optimal-arm recovery after a shift;
+- `mean_warm_recovery_steps`: latency only when a cache hit produces a commit, that exact commit executes within the recovery window, and the required optimal-arm streak completes. It is `null` when there are no such events. A cache hit alone never qualifies.
 
 The top-level `delta_*` fields are:
 
 ```text
-L2 enabled aggregate - baseline aggregate
+treatment aggregate - baseline aggregate
 ```
 
 ## Five-signal score
 
-The next score revision combines the internal alignment signal with environment and consequence signals:
+The current score combines the internal alignment signal with environment and consequence signals:
 
 ```text
 candidate_score =
@@ -93,11 +115,11 @@ candidate_score =
 
 Fixed-point evidence is intentionally separate from modulation evidence. `candidate_alignment_score` is the raw internal alignment component; `candidate_score` is the weighted score used by the commit gate. A run is counted as entering fixed-point when raw alignment crosses the fixed-point threshold, even if the composite score is below the modulation commit threshold. This proves enter/dwell/exit behavior without conflating it with a policy nudge.
 
-For reward and best-arm rate, positive is better. For error delta, lower is better; the JSON report keeps each arm's value so that interpretation is not hidden.
+For reward and best-arm rate, positive is better. For error delta, lower is better; the JSON report keeps each branch's value so that interpretation is not hidden.
 
 ## Interpretation
 
-A useful L2 result should satisfy all of the following over repeated seeds:
+A useful treatment result should satisfy all of the following over repeated seeds:
 
 1. reward or best-arm rate improves against baseline;
 2. the improvement is not caused only by a higher patch count;
@@ -107,12 +129,32 @@ A useful L2 result should satisfy all of the following over repeated seeds:
 
 Do not use `mean_l2_nudges > 0` or `mean_fixed_point_enters > 0` as a success criterion by itself. Those only prove that an L2 path fired, not that the intervention helped.
 
-## Current baseline finding (2026-11-21)
+## Decision replay and status
 
-With the recommended 20-seed nonstationary configuration (`20261115`, 12 episodes × 12 steps), the treatment averages 1.85 L2 commits per run. The immediate post-commit action changes 0.20 times per run, but the selected **bandit arm changes 0.00 times**. Mean reward and best-arm rate are unchanged from baseline.
+Every bandit step records `l2_decision` in `trajectory.jsonl`: selected arm/bias, mean reward, exploration bonus, candidate/current UCB scores, reason (`switched`, `dwell_hold`, `margin_hold`, `safety_override`, `explore`, or `exploit`), dwell state, and feedback costs. `replay` displays these fields. `status --json` exposes the latest summary as `last_l2_decision`; it is `null` for a fresh kernel or non-UCB decision maker.
 
-This is a mechanism diagnostic, not evidence of improved task performance. The benchmark's `stabilize`, `exploit`, and `observe` actions currently map to arm 0, while only `explore` maps to arm 1; reward feedback is recorded after `Kernel::step`, so it affects later decisions rather than the decision that just produced it. Future algorithm changes should first demonstrate post-commit arm changes, then establish repeated reward gains across seeds and scenarios. Do not describe a higher commit count as an algorithmic improvement.
+State schema v5 stores the resident controller, online Dayan state, bounded cache, validated pending/applied policy snapshots, UCB statistics, and decision explanations. Missing legacy L2 permissions default to `false`; malformed or noncommitted snapshots collapse to `KEEP_L0`. Older trajectory lines without the newer fields replay with safe defaults.
+
+## Historical results
+
+The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally not used as current acceptance evidence.
+
+The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally omitted rather than presented as current acceptance evidence.
+
+## Current paired result (2026-11-23)
+
+A release-build run used 20 seeds beginning at `20261115`, with 12 episodes × 12 steps, for `nonstationary`, `regime_shift`, and `cyclic_shift`. All three completed successfully.
+
+| Scenario | Reward, off → on | Best-arm rate, off → on | Commits / applied | Cache hits | Warm recovery |
+|---|---:|---:|---:|---:|---:|
+| `nonstationary` | 0.739931 → 0.740625 | 0.802083 → 0.803125 | 0.00 / 0.00 | 6.95 | `null` |
+| `regime_shift` | 0.787153 → 0.787153 | 0.877431 → 0.877431 | 0.00 / 0.00 | 12.85 | `null` |
+| `cyclic_shift` | 0.584028 → 0.584028 | 0.526736 → 0.526736 | 0.00 / 0.00 | 10.00 | `null` |
+
+The regime and cyclic runs recovered with the same mean external latency in both branches (29.85 and 6.05 steps respectively). Proposals were vetoed by the Lyapunov gate; there were no executable commits. Cache hits therefore provide **no evidence of warm-start benefit**. The tiny nonstationary reward difference is not accompanied by L0 policy intervention and is not an L2 effectiveness claim. Prediction-error improvement also remains unproven.
+
+Reproduce with the recommended command, replacing `nonstationary` with `regime_shift` and `cyclic_shift` for the other two required runs. Retain the JSON as a CI artifact when publishing trend data. Continue to compare other seed ranges before making broader effectiveness claims or enabling L2 by default.
 
 ## CI / regression use
 
-The JSON output is designed for a later CI job or plotting script. Initially, keep this benchmark observational rather than enforcing a hard reward threshold. After collecting stable results across several commits, add a regression threshold with an explicit tolerance and record the benchmark parameters in the report.
+The JSON output supports CI trend tracking and plotting. Keep this benchmark observational rather than enforcing a hard reward threshold until matched-policy L2 ablations and repeated scenarios provide stable evidence. After collecting stable results across several commits, add a regression threshold with an explicit tolerance and record the benchmark parameters in the report.

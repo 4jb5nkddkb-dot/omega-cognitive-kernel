@@ -174,7 +174,7 @@ jobs:
         run: |
           cargo run --locked --release --bin omega-kernel -- benchmark-l2 \
             --scenario nonstationary --runs 5 --episodes 8 --steps 8 --seed 20261115 --json \
-            > l2-benchmark.json
+            | tee l2-benchmark.json
 
       - name: Upload L2 benchmark artifact
         uses: actions/upload-artifact@v7

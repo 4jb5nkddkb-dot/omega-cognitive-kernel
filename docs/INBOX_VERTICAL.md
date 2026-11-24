@@ -37,7 +37,7 @@ The step loop never hard-codes files or HTTP:
 ```rust
 let observer = EventQueueObserver::new(inbox);
 let executor = PolicyGateExecutor::new(whitelist, "./actions.log");
-let mut kernel = Kernel::with_adapters(observer, executor);
+let mut kernel = Kernel::with_adapters(observer, executor, ConstrainedDecisionMaker);
 kernel.apply_config(&KernelConfig::load("omega.toml")?);
 kernel.step(&goal)?;
 ```

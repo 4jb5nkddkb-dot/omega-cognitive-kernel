@@ -1,6 +1,6 @@
 //! Runtime-level smoke test for the wasm32-wasi library surface.
 //! Build with:
-//! cargo build --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+//! cargo build --example wasm_runtime_smoke --no-default-features --features std --target wasm32-wasip1
 
 use omega_cognitive_kernel::Kernel;
 

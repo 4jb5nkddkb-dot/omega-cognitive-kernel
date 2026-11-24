@@ -2,7 +2,7 @@
 
 ## What the repository implements
 
-Omega Cognitive Kernel is a Rust library and CLI runtime for online strategy adaptation without model-weight updates. The public `Kernel<O, E>` type injects an `Observer` and an `Executor`, while the predictor and decision maker remain the default model-based and constrained implementations. The default concrete kernel uses `MultiModalObserver` and `SandboxedExecutor`.
+Omega Cognitive Kernel is a Rust library and CLI runtime for online strategy adaptation without model-weight updates. The public `Kernel<O, D, E>` type injects an `Observer`, a `DecisionMaker`, and an `Executor`, while the predictor remains `ModelBasedPredictor`. The default concrete kernel uses `MultiModalObserver`, `ConstrainedDecisionMaker`, and `SandboxedExecutor`; `BanditKernel` substitutes the UCB decision maker.
 
 The implementation changes a bounded `RuleEffect`, not executable source code. `RuleEffect` contains `error_damping`, action-name preferences, `min_uncertainty`, `explore_bonus`, and `risk_tolerance`. Its sanitizer clamps values and removes unknown action names; the allowed actions are `noop`, `observe`, `explore`, `exploit`, and `stabilize`.
 
@@ -25,7 +25,7 @@ Kernel::step(goal)
 
 L1 is the discrete patch channel and is disabled by default through `self_modify_enabled = false`. L1 must distill a trajectory, reflect a candidate patch, sanitize its `RuleEffect`, validate it through `CodeSandbox`, and only then update the active effect and versioned store. A cooldown counter limits immediate repatching.
 
-L2 is independent. It is enabled by default, monitors metrics even when disabled, and may change biases, constraints, and the current `RuleEffect` only when fixed-point/alignment scoring clears the commit threshold and cooldown/defensive checks. Negative consequence feedback can restore the saved pre-commit effect.
+L2 is independent and disabled by default. It monitors metrics even when disabled, and may change biases, constraints, and the current `RuleEffect` only when explicitly enabled and fixed-point/alignment scoring clears the commit threshold and cooldown/defensive checks. Negative consequence feedback can restore the saved pre-commit effect.
 
 ## Repository structure
 
@@ -35,4 +35,4 @@ The repository also includes Python bindings under `bindings/python`, examples u
 
 ## Baseline captured from source
 
-The working tree was clean before Memory Bank generation. The source package declares version `0.5.25`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `2`; the default state path is `.omega/state.json`. The checked-out `main` commit is `f7ae3de` (`创建 EXPERIMENTS.md`).
+The working tree was clean before Memory Bank generation. The source package declares version `0.6.0`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `2`; the default state path is `.omega/state.json`.

@@ -1,7 +1,7 @@
 # Portability Status
 
-**Last updated:** 2026-11-20
-**Target source version:** 0.5.25+
+**Last updated:** 2026-11-22
+**Target source version:** 0.6.0
 
 ## 目标
 

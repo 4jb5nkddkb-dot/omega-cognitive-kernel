@@ -27,6 +27,8 @@ pub struct KernelStatus {
     pub last_l2_consequence_score: f64,
     pub l2_defensive_mode: bool,
     pub l2_negative_consequence_streak: u32,
+    /// JSON-encoded latest UCB/L2 decision; None when no UCB decision exists.
+    pub last_l2_decision: Option<String>,
 }
 
 #[pymethods]

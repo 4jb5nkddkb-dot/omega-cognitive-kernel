@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "omega-cognitive-kernel"
-version = "0.5.25"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "omega-cognitive-kernel-python"
-version = "0.5.25"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "omega-cognitive-kernel",

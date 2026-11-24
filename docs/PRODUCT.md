@@ -10,13 +10,13 @@
 - Systems that must **audit** why the policy changed and **undo** bad patches
 - Integrators who already have sensors / files / HTTP status and want a small closed loop
 
-## What ships in this source tree (v0.5.25)
+## What ships in this source tree (v0.6.0)
 
 | Capability | Surface |
 |------------|---------|
 | Kernel API | `Kernel`, `run` / `step` / status / checkpoint / rollback |
 | Config | `omega.toml` via `KernelConfig` and CLI `--config` |
-| Safety switch | `self_modify_enabled` (default **false**) |
+| Safety switches | `self_modify_enabled` and `set_l2_enabled` (both default **false**) |
 | Trajectory | `dump_trajectory` → `trajectory.jsonl` + `replay` |
 | Events | `KernelEvent` / `AuditEvent`; `AuditLog::poll_after`; in-process event hook |
 | Strategies | Operator weight nudge (`set_strategy_weight`) |
@@ -25,7 +25,7 @@
 | GUI | `omega-dashboard` (`--features gui`) — status / run / audit live follow / strategies / workspaces / replay |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
 
-**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ; this source tree is `0.5.25`.
+**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ during preparation; this source tree is `0.6.0`.
 
 ## Current productizable assets (2026-11-14 screening)
 

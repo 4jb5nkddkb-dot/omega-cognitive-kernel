@@ -1,4 +1,6 @@
 /target
+portable/no_std_probe/target/
+portable/no_std_probe/Cargo.lock
 **/*.rs.bk
 .idea/
 .vscode/

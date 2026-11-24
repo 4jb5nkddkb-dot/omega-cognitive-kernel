@@ -76,7 +76,7 @@ pub use api::{
 #[cfg(feature = "std")]
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
 #[cfg(feature = "std")]
-pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig};
+pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig, L2Config};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
 #[cfg(feature = "std")]
@@ -89,6 +89,7 @@ pub use task::{
 pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
+pub use l0::bandit_decision::{BanditUcbDecisionMaker, BanditUcbSnapshot};
 pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]

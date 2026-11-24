@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
 /// Current on-disk schema. Bump only with a migration path.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 fn default_schema_version() -> u32 {
     0
@@ -33,7 +33,8 @@ fn default_steps_since_last_patch() -> u64 {
 }
 
 fn default_l2_enabled() -> bool {
-    true
+    // Missing legacy flags must not acquire permission to alter L0 on upgrade.
+    false
 }
 
 fn default_l2_commit_threshold() -> f64 {
@@ -67,7 +68,7 @@ fn default_l2_detector_cooldown() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
     /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
-    /// [`CURRENT_SCHEMA_VERSION`] (currently 2) on load.
+    /// [`CURRENT_SCHEMA_VERSION`] (currently 5) on load.
     #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
@@ -138,6 +139,30 @@ pub struct KernelSnapshot {
     /// restart retains the pre-commit policy needed for negative-feedback rollback.
     #[serde(default)]
     pub l2_rollback_effect: Option<RuleEffect>,
+    /// Last UCB-backed L2 decision, available to status and trajectory replay.
+    #[serde(default)]
+    pub last_l2_decision: Option<crate::types::L2DecisionRecord>,
+    /// Complete local bandit state when the kernel uses BanditUcbDecisionMaker.
+    #[serde(default)]
+    pub bandit_ucb: Option<crate::l0::bandit_decision::BanditUcbSnapshot>,
+    #[serde(default)]
+    pub bandit_config: crate::types::BanditConfig,
+    #[serde(default)]
+    pub l1_previous_effect: Option<RuleEffect>,
+    #[serde(default)]
+    pub l1_pending_rollback: bool,
+    /// Resident L2 controller and one-step pending policy (v4+). Missing legacy
+    /// state is dormant with zero trust, so migration cannot inject a bias.
+    #[serde(default)]
+    pub l2_controller: crate::l2::control::ResidentController,
+    #[serde(default)]
+    pub l2_pending_policy: crate::types::L2Policy,
+    #[serde(default)]
+    pub l2_applied_policy: crate::types::L2Policy,
+    #[serde(default)]
+    pub l2_pending_l1_rollback: bool,
+    #[serde(default)]
+    pub l2_last_reward: f64,
 }
 
 impl Default for KernelSnapshot {
@@ -156,7 +181,7 @@ impl Default for KernelSnapshot {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: Vec::new(),
-            l2_enabled: true,
+            l2_enabled: false,
             l2_in_fixed_point: false,
             l2_dwell_steps: 0,
             l2_last_alignment_score: 0.0,
@@ -181,6 +206,16 @@ impl Default for KernelSnapshot {
             self_modify_enabled: false,
             steps_since_last_patch: default_steps_since_last_patch(),
             l2_rollback_effect: None,
+            last_l2_decision: None,
+            bandit_ucb: None,
+            bandit_config: crate::types::BanditConfig::default(),
+            l1_previous_effect: None,
+            l1_pending_rollback: false,
+            l2_controller: crate::l2::control::ResidentController::default(),
+            l2_pending_policy: crate::types::L2Policy::default(),
+            l2_applied_policy: crate::types::L2Policy::default(),
+            l2_pending_l1_rollback: false,
+            l2_last_reward: 0.5,
         }
     }
 }
@@ -209,6 +244,33 @@ impl KernelSnapshot {
             // defaults are intentionally the *safe* pre-v2 behavior: L1 disabled
             // and a warm cooldown. Nothing to backfill beyond stamping the version.
             self.version = 2;
+        }
+        if self.version < 3 {
+            // v3 adds optional UCB statistics and decision explanations. Their
+            // defaults preserve the old policy and never enable self-modification.
+            self.version = 3;
+        }
+        if self.version < 4 {
+            // v4 adds the resident controller, bounded meta-cache and pending
+            // policy. Serde defaults fail closed to DORMANT and KEEP_L0.
+            self.l2_pending_policy = crate::types::L2Policy::default();
+            self.l2_applied_policy = crate::types::L2Policy::default();
+            self.version = 4;
+        }
+        if self.version < 5 {
+            // v5 makes the online Dayan state, duplicate-feedback guard and
+            // normalized propensity snapshots explicit. Missing v4 fields are
+            // safe serde defaults; permission remains opt-in, never inferred
+            // from the presence of a resident controller or a cache entry.
+            self.l2_pending_policy = self.l2_pending_policy.effective();
+            self.l2_applied_policy = self.l2_applied_policy.effective();
+            if !self.l2_enabled {
+                self.l2_pending_policy = crate::types::L2Policy::default();
+                self.l2_applied_policy = crate::types::L2Policy::default();
+                self.l2_controller.gate_state = crate::l2::control::L2GateState::Dormant;
+                self.l2_controller.trust.alpha = 0.0;
+            }
+            self.version = 5;
         }
         Ok(self)
     }
@@ -366,6 +428,16 @@ mod tests {
         assert!(!loaded.self_modify_enabled);
         assert_eq!(loaded.steps_since_last_patch, 100);
         assert!(loaded.l2_rollback_effect.is_none());
+        assert!(loaded.last_l2_decision.is_none());
+        assert_eq!(loaded.bandit_config.min_dwell_steps, 3);
+        assert_eq!(
+            loaded.l2_controller.gate_state,
+            crate::l2::control::L2GateState::Dormant
+        );
+        assert_eq!(loaded.l2_controller.trust.alpha, 0.0);
+        assert!(!loaded.l2_pending_policy.committed);
+        assert!(!loaded.l2_applied_policy.committed);
+        assert!(loaded.l2_controller.cache.entries.is_empty());
         let _ = fs::remove_file(&path);
     }
 

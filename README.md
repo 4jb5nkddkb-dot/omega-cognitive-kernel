@@ -14,7 +14,7 @@ World (L0) -> Reflect & patch (L1) -> Meta-modulate (L2) -> bias next L0
 
 Adaptive systems often require retraining/fine-tuning or allow unrestricted code changes that are difficult to inspect and reverse. Omega takes a narrower approach: online adaptation is expressed as bounded `RuleEffect` data, validated before use, persisted as cognitive state, and exposed through audit and replay surfaces.
 
-The current repository is a **research prototype**. The source package declares version `0.5.25`; project documentation identifies `v0.5.30` as the newest repository tag, which may contain changes beyond the current source-version declaration.
+The current repository is a **research prototype**. The Rust and Python packages declare version `0.6.0`. The `v0.6.0` tag and registry availability follow the release process; check the linked package registries for published versions.
 
 ## Core concepts
 
@@ -32,7 +32,7 @@ observe
   -> update case/strategy/CAS memory
 ```
 
-The default implementation uses `MultiModalObserver`, `ModelBasedPredictor`, `ConstrainedDecisionMaker`, and `SandboxedExecutor`. Integrators can inject custom observer and executor implementations through `Kernel<O, E>`.
+The default implementation uses `MultiModalObserver`, `ModelBasedPredictor`, `ConstrainedDecisionMaker`, and `SandboxedExecutor`. Integrators can inject custom observer, decision maker, and executor implementations through `Kernel<O, D, E>`. `BanditKernel` and `Kernel::with_bandit_ucb(path)` provide a standard UCB decision maker for two-armed bandit tasks; see [`docs/STANDARD_BANDIT.md`](docs/STANDARD_BANDIT.md).
 
 ### L1: discrete cognitive patches
 
@@ -44,7 +44,7 @@ L1 is disabled by default. The patch metadata may contain descriptive code and e
 
 L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it applies bounded changes to biases, constraints, and `RuleEffect`. L2 stores the pre-commit effect and accepts later reward/error/risk feedback through `observe_l2_consequence`.
 
-L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain over the disabled baseline.
+L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain for the intended task. The current nonstationary UCB treatment has a small positive delta against its constrained-decision baseline, but it does not isolate L2's contribution or justify changing the default. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
 
 ## Installation
 
@@ -58,21 +58,21 @@ Or add the dependency manually:
 
 ```toml
 [dependencies]
-omega-cognitive-kernel = "0.5.25"
+omega-cognitive-kernel = "0.6.0"
 ```
 
 ### Install the CLI from the repository
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \\
-  --tag v0.5.25 --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \
+  --tag v0.6.0 --locked
 ```
 
 Install the optional dashboard with the `gui` feature:
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \\
-  --tag v0.5.25 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \
+  --tag v0.6.0 --locked --features gui --bin omega-dashboard
 ```
 
 Check the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page for published binaries and the [crates.io package](https://crates.io/crates/omega-cognitive-kernel) for the latest published library version.
@@ -154,11 +154,11 @@ Useful product-facing methods include:
 | `audit_summary` / `audit_tail` | Inspect append-only audit events |
 | `replay_trajectory` | Summarize trajectory JSONL without world re-execution |
 | `set_event_hook` | Receive events after durable audit append |
-| `set_l2_enabled` | Enable or disable L2 interventions |
+| `set_l2_enabled` | Enable or disable L2 interventions (default off) |
 | `observe_l2_consequence` | Feed reward/error/risk feedback to L2 |
 | `set_strategy_weight` | Apply an operator strategy-weight nudge |
 
-For custom world integration, implement the public `Observer` and `Executor` traits and construct the kernel with `Kernel::with_adapters` or `Kernel::with_adapters_and_path`.
+For custom world integration, implement the public `Observer`, `DecisionMaker`, and `Executor` traits and construct the kernel with `Kernel::with_adapters(observer, executor, decision)` or `Kernel::with_adapters_and_path(observer, executor, decision, path)`.
 
 ## Configuration and safety defaults
 
@@ -265,7 +265,7 @@ Before changing behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs),
 
 ## Roadmap and project boundaries
 
-The 0.5 roadmap marks schema/replay, event hooks, strategy weights, dashboard workspaces, CLI parity, and status JSON as shipped. A full multi-tenant control plane, workspace multi-kernel orchestration service, and possible additional docs.rs feature-flag polish remain deferred.
+The 0.5 line shipped schema/replay, event hooks, strategy weights, dashboard workspaces, CLI parity, and status JSON. Version 0.6.0 adds generic decision makers and UCB-based bandit composition alongside the safety and persistence work in this release. A full multi-tenant control plane, workspace multi-kernel orchestration service, and possible additional docs.rs feature-flag polish remain deferred.
 
 The public core is released under the MIT License. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for licensing, trademark, and open-core details. Hosted services, managed policy packs, and enterprise control-plane features are not assumed to be part of the public MIT core.
 

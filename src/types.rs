@@ -46,6 +46,140 @@ pub struct Action {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BanditConfig {
+    /// Minimum decisions to keep an arm before considering a switch.
+    pub min_dwell_steps: u64,
+    /// Required UCB advantage over the incumbent arm.
+    pub switch_margin: f64,
+    /// Multiplier for rollback/safety-degradation signals in the UCB reward.
+    pub rollback_penalty: f64,
+    /// Cost charged to the destination arm when changing arms.
+    pub switch_cost: f64,
+}
+
+impl Default for BanditConfig {
+    fn default() -> Self {
+        Self {
+            min_dwell_steps: 3,
+            switch_margin: 0.05,
+            rollback_penalty: 0.35,
+            switch_cost: 0.02,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum L2DecisionReason {
+    InitialExplore,
+    Exploit,
+    Explore,
+    Switched,
+    DwellHold,
+    MarginHold,
+    SafetyOverride,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct L2DecisionRecord {
+    pub selected_arm: usize,
+    pub selected_bias: String,
+    pub candidate_arm: usize,
+    pub mean_reward: f64,
+    /// Multiplicative exploration term of the selected arm.
+    pub exploration_bonus: f64,
+    /// UCB score of the selected arm; null while that arm is still unexplored.
+    pub ucb_score: Option<f64>,
+    pub candidate_ucb_score: Option<f64>,
+    pub current_ucb_score: Option<f64>,
+    pub reason: L2DecisionReason,
+    pub dwell_steps: u64,
+    pub dwell_suppressed: bool,
+    pub margin_suppressed: bool,
+    pub switched: bool,
+    pub safety_override: bool,
+    pub adjusted_reward: Option<f64>,
+    pub rollback_count: u64,
+    pub switch_cost_applied: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct L2Policy {
+    pub prior: [f64; 2],
+    pub beta: f64,
+    pub alpha: f64,
+    pub committed: bool,
+    pub expert: usize,
+    pub expert_probabilities: [f64; 4],
+    pub gate_state: crate::l2::control::L2GateState,
+    pub confidence: f64,
+}
+impl Default for L2Policy {
+    fn default() -> Self {
+        Self {
+            prior: [0.5, 0.5],
+            beta: 0.0,
+            alpha: 0.0,
+            committed: false,
+            expert: 0,
+            expert_probabilities: [0.25; 4],
+            gate_state: crate::l2::control::L2GateState::Dormant,
+            confidence: 0.0,
+        }
+    }
+}
+impl L2Policy {
+    pub fn keep_l0() -> Self {
+        Self::default()
+    }
+
+    /// The only value that may cross the L2 -> L0 commit boundary.
+    ///
+    /// This is deliberately a second validation at the consumer as well as at
+    /// the producer. A proposal, an L0 dwell/margin hold, a dormant controller,
+    /// KEEP_L0, a veto, and a malformed snapshot all collapse to exactly the
+    /// same zero policy. Keeping this check here prevents a future producer
+    /// from accidentally turning a diagnostic field into an intervention.
+    pub fn effective(self) -> Self {
+        let probabilities_sum = self.expert_probabilities.iter().sum::<f64>();
+        let prior_sum = self.prior.iter().sum::<f64>();
+        let valid = self.committed
+            && self.gate_state == crate::l2::control::L2GateState::Active
+            && self.expert > 0
+            && self.expert < 4
+            && self.alpha > 0.0
+            && self.alpha <= 0.35
+            && self.alpha.is_finite()
+            && self.beta > 0.0
+            && self.beta.is_finite()
+            && self.confidence.is_finite()
+            && (0.0..=1.0).contains(&self.confidence)
+            && self.prior.iter().all(|p| p.is_finite() && *p > 0.0)
+            && (prior_sum - 1.0).abs() < 1.0e-6
+            && self
+                .expert_probabilities
+                .iter()
+                .all(|p| p.is_finite() && *p > 0.0)
+            && (probabilities_sum - 1.0).abs() < 1.0e-6;
+        if valid {
+            self
+        } else {
+            Self::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DecisionFeedback {
+    pub l1_rollback: bool,
+    pub safety_degradation: bool,
+    /// Error improvement is a positive reward contribution.
+    pub error_delta: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trajectory {
     pub observations: Vec<Observation>,
     pub predictions: Vec<Prediction>,

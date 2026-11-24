@@ -16,7 +16,7 @@ fi
 : "${WASMTIME:=wasmtime}"
 
 "$CARGO" build --lib --no-default-features --target wasm32-unknown-unknown
-"$CARGO" build --example wasm_runtime_smoke --no-default-features --target wasm32-wasip1
+"$CARGO" build --example wasm_runtime_smoke --no-default-features --features std --target wasm32-wasip1
 
 if ! command -v "$WASMTIME" >/dev/null 2>&1 && [ ! -x "$WASMTIME" ]; then
   echo "error: Wasmtime is required to execute the WASI smoke binary" >&2

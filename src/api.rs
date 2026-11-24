@@ -79,6 +79,19 @@ pub struct KernelStatus {
     pub last_l2_consequence_score: f64,
     pub l2_defensive_mode: bool,
     pub l2_negative_consequence_streak: u32,
+    pub last_l2_decision: Option<crate::types::L2DecisionRecord>,
+    pub l2_gate_state: crate::l2::control::L2GateState,
+    pub l2_alpha: f64,
+    pub l2_expert_weights: HashMap<String, f64>,
+    pub l2_beta: f64,
+    pub l2_lyapunov_potential: f64,
+    pub l2_lyapunov_veto: bool,
+    pub l2_meta_cache_hit: bool,
+    pub l2_dayan_residual: f64,
+    pub l2_applied_policy: crate::types::L2Policy,
+    pub l2_pending_policy: crate::types::L2Policy,
+    pub l2_meta_cache_entries: usize,
+    pub l2_last_rejection_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +125,17 @@ pub struct TrajectoryReplayRow {
     pub patched: bool,
     pub avg_err: Option<f64>,
     pub goal: Option<String>,
+    pub l2_decision: Option<crate::types::L2DecisionRecord>,
+    pub l2_gate_state: crate::l2::control::L2GateState,
+    pub l2_alpha: f64,
+    pub l2_expert_weights: HashMap<String, f64>,
+    pub l2_beta: f64,
+    pub l2_lyapunov_potential: f64,
+    pub l2_lyapunov_veto: bool,
+    pub l2_meta_cache_hit: bool,
+    pub l2_dayan_residual: f64,
+    pub l2_applied_policy: crate::types::L2Policy,
+    pub l2_pending_policy: crate::types::L2Policy,
 }
 
 fn default_allowed_actions() -> Vec<String> {
@@ -173,6 +197,54 @@ pub fn replay_trajectory_file(path: &Path, tail_n: usize) -> Result<TrajectoryRe
             patched,
             avg_err,
             goal,
+            l2_decision: v
+                .get("l2_decision")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
+            l2_gate_state: v
+                .get("l2_gate_state")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
+            l2_alpha: v
+                .get("l2_alpha")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0),
+            l2_expert_weights: v
+                .get("l2_expert_weights")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
+            l2_beta: v
+                .get("l2_beta")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0),
+            l2_lyapunov_potential: v
+                .get("l2_lyapunov_potential")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(1.0),
+            l2_lyapunov_veto: v
+                .get("l2_lyapunov_veto")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            l2_meta_cache_hit: v
+                .get("l2_meta_cache_hit")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            l2_dayan_residual: v
+                .get("l2_dayan_residual")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0),
+            l2_applied_policy: v
+                .get("l2_applied_policy")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
+            l2_pending_policy: v
+                .get("l2_pending_policy")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
         });
     }
 
@@ -349,9 +421,15 @@ where
         self.autosave = cfg.autosave;
         self.auto_checkpoint_on_patch = cfg.auto_checkpoint_on_patch;
         self.dump_trajectory = cfg.dump_trajectory;
+        self.inner.l0.decision.set_bandit_config(cfg.bandit.clone());
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
         self.inner.l1.self_modify_enabled = cfg.self_modify_enabled;
+        cfg.l2.apply_to(&mut self.inner.l2);
+        self.inner
+            .l0
+            .decision
+            .set_l2_policy(self.inner.l2.pending_policy.effective());
         self.inner
             .constraints
             .insert("max_risk".into(), cfg.max_risk);
@@ -374,6 +452,15 @@ where
         if !enabled {
             self.inner.l2.in_fixed_point = false;
             self.inner.l2.dwell_steps = 0;
+            self.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Dormant;
+            self.inner.l2.controller.retire_requested = false;
+            self.inner.l2.controller.trust.alpha = 0.0;
+            self.inner.l2.pending_policy = crate::types::L2Policy::default();
+            self.inner.l2.applied_policy = crate::types::L2Policy::default();
+            self.inner
+                .l0
+                .decision
+                .set_l2_policy(crate::types::L2Policy::default());
         }
     }
 
@@ -382,9 +469,85 @@ where
         self.inner
             .l2
             .observe_consequence(reward_delta, error_delta, risk_delta);
+        self.inner.l2.last_reward = (reward_delta + 0.5).clamp(0.0, 1.0);
+        if reward_delta < -0.15 {
+            self.inner.l2.controller.trust.alpha = 0.0;
+            self.inner.l2.controller.trust.cooldown_remaining =
+                self.inner.l2.controller.trust.cooldown_steps.max(2);
+        }
+        if self.inner.l2.applied_policy.committed
+            || reward_delta < -0.15
+            || self.inner.l2.controller.retire_requested
+        {
+            self.inner.l2.pending_policy = crate::types::L2Policy::default();
+            self.inner
+                .l0
+                .decision
+                .set_l2_policy(crate::types::L2Policy::default());
+            self.inner.l2.controller.finish_cycle();
+        }
         if let Some(effect) = self.inner.l2.take_rollback_effect() {
             self.inner.l0.memory.cognitive_effect = effect;
+            self.inner.l0.decision.request_safety_override();
         }
+    }
+
+    /// Settle the previously applied policy once. The task calls this after
+    /// external reward and L1 rollback are known, before the next L0 decision.
+    /// A policy produced by the current L2 step remains pending for next step.
+    pub fn observe_l2_feedback(
+        &mut self,
+        reward: f64,
+        error: f64,
+        rollback: bool,
+        consequence: f64,
+        kl_policy: [f64; 2],
+    ) {
+        self.inner.l2.pending_l1_rollback |= rollback;
+        self.inner.l2.last_reward = reward.clamp(0.0, 1.0);
+        self.inner.l2.controller.observe(
+            crate::l2::control::ControlFeedback {
+                error,
+                reward,
+                rollback,
+                consequence,
+                kl_policy,
+            },
+            self.inner.l2.applied_policy,
+        );
+        if rollback || reward < 0.35 {
+            self.inner.l2.pending_policy = crate::types::L2Policy::default();
+            self.inner
+                .l0
+                .decision
+                .set_l2_policy(crate::types::L2Policy::default());
+            self.inner.l2.controller.retire_requested = true;
+        }
+        // A recovery request can be raised by either resident feedback or a
+        // harmful external consequence. Do not require a committed policy:
+        // KEEP_L0/dormant recovery must also be able to finish its cycle.
+        if self.inner.l2.controller.feedback_settled && self.inner.l2.controller.retire_requested {
+            self.inner.l2.pending_policy = crate::types::L2Policy::default();
+            self.inner
+                .l0
+                .decision
+                .set_l2_policy(crate::types::L2Policy::default());
+            self.inner.l2.controller.finish_cycle();
+        }
+    }
+
+    /// Apply L1 RuleEffect rollback independently of L2's own safety rollback.
+    /// Returns whether an actual previous effect was restored.
+    pub fn observe_l1_consequence(&mut self, error_delta: f64) -> bool {
+        if !self.inner.l1.observe_consequence(error_delta) {
+            return false;
+        }
+        if let Some(effect) = self.inner.l1.take_rollback_effect() {
+            self.inner.l0.memory.cognitive_effect = effect;
+            self.inner.l2.pending_l1_rollback = true;
+            return true;
+        }
+        false
     }
 
     fn emit_event(&mut self, event: &AuditEvent) {
@@ -452,6 +615,19 @@ where
             "l2_modulation_committed": result.l2.modulation_committed,
             "l2_modulation_gain": result.l2.modulation_gain,
             "l2_score_breakdown": result.l2.score_breakdown,
+            "l2_decision": result.l2.decision,
+            "l2_gate_state": result.l2.gate_state,
+            "l2_alpha": result.l2.alpha,
+            "l2_expert_weights": result.l2.expert_weights,
+            "l2_beta": result.l2.beta,
+            "l2_lyapunov_potential": result.l2.lyapunov_potential,
+            "l2_lyapunov_veto": result.l2.lyapunov_veto,
+            "l2_meta_cache_hit": result.l2.meta_cache_hit,
+            "l2_rejection_reason": result.l2.rejection_reason,
+            "l2_applied_policy": result.l2.applied_policy.effective(),
+            "l2_pending_policy": self.inner.l2.pending_policy.effective(),
+            "l2_selected_expert": result.l2.selected_expert,
+            "l2_dayan_residual": result.l2.dayan_residual,
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
@@ -618,10 +794,29 @@ where
             last_l2_consequence_score: self.inner.l2.last_consequence_score,
             l2_defensive_mode: self.inner.l2.defensive_mode,
             l2_negative_consequence_streak: self.inner.l2.negative_consequence_streak,
+            last_l2_decision: self.inner.l0.decision.l2_decision(),
+            l2_gate_state: self.inner.l2.controller.gate_state,
+            l2_alpha: self.inner.l2.controller.trust.alpha,
+            l2_expert_weights: self.inner.l2.controller.expert_weights(),
+            l2_beta: self.inner.l2.controller.beta(),
+            l2_lyapunov_potential: self.inner.l2.controller.residual.powi(2),
+            l2_lyapunov_veto: self.inner.l2.controller.certificate.lyapunov_veto,
+            l2_meta_cache_hit: self.inner.l2.controller.meta_cache_hit,
+            l2_dayan_residual: self.inner.l2.controller.residual,
+            l2_applied_policy: self.inner.l2.applied_policy.effective(),
+            l2_pending_policy: self.inner.l2.pending_policy.effective(),
+            l2_meta_cache_entries: self.inner.l2.controller.cache.entries.len(),
+            l2_last_rejection_reason: self.inner.l2.last_rejection_reason.clone(),
         }
     }
 
     pub fn snapshot(&self) -> KernelSnapshot {
+        let mut snapshot = self.snapshot_base();
+        snapshot.bandit_ucb = self.inner.l0.decision.bandit_snapshot();
+        snapshot
+    }
+
+    fn snapshot_base(&self) -> KernelSnapshot {
         let (cases, cap) = self.inner.l0.memory.case.snapshot();
         let (active, history) = self.inner.l1.store.snapshot();
         KernelSnapshot {
@@ -663,10 +858,28 @@ where
             self_modify_enabled: self.inner.l1.self_modify_enabled,
             steps_since_last_patch: self.inner.l1.steps_since_last_patch,
             l2_rollback_effect: self.inner.l2.rollback_effect.clone(),
+            last_l2_decision: self.inner.l0.decision.l2_decision(),
+            bandit_ucb: None,
+            bandit_config: crate::types::BanditConfig::default(),
+            l1_previous_effect: self.inner.l1.previous_effect.clone(),
+            l1_pending_rollback: self.inner.l1.pending_rollback,
+            l2_controller: self.inner.l2.controller.clone(),
+            l2_pending_policy: self.inner.l2.pending_policy.effective(),
+            l2_applied_policy: self.inner.l2.applied_policy.effective(),
+            l2_pending_l1_rollback: self.inner.l2.pending_l1_rollback,
+            l2_last_reward: self.inner.l2.last_reward,
         }
     }
 
-    pub fn apply_snapshot(&mut self, snap: KernelSnapshot) {
+    pub fn apply_snapshot(&mut self, mut snap: KernelSnapshot) {
+        let bandit_ucb = snap.bandit_ucb.take();
+        self.apply_snapshot_base(snap);
+        if let Some(bandit) = bandit_ucb {
+            self.inner.l0.decision.restore_bandit_snapshot(bandit);
+        }
+    }
+
+    fn apply_snapshot_base(&mut self, snap: KernelSnapshot) {
         self.inner.total_steps = snap.total_steps;
         self.inner.biases = snap.biases;
         self.inner.constraints = snap.constraints;
@@ -705,6 +918,43 @@ where
         self.inner.l1.self_modify_enabled = snap.self_modify_enabled;
         self.inner.l1.steps_since_last_patch = snap.steps_since_last_patch;
         self.inner.l2.rollback_effect = snap.l2_rollback_effect;
+        self.inner.l1.previous_effect = snap.l1_previous_effect;
+        self.inner.l1.pending_rollback = snap.l1_pending_rollback;
+        self.inner.l2.controller = snap.l2_controller;
+        self.inner.l2.controller.gate_state = if self.inner.l2.enabled {
+            self.inner.l2.controller.gate_state
+        } else {
+            crate::l2::control::L2GateState::Dormant
+        };
+        if !self.inner.l2.enabled {
+            self.inner.l2.controller.trust.alpha = 0.0;
+        }
+        self.inner.l2.pending_policy = if self.inner.l2.enabled {
+            snap.l2_pending_policy.effective()
+        } else {
+            crate::types::L2Policy::default()
+        };
+        self.inner.l2.applied_policy = if self.inner.l2.enabled {
+            snap.l2_applied_policy.effective()
+        } else {
+            crate::types::L2Policy::default()
+        };
+        // Restore starts a fresh action cycle. The previous applied policy is
+        // retained for audit/replay, but must not be paired with the restored
+        // controller's partially settled feedback state.
+        self.inner.l2.controller.feedback_settled = false;
+        self.inner.l2.controller.retire_requested = false;
+        self.inner.l2.controller.surprise_started = false;
+        self.inner.l2.pending_l1_rollback = snap.l2_pending_l1_rollback;
+        self.inner.l2.last_reward = snap.l2_last_reward;
+        self.inner
+            .l0
+            .decision
+            .set_l2_policy(self.inner.l2.pending_policy);
+        self.inner.l0.decision.set_bandit_config(snap.bandit_config);
+        if let Some(decision) = snap.last_l2_decision {
+            self.inner.l0.decision.restore_l2_decision(decision);
+        }
     }
 
     pub fn snapshot_json(&self) -> Result<String> {
@@ -780,6 +1030,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l0::decision::DecisionMaker;
     use std::env::temp_dir;
     use std::io::Write;
 
@@ -922,12 +1173,10 @@ mod tests {
     }
 
     #[test]
-    fn l2_modulates_effect_even_when_self_modify_disabled() {
-        // Locks the documented two-gate semantics: `self_modify_enabled=false`
-        // (the default) gates only L1 patch commits. L2 `RuleEffect` modulation
-        // is an independent channel governed by `l2.enabled` and still fires.
-        // Use a unique subdirectory so audit/checkpoint sidecar files are
-        // isolated from other tests that also write into temp_dir().
+    fn l2_observes_without_l1_self_modification() {
+        // L1 and L2 have independent switches. L2 may calculate candidates with
+        // L1 disabled, but only a validated KL policy can influence L0: the
+        // retired additive RuleEffect channel must never fire implicitly.
         let dir = temp_dir().join(format!("omega-l2gate-{}", crate::new_uuid()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
@@ -935,55 +1184,25 @@ mod tests {
         k.autosave = false;
         k.dump_trajectory = false;
         k.auto_checkpoint_on_patch = false;
-        assert!(
-            !k.inner.l1.self_modify_enabled,
-            "self_modify_enabled must default to false"
-        );
-        // Loosen L2 detector so the modulation path actually fires (mirrors the
-        // orchestrator-level nudge test, which uses the default commit threshold).
-        k.inner.l2.detector.window = 2;
-        k.inner.l2.detector.pred_threshold = 0.3;
-        k.inner.l2.detector.self_ref_threshold = 0.3;
-        k.inner.l2.detector.cooldown_steps = 0;
-        // Enable L2 so it can modulate RuleEffect while self_modify stays off
         k.set_l2_enabled(true);
-        // Seed an active rule module so L2 can reach fixed-point alignment
-        // without any L1 patch being committed (the benchmark does the same).
-        // This is what lets L2 modulate RuleEffect while self_modify stays off.
         k.inner
             .l1
             .store
             .active
             .insert("cognitive_rules".into(), "self-model bias damp rule".into());
-
-        let before = k.inner.l0.memory.cognitive_effect.explore_bonus;
-        let mut saw_l2_activity = false;
-        let mut saw_l1_patch = false;
+        let before = k.inner.l0.memory.cognitive_effect.clone();
+        let mut saw_observation = false;
         for _ in 0..24 {
-            let r = k.step("maintain coherent self-model omega dayan").unwrap();
-            // Any L2 engagement counts: a committed effect nudge, a modulation
-            // proposal, or entering the fixed-point regime. Requiring a full
-            // commit every run is too strict — the commit gate is intentionally
-            // conservative (threshold + cooldown + consequence feedback).
-            if r.l2.effect_nudge.is_some() || r.l2.modulation_proposed || r.l2.entered_fixed_point {
-                saw_l2_activity = true;
-            }
-            if r.l1.patched {
-                saw_l1_patch = true;
-            }
+            let result = k.step("maintain coherent self-model omega dayan").unwrap();
+            saw_observation |= result.l2.dayan_residual.is_finite();
+            assert!(result.l2.effect_nudge.is_none());
+            assert!(!result.l1.patched);
         }
-        let after = k.inner.l0.memory.cognitive_effect.explore_bonus;
-        assert!(
-            saw_l2_activity || (after - before).abs() > 1e-6,
-            "L2 must engage (proposal/fixed-point/nudge or effect drift) even \
-             with self_modify_enabled=false; before={before} after={after}"
-        );
-        assert!(
-            !saw_l1_patch,
-            "L1 patch must NOT fire while self_modify_enabled=false"
-        );
-
-        // Cleanup the whole isolated directory.
+        let after = &k.inner.l0.memory.cognitive_effect;
+        assert!(saw_observation);
+        assert_eq!(before.error_damping, after.error_damping);
+        assert_eq!(before.explore_bonus, after.explore_bonus);
+        assert_eq!(before.risk_tolerance, after.risk_tolerance);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1023,6 +1242,67 @@ mod tests {
     }
 
     #[test]
+    fn repeated_l2_feedback_does_not_update_twice() {
+        let path = temp_dir().join(format!("omega-idempotent-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = false;
+        kernel
+            .step("maintain coherent self-model omega dayan")
+            .unwrap();
+        kernel.observe_l2_feedback(1.0, 0.1, false, 0.1, [0.8, 0.2]);
+        let observations = kernel.inner.l2.controller.observations;
+        let rounds = kernel.inner.l2.controller.experts.rounds;
+        kernel.observe_l2_feedback(0.0, 0.9, true, -1.0, [0.2, 0.8]);
+        assert_eq!(kernel.inner.l2.controller.observations, observations);
+        assert_eq!(kernel.inner.l2.controller.experts.rounds, rounds);
+    }
+
+    #[test]
+    fn snapshot_preserves_valid_policy_queue_and_rejects_malformed_commit() {
+        let path = temp_dir().join(format!("omega-policy-restore-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let policy = crate::types::L2Policy {
+            prior: [0.8, 0.2],
+            beta: 0.4,
+            alpha: 0.2,
+            committed: true,
+            expert: 1,
+            expert_probabilities: [0.05, 0.85, 0.05, 0.05],
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence: 0.9,
+        };
+        kernel.set_l2_enabled(true);
+        kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;
+        kernel.inner.l2.pending_policy = policy;
+        kernel.inner.l2.controller.feedback_settled = true;
+        kernel.inner.l2.controller.retire_requested = true;
+
+        let mut restored = Kernel::with_bandit_ucb(&kernel.state_path);
+        restored.apply_snapshot(kernel.snapshot());
+        assert_eq!(restored.inner.l2.pending_policy, policy);
+        assert_eq!(restored.inner.l0.decision.snapshot().l2_policy, policy);
+        assert!(!restored.inner.l2.controller.feedback_settled);
+        assert!(!restored.inner.l2.controller.retire_requested);
+
+        let mut malformed = kernel.snapshot();
+        malformed.l2_pending_policy.prior = [f64::NAN, 0.5];
+        restored.apply_snapshot(malformed);
+        assert_eq!(
+            restored.inner.l2.pending_policy,
+            crate::types::L2Policy::default()
+        );
+        assert_eq!(
+            restored.inner.l0.decision.snapshot().l2_policy,
+            crate::types::L2Policy::default()
+        );
+        let _ = std::fs::remove_file(kernel.state_path);
+    }
+
+    #[test]
     fn checkpoint_and_rollback_emit_audit_events() {
         // Unique subdirectory so the shared `<parent>/audit.jsonl` and
         // `<parent>/checkpoints/` sidecars are isolated per test.
@@ -1054,6 +1334,239 @@ mod tests {
     }
 
     #[test]
+    fn l1_effect_rollback_is_independent_of_restored_error() {
+        let path = temp_dir().join(format!("omega-l1-effect-rb-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.inner.l1.previous_effect = Some(crate::types::RuleEffect::default());
+        kernel.inner.l1.pending_rollback = true;
+        kernel.inner.l0.memory.cognitive_effect.error_damping = 1.4;
+        assert!(kernel.observe_l1_consequence(0.1));
+        assert_eq!(kernel.inner.l0.memory.cognitive_effect.error_damping, 1.0);
+        assert!(!kernel.observe_l1_consequence(-0.1));
+        kernel.inner.l0.decision.observe_with_feedback(
+            0,
+            1.0,
+            crate::types::DecisionFeedback {
+                l1_rollback: true,
+                error_delta: -0.1,
+                ..crate::types::DecisionFeedback::default()
+            },
+        );
+        let decision = kernel.inner.l0.decision.l2_decision().unwrap();
+        assert_eq!(decision.rollback_count, 1);
+        assert!(decision.adjusted_reward.unwrap() < 1.0);
+        let _ = std::fs::remove_file(kernel.state_path);
+    }
+
+    #[test]
+    fn committed_policy_executes_then_settles_its_actual_consequence() {
+        let dir = temp_dir().join(format!("omega-l2-policy-cycle-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = false;
+        kernel.set_l2_enabled(true);
+        kernel.inner.l2.commit_threshold = 0.0;
+        kernel.inner.l2.controller.calm_required = 1;
+        kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;
+        kernel.inner.l2.controller.trust.alpha = 0.2;
+        kernel.inner.l2.controller.model_confidence = 1.0;
+        kernel.inner.l2.controller.residual = 0.3;
+        kernel.inner.l2.controller.residual_ema = 0.3;
+        kernel.inner.l2.controller.observations = 4;
+        kernel.inner.l2.controller.residual_slope = 0.0;
+        kernel.inner.l2.controller.ema_error = 0.0;
+
+        let committed = kernel
+            .step("maintain coherent self-model omega dayan")
+            .unwrap();
+        assert!(
+            committed.l2.modulation_committed,
+            "rejection={:?} gate={:?} alpha={} beta={} confidence={} residual={} predicted={} retire={}",
+            committed.l2.rejection_reason,
+            committed.l2.gate_state,
+            committed.l2.alpha,
+            committed.l2.beta,
+            kernel.inner.l2.controller.model_confidence,
+            kernel.inner.l2.controller.residual,
+            kernel.inner.l2.controller.certificate.predicted_potential,
+            kernel.inner.l2.controller.retire_requested,
+        );
+        assert!(!committed.l2.applied_policy.committed);
+        assert_eq!(committed.l2.l2_policy.expert, 1);
+        assert!(kernel.inner.l2.awaiting_consequence);
+
+        // Recovery is observed before the next step. L2 waits until that
+        // policy acts and its feedback settles before finalizing retirement.
+        kernel.observe_l2_feedback(1.0, 0.1, false, 0.3, [0.8, 0.2]);
+        kernel.inner.l2.controller.episode_start_residual = 0.6;
+        kernel.inner.l2.controller.residual = 0.1;
+        kernel.inner.l2.controller.dayan_state = 0.1;
+        // The intermediate observation settles the pending commit and allows
+        // the already calm controller to retire normally.
+        kernel
+            .step("settle the next resident feedback cycle")
+            .unwrap();
+        kernel.observe_l2_feedback(1.0, 0.1, false, 0.3, [0.8, 0.2]);
+        assert_eq!(
+            kernel.inner.l2.controller.gate_state,
+            crate::l2::control::L2GateState::Dormant
+        );
+        kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;
+        kernel.inner.l2.controller.retire_requested = true;
+        kernel.inner.l2.controller.trust.alpha = 0.0;
+        kernel.inner.l2.controller.trust.cooldown_remaining = 3;
+        kernel.inner.l2.controller.feedback_settled = false;
+        kernel.inner.l2.controller.residual = 0.1;
+        kernel.inner.l2.controller.dayan_state = 0.1;
+        kernel.inner.l2.controller.episode_start_residual = 0.6;
+        // An already queued commit is immutable. Retirement prevents a new
+        // proposal, not the execution or feedback attribution of that commit.
+        assert!(
+            kernel.inner.l2.controller.retire_requested,
+            "gate={:?} obs={} residual={} start={} ema={} base={} reward={} reward_base={} calm={} settled={}",
+            kernel.inner.l2.controller.gate_state,
+            kernel.inner.l2.controller.observations,
+            kernel.inner.l2.controller.residual,
+            kernel.inner.l2.controller.episode_start_residual,
+            kernel.inner.l2.controller.ema_error,
+            kernel.inner.l2.controller.baseline_error,
+            kernel.inner.l2.controller.ema_reward,
+            kernel.inner.l2.controller.baseline_reward,
+            kernel.inner.l2.controller.calm_streak,
+            kernel.inner.l2.controller.feedback_settled,
+        );
+        assert_eq!(
+            kernel.inner.l2.controller.gate_state,
+            crate::l2::control::L2GateState::Active
+        );
+        let policy = kernel.inner.l2.pending_policy;
+        let applied = kernel
+            .step("maintain coherent self-model omega dayan")
+            .unwrap();
+        assert!(!applied.l2.modulation_committed);
+        assert_eq!(
+            applied.l2.gate_state,
+            crate::l2::control::L2GateState::Active
+        );
+        assert_eq!(applied.l2.applied_policy, policy);
+        let logged: crate::types::L2Policy =
+            serde_json::from_value(applied.trajectory.actions[0].params["l2_policy"].clone())
+                .unwrap();
+        assert_eq!(logged, policy);
+
+        let before = kernel.inner.l2.controller.experts.cumulative_reward[policy.expert];
+        kernel.observe_l2_feedback(1.0, 0.1, false, 0.3, [0.8, 0.2]);
+        let after = kernel.inner.l2.controller.experts.cumulative_reward[policy.expert];
+        assert!(after > before);
+        assert_eq!(
+            kernel.inner.l2.controller.gate_state,
+            crate::l2::control::L2GateState::Dormant
+        );
+        assert!(!kernel.inner.l2.pending_policy.committed);
+        kernel.observe_l2_consequence(0.5, -0.1, 0.0);
+        assert_eq!(
+            kernel.inner.l2.controller.gate_state,
+            crate::l2::control::L2GateState::Dormant
+        );
+        assert!(!kernel.inner.l2.awaiting_consequence);
+        assert!(!kernel.inner.l2.pending_policy.committed);
+        assert_eq!(kernel.inner.l2.applied_policy, policy);
+
+        // The resident update consumes that same policy exactly once, even
+        // though pending injection has been cleared by consequence settlement.
+        let before = kernel.inner.l2.controller.experts.cumulative_reward[policy.expert];
+        kernel.observe_l2_feedback(0.0, 0.2, false, -0.3, [0.8, 0.2]);
+        assert_eq!(
+            kernel.inner.l2.controller.experts.cumulative_reward[policy.expert],
+            before * kernel.inner.l2.controller.experts.forgetting
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn harmful_feedback_cancels_pending_without_erasing_applied_consequence() {
+        let path = temp_dir().join(format!("omega-l2-safety-cycle-{}.json", crate::new_uuid()));
+        let mut kernel = Kernel::with_bandit_ucb(path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = false;
+        let applied = crate::types::L2Policy {
+            prior: [0.8, 0.2],
+            beta: 0.4,
+            alpha: 0.2,
+            committed: true,
+            expert: 1,
+            gate_state: crate::l2::control::L2GateState::Active,
+            ..crate::types::L2Policy::default()
+        };
+        kernel.inner.l2.applied_policy = applied;
+        kernel.inner.l2.pending_policy = crate::types::L2Policy {
+            expert: 2,
+            ..applied
+        };
+        kernel.inner.l2.awaiting_consequence = true;
+        kernel.inner.l2.controller.retire_requested = true;
+
+        kernel.observe_l2_feedback(0.0, 0.4, true, -0.5, [0.8, 0.2]);
+        assert!(!kernel.inner.l2.pending_policy.committed);
+        assert_eq!(kernel.inner.l2.applied_policy, applied);
+        kernel.observe_l2_consequence(-0.5, 0.2, 0.0);
+        assert!(!kernel.inner.l2.awaiting_consequence);
+        assert!(kernel.inner.l2.last_consequence_score < 0.0);
+        assert_eq!(kernel.inner.l2.applied_policy, applied);
+        assert_eq!(
+            kernel.inner.l0.decision.snapshot().l2_policy,
+            crate::types::L2Policy::default()
+        );
+        let _ = std::fs::remove_file(kernel.state_path);
+    }
+
+    #[test]
+    fn bandit_decision_replay_and_restart_are_auditable() {
+        let dir = temp_dir().join(format!("omega-bandit-replay-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut kernel = Kernel::with_bandit_ucb(&path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.inner.l0.decision.observe_with_feedback(
+            0,
+            1.0,
+            crate::types::DecisionFeedback::default(),
+        );
+        kernel.step("audit local UCB").unwrap();
+        kernel.observe_l2_consequence(0.5, 0.0, 0.0);
+        let decision = kernel.status().last_l2_decision.expect("UCB explanation");
+        assert_eq!(decision.selected_bias, "explore");
+        assert!(decision.exploration_bonus >= 0.0);
+        kernel.save().unwrap();
+
+        let mut restarted = Kernel::with_bandit_ucb(&path);
+        restarted.load().unwrap();
+        restarted.observe_l2_consequence(0.5, 0.0, 0.0);
+        assert_eq!(
+            restarted.inner.l0.decision.snapshot().counts,
+            kernel.inner.l0.decision.snapshot().counts
+        );
+        assert!(restarted.status().last_l2_decision.is_some());
+        let replay = restarted.replay_trajectory(1).unwrap();
+        let replayed = replay.tail[0].l2_decision.as_ref().expect("replay UCB");
+        assert_eq!(replayed.selected_arm, 1);
+        assert_eq!(replayed.reason, crate::types::L2DecisionReason::Switched);
+        assert_eq!(
+            replay.tail[0].l2_applied_policy,
+            crate::types::L2Policy::default()
+        );
+        assert!(replay.tail[0].l2_dayan_residual.is_finite());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn replay_trajectory_file_works() {
         let path = temp_dir().join(format!("omega-traj-{}.jsonl", crate::new_uuid()));
         let mut f = std::fs::File::create(&path).unwrap();
@@ -1079,6 +1592,7 @@ mod tests {
         assert!((sum.first_avg_err.unwrap() - 0.5).abs() < 1e-9);
         assert!((sum.last_avg_err.unwrap() - 0.3).abs() < 1e-9);
         assert_eq!(sum.tail.len(), 2);
+        assert!(sum.tail.iter().all(|row| row.l2_decision.is_none()));
         let _ = std::fs::remove_file(&path);
     }
 }

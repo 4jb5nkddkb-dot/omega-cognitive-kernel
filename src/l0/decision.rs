@@ -2,12 +2,12 @@
 use crate::prelude::*;
 
 use crate::error::Result;
-use crate::types::{Action, Intent, Prediction, RuleEffect};
+use crate::types::{Action, DecisionFeedback, Intent, L2DecisionRecord, Prediction, RuleEffect};
 use hashbrown::HashMap;
 
 pub trait DecisionMaker {
     fn decide(
-        &self,
+        &mut self,
         intent: &Intent,
         predictions: &[Prediction],
         constraints: &HashMap<String, f64>,
@@ -17,6 +17,34 @@ pub trait DecisionMaker {
     /// Optional: observe reward for an arm (for bandit-style decision makers).
     /// Default implementation does nothing.
     fn observe(&mut self, _arm: usize, _reward: f64) {}
+
+    /// Feed the reward after applying explicit rollback and switching costs.
+    /// Existing decision makers remain compatible through these no-op defaults.
+    fn observe_with_feedback(&mut self, arm: usize, reward: f64, _feedback: DecisionFeedback) {
+        self.observe(arm, reward);
+    }
+
+    fn set_bandit_config(&mut self, _config: crate::types::BanditConfig) {}
+
+    fn set_l2_policy(&mut self, _policy: crate::types::L2Policy) {}
+
+    fn l2_decision(&self) -> Option<L2DecisionRecord> {
+        None
+    }
+
+    fn restore_l2_decision(&mut self, _decision: L2DecisionRecord) {}
+
+    fn request_safety_override(&mut self) {}
+
+    fn bandit_snapshot(&self) -> Option<crate::l0::bandit_decision::BanditUcbSnapshot> {
+        None
+    }
+
+    fn restore_bandit_snapshot(
+        &mut self,
+        _snapshot: crate::l0::bandit_decision::BanditUcbSnapshot,
+    ) {
+    }
 }
 
 pub struct ConstrainedDecisionMaker;
@@ -73,7 +101,7 @@ impl ConstrainedDecisionMaker {
 
 impl DecisionMaker for ConstrainedDecisionMaker {
     fn decide(
-        &self,
+        &mut self,
         intent: &Intent,
         predictions: &[Prediction],
         constraints: &HashMap<String, f64>,
@@ -191,7 +219,7 @@ mod tests {
 
     #[test]
     fn tight_max_risk_prefers_stabilize_over_explore() {
-        let dm = ConstrainedDecisionMaker;
+        let mut dm = ConstrainedDecisionMaker;
         let intent = Intent {
             goal: "t".into(),
             priority: 1.0,
@@ -207,7 +235,7 @@ mod tests {
 
     #[test]
     fn l2_explore_preference_bias_boosts_explore() {
-        let dm = ConstrainedDecisionMaker;
+        let mut dm = ConstrainedDecisionMaker;
         let mut biases = HashMap::new();
         biases.insert("explore_preference".into(), 1.5);
         let intent = Intent {
@@ -224,7 +252,7 @@ mod tests {
 
     #[test]
     fn l2_self_ref_bias_boosts_stabilize() {
-        let dm = ConstrainedDecisionMaker;
+        let mut dm = ConstrainedDecisionMaker;
         let mut biases = HashMap::new();
         biases.insert("self_ref".into(), 2.0);
         biases.insert("coherence".into(), 1.5);
