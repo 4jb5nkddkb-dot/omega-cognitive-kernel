@@ -308,6 +308,7 @@ impl L2MetaLayer {
             }
         } else {
             self.controller.last_selected_expert = KEEP_L0;
+            self.controller.certificate.lyapunov_veto = false;
         }
         let mut result = self.result(
             metrics,
