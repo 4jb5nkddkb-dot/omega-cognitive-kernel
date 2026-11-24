@@ -104,7 +104,7 @@ impl L2MetaLayer {
             detector: EmergenceDetector::default(),
             fixed_point: OmegaDayanFixedPoint,
             modulator: MetaModulator,
-            enabled: false,
+            enabled: true,
             in_fixed_point: false,
             dwell_steps: 0,
             last_alignment_score: 0.0,
