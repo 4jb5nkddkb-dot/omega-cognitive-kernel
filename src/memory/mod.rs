@@ -4,6 +4,7 @@ use crate::prelude::*;
 pub mod cas;
 pub mod case;
 pub mod strategy;
+pub mod consolidation;
 
 use crate::error::Result;
 use crate::types::{RuleEffect, Trajectory};
