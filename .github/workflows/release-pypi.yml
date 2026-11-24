@@ -16,22 +16,22 @@ permissions:
   contents: read
 
 jobs:
- validate-version:
-   name: Validate Tag & Crate Version
-   runs-on: ubuntu-latest
-   timeout-minutes: 10
-   steps:
-     - uses: actions/checkout@v5
-     - name: Check tag matches Cargo.toml version
-       shell: bash
-       run: |
-         TAG="${{ inputs.tag || github.ref_name }}"
-         if [[ "$TAG" == v* ]]; then
-           python3 scripts/check-release-version.py "$TAG"
-         else
-           echo "Skipping tag check for non-release ref: $TAG"
-         fi
-           
+   validate-version:
+     name: Validate Tag & Crate Version
+     runs-on: ubuntu-latest
+     timeout-minutes: 10
+     steps:
+       - uses: actions/checkout@v5
+       - name: Check tag matches Cargo.toml version
+         shell: bash
+         run: |
+           TAG="${{ inputs.tag || github.ref_name }}"
+           if [[ "$TAG" == v* ]]; then
+             python3 scripts/check-release-version.py "$TAG"
+           else
+             echo "Skipping tag check for non-release ref: $TAG"
+           fi
+             
   # -------------------------------------------------------------------------
   # Stage 1: build every artifact (Linux, Windows, macOS wheels + sdist).
   # -------------------------------------------------------------------------
