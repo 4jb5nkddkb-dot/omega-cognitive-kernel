@@ -174,9 +174,45 @@ mod tests {
 
         let mut book = TokenBook::new();
         let tok = book.issue(key, "owner-1", 1, "sug-1", "write_file", "abc123", 10, 5);
-        assert!(!book.consume(key, &tok.token_id, "owner-1", 1, "sug-1", "write_file", "bad", 11));
-        assert!(!book.consume(key, &tok.token_id, "owner-1", 1, "sug-1", "write_file", "abc123", 16));
-        assert!(book.consume(key, &tok.token_id, "owner-1", 1, "sug-1", "write_file", "abc123", 12));
-        assert!(!book.consume(key, &tok.token_id, "owner-1", 1, "sug-1", "write_file", "abc123", 12));
+        assert!(!book.consume(
+            key,
+            &tok.token_id,
+            "owner-1",
+            1,
+            "sug-1",
+            "write_file",
+            "bad",
+            11
+        ));
+        assert!(!book.consume(
+            key,
+            &tok.token_id,
+            "owner-1",
+            1,
+            "sug-1",
+            "write_file",
+            "abc123",
+            16
+        ));
+        assert!(book.consume(
+            key,
+            &tok.token_id,
+            "owner-1",
+            1,
+            "sug-1",
+            "write_file",
+            "abc123",
+            12
+        ));
+        assert!(!book.consume(
+            key,
+            &tok.token_id,
+            "owner-1",
+            1,
+            "sug-1",
+            "write_file",
+            "abc123",
+            12
+        ));
     }
 }
