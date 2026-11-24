@@ -58,16 +58,16 @@ pub mod config_toml;
 pub mod error;
 pub mod goals;
 pub mod introspect;
-pub mod llm;
-pub mod planning;
-pub mod reactor;
 pub mod l0;
 pub mod l1;
 pub mod l2;
+pub mod llm;
 pub mod memory;
 pub mod orchestrator;
 #[cfg(feature = "std")]
 pub mod persist;
+pub mod planning;
+pub mod reactor;
 pub mod safety;
 #[cfg(feature = "std")]
 pub mod task;
@@ -94,6 +94,10 @@ pub use task::{
 pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
+pub use goals::{
+    GoalNode, GoalStatus, GoalTree, GoalTreeSummary, IntrinsicMotivation, IntrinsicSignal,
+};
+pub use introspect::{EntropyReport, EntropyWatchdog};
 pub use l0::bandit_decision::{BanditUcbDecisionMaker, BanditUcbSnapshot};
 pub use l0::decision::{ConstrainedDecisionMaker, DecisionMaker};
 #[cfg(feature = "async")]
@@ -112,10 +116,6 @@ pub use l0::observer::{
 pub use l0::observer::{DirSnapshotObserver, FileObserver, HttpObserver};
 pub use l0::observer::{MultiModalObserver, Observer};
 pub use l0::predictor::{ModelBasedPredictor, Predictor};
-pub use goals::{
-    GoalNode, GoalStatus, GoalTree, GoalTreeSummary, IntrinsicMotivation, IntrinsicSignal,
-};
-pub use introspect::{EntropyReport, EntropyWatchdog};
 pub use llm::{LlmBridge, LlmProposal};
 pub use planning::{Plan, PlanStep, ShortHorizonPlanner};
 pub use reactor::{PriorityReactor, ReactorTask};
