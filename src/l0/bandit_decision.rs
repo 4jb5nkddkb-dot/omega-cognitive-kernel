@@ -231,15 +231,15 @@ impl BanditUcbDecisionMaker {
                 [0.1, 0.9]
             };
         } else if policy.expert == 2 {
-          let incumbent = self
+            let incumbent = self
                 .state
                 .current_arm
                 .unwrap_or_else(|| usize::from(self.ucb(1) > self.ucb(0)));
             prior = if incumbent == 0 {
                 [0.25, 0.75]
-             } else {
+            } else {
                 [0.75, 0.25]
-             };
+            };
         }
         crate::l2::control::kl_regularized_policy(rewards, prior, policy.beta)
     }
