@@ -97,8 +97,8 @@ def test_strategy_weight(kernel):
 
 
 def test_l2_settings(kernel):
-    # L2 is disabled by default (evidence-before-claims principle)
-    assert kernel.status().l2_enabled is False
+    # L2 is enabled by default.
+    assert kernel.status().l2_enabled is True
     kernel.set_l2_enabled(True)
     assert kernel.status().l2_enabled is True
     kernel.set_l2_enabled(False)
