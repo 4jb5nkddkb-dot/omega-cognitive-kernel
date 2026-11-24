@@ -6,7 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
+  
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
 env:
   CARGO_TERM_COLOR: always
   NO_STD_TARGET: thumbv7em-none-eabihf
@@ -15,6 +21,7 @@ jobs:
   embedded-probe:
     name: no_std probe and kernel core
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -32,6 +39,7 @@ jobs:
   core-no-std:
     name: Full kernel core no_std check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 

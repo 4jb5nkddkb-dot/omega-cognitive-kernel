@@ -4,8 +4,6 @@ name: Auto Commit Verified Changes
 # commits deterministic formatting fixes after every eligible push; it does not
 # invent or auto-commit unfinished business logic.
 on:
-  push:
-    branches: [main, fix/audit-tests]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +18,7 @@ jobs:
     # Scheduled/manual workflows and tag pushes must not trigger an autofix loop.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.pusher.type != 'bot' && !contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:

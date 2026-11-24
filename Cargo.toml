@@ -122,3 +122,6 @@ required-features = ["ureq"]
 [[example]]
 name = "tool_gate_http"
 required-features = ["ureq"]
+[[example]]
+name = "wasm_runtime_smoke"
+required-features = ["std"]
