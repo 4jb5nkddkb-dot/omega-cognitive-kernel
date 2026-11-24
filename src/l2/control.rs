@@ -93,8 +93,8 @@ impl ExpertAggregator {
             return [0.25; 4];
         }
         let mut p = [0.0; 4];
-        for i in 0..4 {
-            p[i] = 0.95 * self.weights[i] / total + self.mixing / 4.0;
+        for (i, item) in p.iter_mut().enumerate() {
+            *item = 0.95 * self.weights[i] / total + self.mixing / 4.0;
         }
         p
     }
