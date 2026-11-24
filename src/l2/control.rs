@@ -538,7 +538,7 @@ impl ResidentController {
         let innovation =
             (self.residual_slope.abs() + (self.ema_error - error).abs()).clamp(0.0, 1.0);
         let predicted = (1.0 - lambda) * self.residual
-                + lambda * (0.20 * innovation + alpha.clamp(0.0, 1.0) * disturbance);
++ lambda * (0.20 * innovation + alpha.clamp(0.0, 1.0) * disturbance);
         if predicted.is_finite() {
             predicted
         } else {
