@@ -56,6 +56,11 @@ pub mod config;
 #[cfg(all(feature = "std", feature = "toml"))]
 pub mod config_toml;
 pub mod error;
+pub mod goals;
+pub mod introspect;
+pub mod llm;
+pub mod planning;
+pub mod reactor;
 pub mod l0;
 pub mod l1;
 pub mod l2;
@@ -107,3 +112,13 @@ pub use l0::observer::{
 pub use l0::observer::{DirSnapshotObserver, FileObserver, HttpObserver};
 pub use l0::observer::{MultiModalObserver, Observer};
 pub use l0::predictor::{ModelBasedPredictor, Predictor};
+pub use goals::{
+    GoalNode, GoalStatus, GoalTree, GoalTreeSummary, IntrinsicMotivation, IntrinsicSignal,
+};
+pub use introspect::{EntropyReport, EntropyWatchdog};
+pub use llm::{LlmBridge, LlmProposal};
+pub use planning::{Plan, PlanStep, ShortHorizonPlanner};
+pub use reactor::{PriorityReactor, ReactorTask};
+pub use safety::{ActionBoundary, AuthorizationToken, TokenBook};
+#[cfg(feature = "std")]
+pub use safety::{StorageLock, Vault};
