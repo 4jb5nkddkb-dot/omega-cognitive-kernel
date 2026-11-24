@@ -20,7 +20,7 @@ jobs:
     name: Validate package versions
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    steps:
+  steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
