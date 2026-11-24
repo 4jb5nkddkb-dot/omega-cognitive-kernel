@@ -269,7 +269,7 @@ where
             let l1_rolled_back = kernel.observe_l1_consequence(after_err - before_err);
             let l1_rollback = l1_rolled_back || r.l1.rollback_effect.is_some();
             let applied = r.l2.applied_policy;
-            let logged_policy = r
+            if let Some(logged_policy) = r
                 .trajectory
                 .actions
                 .first()
@@ -277,8 +277,9 @@ where
                 .and_then(|value| {
                     serde_json::from_value::<crate::types::L2Policy>(value.clone()).ok()
                 })
-                .unwrap_or_default();
-            debug_assert_eq!(applied, logged_policy);
+            {
+                debug_assert_eq!(applied, logged_policy);
+            }
             let kl_policy = r
                 .trajectory
                 .actions
