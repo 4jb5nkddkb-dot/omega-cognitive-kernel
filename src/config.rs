@@ -149,7 +149,7 @@ pub struct L2Config {
 impl Default for L2Config {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             commit_threshold: 0.82,
             commit_cooldown_steps: 5,
             negative_reward_required: 3,
