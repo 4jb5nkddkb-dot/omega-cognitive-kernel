@@ -48,7 +48,7 @@ UCB decisions use hysteresis: a seen candidate cannot replace the incumbent befo
 
 The UCB reward is `external_reward - 0.25 * error_delta - rollback_penalty * rollback_count - switch_cost`. The default rollback penalty is `0.35`. An accepted L1 patch that worsens error by more than `0.05` on its next observation restores the previous `RuleEffect`; only that actual restoration counts as an L1 rollback. Rejected/cooldown-skipped patches are not rollbacks. Restoring an effect may improve later error, but the rollback cost is still charged to the arm that caused it. Configure these values in `[bandit]`; zeros and `min_dwell_steps = 0` restore legacy switching/reward behavior.
 
-This is an L2-only ablation under the fixture's paired UCB policy, not a comparison of different decision makers. Positive deltas would support an L2 effect in this fixture; they would not establish external validity or statistical significance. L2 remains disabled by default.
+This is an L2-only ablation under the fixture's paired UCB policy, not a comparison of different decision makers. Positive deltas would support an L2 effect in this fixture; they would not establish external validity or statistical significance. New kernels enable L2 by default; the baseline explicitly disables it for comparison.
 
 The short benchmark fixture lowers both branches' `commit_threshold` to `0.35` (`0.50` for `degraded`) to exercise the controller. The production/default threshold remains `0.82`. This fixture is for mechanism measurement, not a production configuration recommendation.
 

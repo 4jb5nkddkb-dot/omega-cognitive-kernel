@@ -14,7 +14,7 @@ The CLI exposes the same operational model through the `omega-kernel` binary, in
 
 There are two separate forms of adaptation. L1 accepts a discrete `CognitivePatch` only when `self_modify_enabled` is true. L2 can still modulate `RuleEffect` while L1 is off because `l2.enabled` is a separate switch. To freeze both mutation paths, callers must disable both switches.
 
-The default configuration is deliberately operational rather than autonomous: autosave is on, pre-patch checkpointing is on, trajectory dumping is on, L1 self-modification is off, L2 is off, the L1 mean-error threshold is `0.30`, the L1 cooldown is `3` steps, and the decision `max_risk` constraint is `0.65`.
+The default configuration enables bounded L2 modulation while keeping L1 self-modification off. Autosave, pre-patch checkpointing, and trajectory dumping are on; the L1 mean-error threshold is `0.30`, the L1 cooldown is `3` steps, and the decision `max_risk` constraint is `0.65`.
 
 ## Auditability and recovery experience
 

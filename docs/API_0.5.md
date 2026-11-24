@@ -44,9 +44,9 @@ The runtime has two intentionally independent mutation channels:
 | Channel | Public control | Default | Effect |
 |---|---|---:|---|
 | L1 discrete patch | `self_modify_enabled` / `KernelConfig.self_modify_enabled` | `false` | Allows a validated `CognitivePatch` to install a new `RuleEffect` and active-module version |
-| L2 continuous modulation | `set_l2_enabled(bool)` | `false` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
+| L2 continuous modulation | `set_l2_enabled(bool)` | `true` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
 
-`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, keep both gates disabled (the default). Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
+`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, disable both gates explicitly. Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
 
 L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed.
 

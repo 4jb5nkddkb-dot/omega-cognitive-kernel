@@ -2,7 +2,7 @@
 
 Python bindings for the training-free, auditable `RuleEffect` adaptation runtime. The package version is read dynamically from `Cargo.toml`, keeping it aligned with the Rust source.
 
-**Status:** research prototype, source version **0.6.0**. The default observer and executor are simulations; L1 self-modification and L2 modulation are disabled by default.
+**Status:** research prototype, source version **0.6.0**. The default observer and executor are simulations; L1 self-modification is disabled by default and bounded L2 modulation is enabled.
 
 ## Install
 

@@ -97,8 +97,8 @@ def test_strategy_weight(kernel):
 
 
 def test_l2_settings(kernel):
-    # L2 is disabled by default (evidence-before-claims principle)
-    assert kernel.status().l2_enabled is False
+    # L2 is enabled by default.
+    assert kernel.status().l2_enabled is True
     kernel.set_l2_enabled(True)
     assert kernel.status().l2_enabled is True
     kernel.set_l2_enabled(False)
@@ -137,7 +137,7 @@ def test_schema_version_is_current(kernel):
     kernel.run("schema goal", 1)
     kernel.save()
     payload = json.loads(ok.Kernel.open(kernel.state_path()).snapshot_json())
-    # Schema v5 retains the earlier safety fields and adds resident L2 state.
+    # Schema v5 includes safety fields, resident L2 state, and bandit settings.
     assert payload["version"] == 5
     assert payload["self_modify_enabled"] is False
     assert "steps_since_last_patch" in payload

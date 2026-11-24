@@ -64,8 +64,8 @@ pub struct L2MetaLayer {
     /// The monitor still runs when disabled so benchmark baselines retain
     /// comparable observability without receiving L2 interventions.
     ///
-    /// Default is **false**. Enable explicitly with `Kernel::set_l2_enabled(true)`
-    /// only after reproducible benchmarks show a positive gain over the disabled baseline.
+    /// New kernels enable bounded interventions by default. Use
+    /// `Kernel::set_l2_enabled(false)` for an observational baseline.
     pub enabled: bool,
     pub in_fixed_point: bool,
     /// How many consecutive steps we have been inside the fixed point.
@@ -104,7 +104,7 @@ impl L2MetaLayer {
             detector: EmergenceDetector::default(),
             fixed_point: OmegaDayanFixedPoint,
             modulator: MetaModulator,
-            enabled: false,
+            enabled: true,
             in_fixed_point: false,
             dwell_steps: 0,
             last_alignment_score: 0.0,
@@ -308,6 +308,7 @@ impl L2MetaLayer {
             }
         } else {
             self.controller.last_selected_expert = KEEP_L0;
+            self.controller.certificate.lyapunov_veto = false;
         }
         let mut result = self.result(
             metrics,

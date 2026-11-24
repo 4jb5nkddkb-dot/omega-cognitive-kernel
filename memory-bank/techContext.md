@@ -24,7 +24,7 @@ The default state file is `.omega/state.json`. Audit and trajectory files are pl
 
 ## Configuration defaults
 
-`KernelConfig` defaults to `.omega/state.json`, autosave/checkpoint/trajectory dumping enabled, error threshold `0.30`, minimum patch interval `3`, `max_risk = 0.65`, and `self_modify_enabled = false`. Intervention policy defaults to exploration mode, maximum level `SuggestAlternative`, friction threshold `2`, and escalation auditing enabled; strict mode caps effective escalation at `RefuseToDecide` for higher requested levels.
+`KernelConfig` defaults to `.omega/state.json`, autosave/checkpoint/trajectory dumping enabled, error threshold `0.30`, minimum patch interval `3`, `max_risk = 0.65`, `self_modify_enabled = false`, and `l2.enabled = true`. Intervention policy defaults to exploration mode, maximum level `SuggestAlternative`, friction threshold `2`, and escalation auditing enabled; strict mode caps effective escalation at `RefuseToDecide` for higher requested levels.
 
 ## Verification entry points
 

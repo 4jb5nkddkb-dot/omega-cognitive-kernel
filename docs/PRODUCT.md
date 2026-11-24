@@ -16,7 +16,7 @@
 |------------|---------|
 | Kernel API | `Kernel`, `run` / `step` / status / checkpoint / rollback |
 | Config | `omega.toml` via `KernelConfig` and CLI `--config` |
-| Safety switches | `self_modify_enabled` and `set_l2_enabled` (both default **false**) |
+| Safety switches | `self_modify_enabled` (default **false**) and `set_l2_enabled` (default **true**) |
 | Trajectory | `dump_trajectory` → `trajectory.jsonl` + `replay` |
 | Events | `KernelEvent` / `AuditEvent`; `AuditLog::poll_after`; in-process event hook |
 | Strategies | Operator weight nudge (`set_strategy_weight`) |

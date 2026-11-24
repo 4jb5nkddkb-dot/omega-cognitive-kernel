@@ -113,8 +113,8 @@ pub struct KernelConfig {
     pub dump_trajectory: bool,
     /// Hysteresis and consequence costs for UCB-backed bandit decisions.
     pub bandit: crate::types::BanditConfig,
-    /// Resident L2 controller. Monitoring is always on; the intervention
-    /// permission remains false until explicitly enabled.
+    /// Resident L2 controller. Monitoring is always on; bounded interventions
+    /// are enabled by default and can be disabled with `l2.enabled = false`.
     pub l2: L2Config,
 }
 
@@ -149,7 +149,7 @@ pub struct L2Config {
 impl Default for L2Config {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             commit_threshold: 0.82,
             commit_cooldown_steps: 5,
             negative_reward_required: 3,

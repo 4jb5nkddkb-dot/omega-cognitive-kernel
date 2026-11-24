@@ -65,11 +65,11 @@ L0 prediction error is clamped to `[0.05, 1.0]`. `stabilize` and `exploit` contr
 | Channel | What changes | Gate | Default |
 |---|---|---|---:|
 | **L1 patch** | Discrete `CognitivePatch` and versioned active-module/effect commit | `self_modify_enabled` | `false` |
-| **L2 modulation** | Validated expert/KL-prior policy snapshot for a subsequent L0 decision | `l2.enabled` | `false` |
+| **L2 modulation** | Validated expert/KL-prior policy snapshot for a subsequent L0 decision | `l2.enabled` | `true` |
 
 L1 increments its patch cooldown, distills the trajectory, and stops with `self_modify_enabled=false` when disabled. When enabled, it builds reflection context from CAS error, strategy weights, and recent case errors; sanitizes and sandbox-validates the candidate; then installs the effect and commits the versioned store. Rejected candidates do not change the active effect.
 
-L2 continues metric evaluation when disabled, but returns no intervention and clears fixed-point dwell state. Both channels are disabled by default. Enable L2 only after benchmarks show benefit; call `set_l2_enabled(true)` to opt in.
+L2 continues metric evaluation when disabled, but returns no intervention and clears fixed-point dwell state. New kernels enable L2 by default while L1 remains disabled. Call `set_l2_enabled(false)` for a monitoring-only baseline.
 
 ## L2 fixed-point and consequence loop
 

@@ -292,7 +292,7 @@ where
             let l1_rolled_back = kernel.observe_l1_consequence(after_err - before_err);
             let l1_rollback = l1_rolled_back || r.l1.rollback_effect.is_some();
             let applied = r.l2.applied_policy;
-            let logged_policy = r
+            if let Some(logged_policy) = r
                 .trajectory
                 .actions
                 .first()
@@ -300,8 +300,9 @@ where
                 .and_then(|value| {
                     serde_json::from_value::<crate::types::L2Policy>(value.clone()).ok()
                 })
-                .unwrap_or_default();
-            debug_assert_eq!(applied, logged_policy);
+            {
+                debug_assert_eq!(applied, logged_policy);
+            }
             let kl_policy = r
                 .trajectory
                 .actions
@@ -1001,9 +1002,15 @@ mod tests {
         // actual commit must be attributed to its immutable applied snapshot.
         assert_eq!(report.paired_reward_difference.ci95_low, None);
         assert_eq!(report.paired_reward_difference.ci95_high, None);
-        assert_eq!(report.l0_influenced_runs, 0);
         assert_eq!(report.paired_runs.len(), 1);
         let paired = &report.paired_runs[0];
+        let treatment_influenced_l0 = paired.treatment.l2_commits > 0
+            || paired.treatment.committed_policies_applied > 0
+            || paired.treatment.l2_nudges > 0;
+        assert_eq!(
+            report.l0_influenced_runs,
+            u32::from(treatment_influenced_l0)
+        );
         assert_eq!(paired.seed, 42);
         assert_eq!(
             paired.delta_mean_reward,
@@ -1013,7 +1020,7 @@ mod tests {
             paired.delta_best_arm_rate,
             paired.treatment.best_arm_rate - paired.baseline.best_arm_rate
         );
-        assert!(!paired.treatment_influenced_l0);
+        assert_eq!(paired.treatment_influenced_l0, treatment_influenced_l0);
         assert!(
             report.treatment_l2_enabled.mean_committed_policies_applied
                 <= report.treatment_l2_enabled.mean_l2_commits

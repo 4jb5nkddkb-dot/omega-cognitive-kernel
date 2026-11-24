@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Correctness / verification
+- Enable bounded L2 interventions by default for new kernels and missing `[l2]` configuration while keeping L1 self-modification disabled. Legacy snapshots without an explicit L2 permission still migrate with L2 disabled.
 - Document the current source's schema v5 state and add legacy-migration and Python snapshot coverage without changing the historical 0.6.0 schema-v2 release notes.
 - Return path/line/byte-offset errors for malformed audit records in Rust and Python; retain incomplete trailing records for subsequent polling.
 - Add per-seed paired L2 benchmark reports with descriptive 95% intervals so non-intervention differences cannot be mistaken for demonstrated L0 influence. Isolate task/tool-gate/audit-panel test state and benchmark sidecars in per-run directories.

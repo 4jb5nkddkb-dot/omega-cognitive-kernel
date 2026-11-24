@@ -2,7 +2,7 @@ name: no_std portability
 
 on:
   push:
-    branches: [main, 'L2改进']
+    branches: [main, 'L2-improvement']
   pull_request:
     branches: [main]
   workflow_dispatch:

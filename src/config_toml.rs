@@ -42,7 +42,7 @@ mod tests {
         assert_eq!(c2.intervention.friction_threshold, 2);
         assert!(!c2.self_modify_enabled);
         assert!(c2.dump_trajectory);
-        assert!(!c2.l2.enabled);
+        assert!(c2.l2.enabled);
         assert_eq!(c2.l2.commit_cooldown_steps, 5);
         assert_eq!(c2.l2.dayan_relaxation, 0.35);
         assert_eq!(c2.bandit.min_dwell_steps, 3);

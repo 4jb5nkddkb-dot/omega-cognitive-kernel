@@ -93,8 +93,8 @@ impl ExpertAggregator {
             return [0.25; 4];
         }
         let mut p = [0.0; 4];
-        for (i, probability) in p.iter_mut().enumerate() {
-            *probability = 0.95 * self.weights[i] / total + self.mixing / 4.0;
+        for (i, item) in p.iter_mut().enumerate() {
+            *item = 0.95 * self.weights[i] / total + self.mixing / 4.0;
         }
         p
     }
@@ -531,10 +531,14 @@ impl ResidentController {
             3 => 0.35 * self.residual_control_gain.abs(),
             _ => return f64::INFINITY,
         };
-        let predicted = (1.0 - self.dayan_relaxation.clamp(0.01, 1.0)) * self.residual
-            + self.residual_slope.abs()
-            + alpha.clamp(0.0, 1.0) * disturbance
-            + (self.ema_error - error).abs().clamp(0.0, 1.0);
+        if !error.is_finite() {
+            return f64::INFINITY;
+        }
+        let lambda = self.dayan_relaxation.clamp(0.01, 1.0);
+        let innovation =
+            (self.residual_slope.abs() + (self.ema_error - error).abs()).clamp(0.0, 1.0);
+        let disturbance_term = 0.2 * lambda * innovation + alpha.clamp(0.0, 1.0) * disturbance;
+        let predicted = (1.0 - lambda) * self.residual + disturbance_term;
         if predicted.is_finite() {
             predicted
         } else {

@@ -2,7 +2,7 @@
 
 ## Source snapshot
 
-This context reflects the `L2改进` source tree after PR #28 and its subsequent L2 changes. The crate and Python binding declare source version `0.6.0`, Rust 2021, MSRV `1.74`, and persistence schema `5`. The declared source version predates the latest controller changes and must be separated before publication.
+This context reflects the `L2-improvement` source tree after PR #28 and its subsequent L2 changes. The crate and Python binding declare source version `0.6.0`, Rust 2021, MSRV `1.74`, and persistence schema `5`. The declared source version predates the latest controller changes and must be separated before publication.
 
 ## Current implementation focus
 
@@ -20,7 +20,7 @@ The roadmap still defers a full multi-tenant control plane, a workspace multi-ke
 
 ## Open engineering questions
 
-The current branch adds resident L2 state through schema v5, including controller/cache state and validated pending/applied policy snapshots. Current stabilization work keeps L1/L2 disabled by default, checks legacy migration, reports malformed audit records, adds per-seed benchmark evidence, and restores the MSRV/Python verification gates. Optional feature combinations, especially `async`, `gui`, `wasm`, and `msrv`, deserve continued CI coverage when dependencies change. Any schema or audit enum change requires a migration/compatibility decision before implementation.
+The `L2-improvement` branch is based on the latest `origin/main` and retains resident L2 state through schema v5, including controller/cache state and validated pending/applied policy snapshots. New kernels and missing `[l2]` configuration enable L2 by default; legacy snapshots without an explicit L2 permission remain disabled. L1 self-modification remains disabled by default. Current stabilization work also reports malformed audit records, adds per-seed benchmark evidence, and restores the MSRV/Python verification gates. Optional feature combinations, especially `async`, `gui`, `wasm`, and `msrv`, deserve continued CI coverage when dependencies change. Any schema or audit enum change requires a migration/compatibility decision before implementation.
 
 ## Maintenance rule
 

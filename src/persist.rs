@@ -181,7 +181,7 @@ impl Default for KernelSnapshot {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: Vec::new(),
-            l2_enabled: false,
+            l2_enabled: true,
             l2_in_fixed_point: false,
             l2_dwell_steps: 0,
             l2_last_alignment_score: 0.0,
@@ -337,6 +337,13 @@ mod tests {
     use super::*;
     use crate::types::RuleEffect;
     use std::env::temp_dir;
+
+    #[test]
+    fn new_snapshots_enable_l2_but_not_l1_self_modification() {
+        let snapshot = KernelSnapshot::default();
+        assert!(snapshot.l2_enabled);
+        assert!(!snapshot.self_modify_enabled);
+    }
 
     #[test]
     fn roundtrip_snapshot_file() {

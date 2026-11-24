@@ -44,7 +44,7 @@ L1 is disabled by default. The patch metadata may contain descriptive code and e
 
 L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it applies bounded changes to biases, constraints, and `RuleEffect`. L2 stores the pre-commit effect and accepts later reward/error/risk feedback through `observe_l2_consequence`.
 
-L2 is an independent channel. **Both L1 and L2 are disabled by default.** To freeze all policy mutation, keep both gates off. Enable L2 explicitly with `set_l2_enabled(true)` only after reproducible benchmarks show a positive gain for the intended task. The current nonstationary paired UCB treatment has a small measured delta, but no executable L2 commits occurred. It therefore does not establish an L2 benefit or justify changing the default. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
+L2 is an independent channel and **enabled by default**; L1 self-modification remains disabled. To freeze all policy mutation, disable both gates. Use `set_l2_enabled(false)` for a monitoring-only baseline and `set_l2_enabled(true)` to re-enable bounded interventions. Benchmark results do not by themselves establish effectiveness across other tasks. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
 
 ## Installation
 
@@ -154,7 +154,7 @@ Useful product-facing methods include:
 | `audit_summary` / `audit_tail` | Inspect append-only audit events |
 | `replay_trajectory` | Summarize trajectory JSONL without world re-execution |
 | `set_event_hook` | Receive events after durable audit append |
-| `set_l2_enabled` | Enable or disable L2 interventions (default off) |
+| `set_l2_enabled` | Enable or disable L2 interventions (default on) |
 | `observe_l2_consequence` | Feed reward/error/risk feedback to L2 |
 | `set_strategy_weight` | Apply an operator strategy-weight nudge |
 
@@ -174,7 +174,7 @@ For custom world integration, implement the public `Observer`, `DecisionMaker`, 
 | `min_steps_between_patches` | `3` | L1 patch cooldown |
 | `max_risk` | `0.65` | L0 decision constraint |
 | `self_modify_enabled` | `false` | L1 discrete patch gate |
-| `l2.enabled` | `false` | L2 modulation gate (enable only after evidence) |
+| `l2.enabled` | `true` | L2 bounded-modulation gate |
 
 Example configuration:
 
