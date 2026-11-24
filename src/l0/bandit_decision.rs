@@ -230,7 +230,10 @@ impl BanditUcbDecisionMaker {
             } else {
                 [0.1, 0.9]
             };
-        } else if policy.expert == 2 {
+        } else if policy.expert == 2
+            && (prior[0] - 0.5).abs() < 1e-9
+            && (prior[1] - 0.5).abs() < 1e-9
+        {
             let incumbent = self
                 .state
                 .current_arm
