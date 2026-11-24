@@ -531,10 +531,11 @@ impl ResidentController {
             3 => 0.35 * self.residual_control_gain.abs(),
             _ => return f64::INFINITY,
         };
-        let predicted = (1.0 - self.dayan_relaxation.clamp(0.01, 1.0)) * self.residual
-            + self.residual_slope.abs()
-            + alpha.clamp(0.0, 1.0) * disturbance
-            + (self.ema_error - error).abs().clamp(0.0, 1.0);
+        if !error.is_finite() { return f64::INFINITY; }
+        let lambda = self.dayan_relaxation.clamp(0.01, 1.0);
+        let innovation = (self.residual_slope.abs() + (self.ema_error - error).abs()).clamp(0.0, 1.0);
+        let predicted = (1.0 - lambda) * self.residual
+                + lambda * (0.20 * innovation + alpha.clamp(0.0, 1.0) * disturbance);
         if predicted.is_finite() {
             predicted
         } else {
