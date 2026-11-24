@@ -85,6 +85,9 @@ mod tests {
         let mut reactor = PriorityReactor::new();
         reactor.submit("routine", 10.0, 0.1, 0.0, true);
         reactor.submit("urgent", 10.0, 0.9, 0.5, true);
-        assert_eq!(reactor.pop_next().map(|t| t.name).as_deref(), Some("urgent"));
+        assert_eq!(
+            reactor.pop_next().map(|t| t.name).as_deref(), 
+            Some("urgent")
+        );
     }
 }
