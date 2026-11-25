@@ -154,8 +154,7 @@ impl L2CognitiveGate {
 
                 match self.state {
                     L2State::Dormant => {
-                        if dc_drift > self.cfg.enter_dc_drift
-                            || lf_ratio > self.cfg.enter_lf_ratio
+                        if dc_drift > self.cfg.enter_dc_drift || lf_ratio > self.cfg.enter_lf_ratio
                         {
                             self.state = L2State::Active;
                             self.calm_streak = 0;
@@ -175,8 +174,7 @@ impl L2CognitiveGate {
                     }
 
                     L2State::Active => {
-                        if dc_drift < self.cfg.exit_dc_drift
-                            && lf_ratio <= self.cfg.enter_lf_ratio
+                        if dc_drift < self.cfg.exit_dc_drift && lf_ratio <= self.cfg.enter_lf_ratio
                         {
                             self.calm_streak += 1;
                             if self.calm_streak >= self.cfg.dormant_confirm_steps {
