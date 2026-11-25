@@ -6,7 +6,9 @@ pub mod learner;
 pub mod patch;
 pub mod reflector;
 pub mod sandbox;
+pub mod spectral;
 pub mod store;
+pub use spectral::{L1SpectralReflector, SpectralBin, SpectralPatch};
 
 use crate::error::Result;
 use crate::memory::MemoryFacade;
