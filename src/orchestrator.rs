@@ -322,4 +322,17 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn spectral_gate_emits_cognitive_realm_telemetry() {
+        let mut kernel = make_kernel();
+        for _ in 0..16 {
+            let r = kernel
+                .run_once("maintain coherent self-model omega dayan")
+                .expect("step ok");
+            let spec = r.l2.spectral_output.expect("spectral_output present");
+            assert!(spec.bias.is_finite());
+            assert!(spec.convergence_residual.is_finite());
+        }
+    }
 }
