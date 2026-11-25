@@ -323,14 +323,20 @@ impl L2MetaLayer {
             self.controller.last_selected_expert = KEEP_L0;
             self.controller.certificate.lyapunov_veto = false;
         }
-        self.spectral_history.push(1.0 - state.avg_prediction_error.clamp(0.0, 1.0));
+        self.spectral_history
+            .push(1.0 - state.avg_prediction_error.clamp(0.0, 1.0));
         if self.spectral_history.len() > 32 {
             self.spectral_history.remove(0);
         }
-        let spectral_out = self.spectral_gate.step(&self.spectral_reflector, &self.spectral_history);
+        let spectral_out = self
+            .spectral_gate
+            .step(&self.spectral_reflector, &self.spectral_history);
         let mut score_breakdown = score_breakdown;
         score_breakdown.insert("spectral_bias".to_string(), spectral_out.bias);
-        score_breakdown.insert("spectral_residual".to_string(), spectral_out.convergence_residual);
+        score_breakdown.insert(
+            "spectral_residual".to_string(),
+            spectral_out.convergence_residual),
+        );
         let mut result = self.result(
             metrics,
             biases,
