@@ -119,7 +119,9 @@ impl StrategyMemory {
         let mut sum_active_w = 0.0;
         let mut active_count = 0usize;
 
-        for s in self.strategies.values() {
+        let mut ordered: Vec<_> = self.strategies.values().collect();
+        ordered.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        for s in ordered {
             sum_w += s.weight;
             sum_idle += s.idle_steps as u64;
             max_idle = max_idle.max(s.idle_steps);
@@ -157,6 +159,7 @@ impl StrategyMemory {
             b.weight
                 .partial_cmp(&a.weight)
                 .unwrap_or(core::cmp::Ordering::Equal)
+                .then_with(|| a.name.cmp(&b.name))
         });
         v.into_iter().take(k).collect()
     }

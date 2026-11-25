@@ -6,10 +6,23 @@ use crate::prelude::*;
 
 use crate::api::Kernel;
 use crate::error::Result;
+use crate::l0::bandit_decision::BanditUcbDecisionMaker;
 use crate::l0::decision::DecisionMaker;
 use hashbrown::HashMap;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::env::temp_dir;
+
+fn serialize_score_breakdown<S>(
+    values: &HashMap<String, f64>,
+    serializer: S,
+) -> core::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut entries: Vec<_> = values.iter().collect();
+    entries.sort_unstable_by_key(|(key, _)| *key);
+    serializer.collect_map(entries)
+}
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct L2ExpertMetrics {
@@ -17,6 +30,65 @@ pub struct L2ExpertMetrics {
     pub applied: u64,
     pub not_applied: u64,
     pub reward_sum: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct L2PipelineDiagnostics {
+    pub observations: u64,
+    pub spectral_active: u64,
+    pub proposals: u64,
+    pub dry_runs: u64,
+    pub candidate_changes: u64,
+    pub selected_changes: u64,
+    pub history_discounts: u64,
+    pub spectral_rejections: u64,
+    pub lyapunov_rejections: u64,
+    pub cooldown_rejections: u64,
+    pub confidence_rejections: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct L2DiagnosticSample {
+    pub step: u64,
+    pub selected_arm: usize,
+    pub optimal_arm: usize,
+    pub reward: f64,
+    pub spectral_bias: f64,
+    pub normalized_energy: f64,
+    pub spectral_dc_drift: f64,
+    pub convergence_residual: f64,
+    pub controller_residual: f64,
+    pub alpha: f64,
+    pub beta: f64,
+    pub confidence: f64,
+    pub proposed_expert: Option<usize>,
+    pub applied: bool,
+    pub rejection_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct CorrelationDiagnostic {
+    pub samples: usize,
+    pub pearson: Option<f64>,
+    pub spearman: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spearman_bootstrap_ci95: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct L2SignalDiagnostics {
+    pub bias_to_next_reward: CorrelationDiagnostic,
+    pub residual_to_next_error: CorrelationDiagnostic,
+    pub bias_to_regime_change: CorrelationDiagnostic,
+    pub bias_to_next_optimal_arm: CorrelationDiagnostic,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct L2ExperimentSettings {
+    pub spectral_control: bool,
+    pub purity_prior: bool,
+    pub reverse_brake: bool,
+    pub history_discount: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +125,7 @@ pub struct BanditReport {
     pub post_commit_arm_changes: usize,
     pub distinct_actions: usize,
     pub mean_l2_consequence_score: f64,
+    #[serde(serialize_with = "serialize_score_breakdown")]
     pub final_score_breakdown: HashMap<String, f64>,
     pub final_alignment_score: f64,
     pub recovery_steps: Option<u32>,
@@ -70,6 +143,14 @@ pub struct BanditReport {
     pub recovery_latencies: Vec<u32>,
     pub warm_recovery_latencies: Vec<u32>,
     pub mean_residual_improvement: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<L2PipelineDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<L2DiagnosticSample>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signals: Option<L2SignalDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experiment: Option<L2ExperimentSettings>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,6 +174,7 @@ pub struct L2BenchmarkAggregate {
     pub mean_post_commit_arm_changes: f64,
     pub mean_distinct_actions: f64,
     pub mean_l2_consequence_score: f64,
+    #[serde(serialize_with = "serialize_score_breakdown")]
     pub mean_final_score_breakdown: HashMap<String, f64>,
     pub mean_final_alignment_score: f64,
     pub mean_recovery_steps: Option<f64>,
@@ -148,6 +230,8 @@ pub struct L2BenchmarkReport {
     pub delta_error_decrease_rate: f64,
     pub paired_reward_difference: PairedMeanDifference,
     pub paired_best_arm_difference: PairedMeanDifference,
+    pub paired_reward_bootstrap: PairedMeanDifference,
+    pub paired_best_arm_bootstrap: PairedMeanDifference,
     pub l0_influenced_runs: u32,
     /// Per-seed evidence for diagnosing differences that occur without a commit.
     pub paired_runs: Vec<L2PairedRun>,
@@ -190,7 +274,14 @@ pub fn run_bandit_task_seeded(
     steps_per_episode: u32,
     seed: u64,
 ) -> Result<BanditReport> {
-    run_bandit_task_seeded_scenario(kernel, episodes, steps_per_episode, seed, "nonstationary")
+    run_bandit_task_seeded_scenario(
+        kernel,
+        episodes,
+        steps_per_episode,
+        seed,
+        "nonstationary",
+        None,
+    )
 }
 
 fn run_bandit_task_seeded_scenario<D>(
@@ -203,6 +294,7 @@ fn run_bandit_task_seeded_scenario<D>(
     steps_per_episode: u32,
     seed: u64,
     scenario: &str,
+    experiment: Option<L2ExperimentSettings>,
 ) -> Result<BanditReport>
 where
     D: DecisionMaker,
@@ -244,6 +336,9 @@ where
     let mut recovery_warm = false;
     let mut recovery_used_commit = false;
     let mut last_warm_commit: Option<crate::types::L2Policy> = None;
+    let mut pipeline = L2PipelineDiagnostics::default();
+    let mut diagnostic_samples = Vec::new();
+    let collect_diagnostics = experiment.is_some();
     let mut residual_improvement = 0.0;
     let mut initial_dayan_residual = None;
     let mut previous_dayan_residual = None;
@@ -335,6 +430,26 @@ where
             if r.l2.modulation_committed {
                 l2_commits += 1;
             }
+            if collect_diagnostics {
+                pipeline.observations += 1;
+                pipeline.spectral_active += u64::from(
+                    r.l2.spectral_output
+                        .is_some_and(|output| output.state == crate::l2::L2State::Active),
+                );
+                pipeline.history_discounts += u64::from(
+                    r.l2.spectral_output
+                        .is_some_and(|output| output.regime_detected),
+                );
+                match r.l2.rejection_reason.as_deref() {
+                    Some("spectral_gate") => pipeline.spectral_rejections += 1,
+                    Some("lyapunov_veto") => pipeline.lyapunov_rejections += 1,
+                    Some("commit_cooldown") => pipeline.cooldown_rejections += 1,
+                    Some("commit_threshold") | Some("trust_or_confidence_zero") => {
+                        pipeline.confidence_rejections += 1
+                    }
+                    _ => {}
+                }
+            }
             max_fixed_point_dwell = max_fixed_point_dwell.max(r.l2.dwell_steps);
             final_dayan_residual = r.l2.dayan_residual;
             residual_improvement += previous_dayan_residual
@@ -352,6 +467,40 @@ where
                     .as_ref()
                     .map(|decision| decision.l2_policy_applied)
                     .unwrap_or(applied.committed);
+            if collect_diagnostics {
+                pipeline.dry_runs += 1;
+                if let Some(snapshot) = kernel.inner.l0.decision.bandit_snapshot() {
+                    let mut baseline = BanditUcbDecisionMaker::default();
+                    baseline.restore(snapshot.clone());
+                    let (baseline, _) = baseline.dry_run_policy(crate::types::L2Policy::default());
+                    let mut treatment = BanditUcbDecisionMaker::default();
+                    treatment.restore(snapshot);
+                    let (treatment, _) = treatment.dry_run_policy(applied);
+                    pipeline.candidate_changes +=
+                        u64::from(baseline.candidate_arm != treatment.candidate_arm);
+                    pipeline.selected_changes +=
+                        u64::from(baseline.selected_arm != treatment.selected_arm);
+                }
+                pipeline.proposals += u64::from(applied.committed);
+                let spec = r.l2.spectral_output;
+                diagnostic_samples.push(L2DiagnosticSample {
+                    step: kernel.inner.total_steps,
+                    selected_arm: r.l2.decision.as_ref().map(|d| d.selected_arm).unwrap_or(0),
+                    optimal_arm: best,
+                    reward: 0.0,
+                    spectral_bias: spec.map(|s| s.bias).unwrap_or(0.0),
+                    normalized_energy: spec.map(|s| s.normalized_energy).unwrap_or(0.0),
+                    spectral_dc_drift: spec.map(|s| s.dc_drift).unwrap_or(0.0),
+                    convergence_residual: spec.map(|s| s.convergence_residual).unwrap_or(0.0),
+                    controller_residual: r.l2.dayan_residual,
+                    alpha: r.l2.alpha,
+                    beta: r.l2.beta,
+                    confidence: kernel.inner.l2.controller.model_confidence,
+                    proposed_expert: applied.committed.then_some(applied.expert),
+                    applied: l2_policy_applied,
+                    rejection_reason: r.l2.rejection_reason.clone(),
+                });
+            }
             active_steps += u64::from(r.l2.gate_state == crate::l2::control::L2GateState::Active);
             committed_policies_applied += u64::from(l2_policy_applied);
             lyapunov_vetoes += u64::from(r.l2.lyapunov_veto);
@@ -405,6 +554,9 @@ where
                 0.25
             };
             let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
+            if let Some(sample) = diagnostic_samples.last_mut() {
+                sample.reward = reward;
+            }
             if let Some(proposed) = r
                 .trajectory
                 .actions
@@ -511,6 +663,7 @@ where
     let audit = kernel.audit_summary()?;
     let status = kernel.status();
 
+    let signals = collect_diagnostics.then(|| signal_diagnostics(&diagnostic_samples));
     Ok(BanditReport {
         scenario: scenario.into(),
         episodes,
@@ -576,6 +729,10 @@ where
         recovery_latencies,
         warm_recovery_latencies,
         mean_residual_improvement: residual_improvement / total_choices.max(1) as f64,
+        experiment,
+        pipeline: collect_diagnostics.then_some(pipeline),
+        diagnostics: collect_diagnostics.then_some(diagnostic_samples),
+        signals,
     })
 }
 
@@ -668,13 +825,24 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
         mean_distinct_actions: mean(|r| r.distinct_actions as f64),
         mean_l2_consequence_score: mean(|r| r.mean_l2_consequence_score),
         mean_final_score_breakdown: {
-            let mut out = HashMap::new();
-            for report in reports {
-                for (key, value) in &report.final_score_breakdown {
-                    *out.entry(key.clone()).or_insert(0.0) += value / n;
-                }
-            }
-            out
+            // Iterating each HashMap directly makes floating-point addition
+            // depend on its randomized hash seed. Accumulate in key order, then
+            // sum keys in the caller's deterministic report/seed order.
+            let mut keys: Vec<&String> = reports
+                .iter()
+                .flat_map(|report| report.final_score_breakdown.keys())
+                .collect();
+            keys.sort_unstable();
+            keys.dedup();
+            keys.into_iter()
+                .map(|key| {
+                    let sum = reports
+                        .iter()
+                        .filter_map(|report| report.final_score_breakdown.get(key))
+                        .sum::<f64>();
+                    (key.clone(), sum / n)
+                })
+                .collect()
         },
         mean_final_alignment_score: mean(|r| r.final_alignment_score),
         mean_recovery_steps: {
@@ -774,6 +942,136 @@ fn paired_difference(differences: &[f64]) -> PairedMeanDifference {
     }
 }
 
+fn mean(values: &[f64]) -> f64 {
+    values.iter().sum::<f64>() / values.len() as f64
+}
+
+fn pearson(x: &[f64], y: &[f64]) -> Option<f64> {
+    if x.len() < 2 || x.len() != y.len() {
+        return None;
+    }
+    let mx = mean(x);
+    let my = mean(y);
+    let numerator = x
+        .iter()
+        .zip(y)
+        .map(|(a, b)| (a - mx) * (b - my))
+        .sum::<f64>();
+    let sx = x.iter().map(|a| (a - mx).powi(2)).sum::<f64>().sqrt();
+    let sy = y.iter().map(|b| (b - my).powi(2)).sum::<f64>().sqrt();
+    (sx > 0.0 && sy > 0.0).then(|| numerator / (sx * sy))
+}
+
+fn ranks(values: &[f64]) -> Vec<f64> {
+    let mut sorted: Vec<(usize, f64)> = values.iter().copied().enumerate().collect();
+    sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal));
+    let mut ranks = vec![0.0; values.len()];
+    let mut start = 0;
+    while start < sorted.len() {
+        let mut end = start + 1;
+        while end < sorted.len() && sorted[end].1 == sorted[start].1 {
+            end += 1;
+        }
+        let rank = (start + end - 1) as f64 / 2.0 + 1.0;
+        for &(index, _) in &sorted[start..end] {
+            ranks[index] = rank;
+        }
+        start = end;
+    }
+    ranks
+}
+
+fn correlation(pairs: &[(f64, f64)]) -> CorrelationDiagnostic {
+    let x: Vec<f64> = pairs.iter().map(|pair| pair.0).collect();
+    let y: Vec<f64> = pairs.iter().map(|pair| pair.1).collect();
+    let spearman = pearson(&ranks(&x), &ranks(&y));
+    let spearman_bootstrap_ci95 = if pairs.len() >= 8 {
+        let mut rng = Rng::new(0x53504541524d414e);
+        let mut bootstrap = Vec::with_capacity(1_000);
+        for _ in 0..1_000 {
+            let mut sample_x = Vec::with_capacity(pairs.len());
+            let mut sample_y = Vec::with_capacity(pairs.len());
+            for _ in 0..pairs.len() {
+                let index = ((rng.next_f64() * pairs.len() as f64) as usize).min(pairs.len() - 1);
+                sample_x.push(x[index]);
+                sample_y.push(y[index]);
+            }
+            if let Some(value) = pearson(&ranks(&sample_x), &ranks(&sample_y)) {
+                bootstrap.push(value);
+            }
+        }
+        bootstrap.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+        (bootstrap.len() >= 20).then(|| {
+            [
+                bootstrap[bootstrap.len() / 40],
+                bootstrap[bootstrap.len() * 39 / 40],
+            ]
+        })
+    } else {
+        None
+    };
+    CorrelationDiagnostic {
+        samples: pairs.len(),
+        pearson: pearson(&x, &y),
+        spearman,
+        spearman_bootstrap_ci95,
+    }
+}
+
+fn signal_diagnostics(samples: &[L2DiagnosticSample]) -> L2SignalDiagnostics {
+    let mut reward = Vec::new();
+    let mut residual = Vec::new();
+    let mut regime = Vec::new();
+    let mut optimal = Vec::new();
+    for pair in samples.windows(2) {
+        let current = &pair[0];
+        let next = &pair[1];
+        if current.normalized_energy > 0.0 {
+            reward.push((current.spectral_bias, next.reward));
+        }
+        optimal.push((current.spectral_bias, next.optimal_arm as f64));
+        residual.push((current.convergence_residual, next.convergence_residual));
+        regime.push((
+            current.spectral_bias,
+            f64::from(current.optimal_arm != next.optimal_arm),
+        ));
+    }
+    L2SignalDiagnostics {
+        bias_to_next_reward: correlation(&reward),
+        residual_to_next_error: correlation(&residual),
+        bias_to_regime_change: correlation(&regime),
+        bias_to_next_optimal_arm: correlation(&optimal),
+    }
+}
+
+fn bootstrap_difference(differences: &[f64], seed: u64) -> PairedMeanDifference {
+    let mean_difference = mean(differences);
+    if differences.len() < 2 {
+        return PairedMeanDifference {
+            mean: mean_difference,
+            ci95_low: None,
+            ci95_high: None,
+        };
+    }
+    let mut rng = Rng::new(seed);
+    let mut means = Vec::with_capacity(2_000);
+    let mut sample = vec![0.0; differences.len()];
+    for _ in 0..2_000 {
+        for value in &mut sample {
+            let index =
+                ((rng.next_f64() * differences.len() as f64) as usize).min(differences.len() - 1);
+            *value = differences[index];
+        }
+        means.push(mean(&sample));
+    }
+    means.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+    PairedMeanDifference {
+        mean: mean_difference,
+        ci95_low: Some(means[(means.len() as f64 * 0.025) as usize]),
+        ci95_high: Some(means[(means.len() as f64 * 0.975) as usize]),
+    }
+}
+
 /// Compare identical seeded bandit runs with L2 interventions disabled/enabled.
 /// The benchmark is deterministic and reports deltas rather than treating a
 /// single successful run as evidence of improvement.
@@ -810,6 +1108,7 @@ pub fn run_l2_benchmark_scenario(
         commit_threshold,
         commit_cooldown,
         negative_reward_required,
+        None,
     )
 }
 
@@ -823,6 +1122,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
     commit_threshold: f64,
     commit_cooldown_steps: u64,
     negative_reward_required: u32,
+    experiment: Option<L2ExperimentSettings>,
 ) -> Result<L2BenchmarkReport> {
     let scenario = match scenario {
         "stable" | "nonstationary" | "degraded" | "fixedpoint" | "regime_shift"
@@ -875,6 +1175,22 @@ pub fn run_l2_benchmark_scenario_with_gate(
             branch.inner.l2.commit_threshold = commit_threshold.clamp(0.0, 1.0);
             branch.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
             branch.inner.l2.negative_reward_required = negative_reward_required.max(1);
+            branch.inner.l2.configure_spectral_control(
+                experiment
+                    .as_ref()
+                    .is_some_and(|settings| settings.spectral_control),
+            );
+            branch.inner.l2.spectral_gate.configure_ablation(
+                experiment
+                    .as_ref()
+                    .is_some_and(|settings| settings.purity_prior),
+                experiment
+                    .as_ref()
+                    .is_some_and(|settings| settings.reverse_brake),
+                experiment
+                    .as_ref()
+                    .is_some_and(|settings| settings.history_discount),
+            );
             if matches!(scenario, "regime_shift" | "cyclic_shift") {
                 let mut state = branch.inner.l0.decision.snapshot();
                 state.discount_factor = 0.85;
@@ -907,6 +1223,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
             steps_per_episode,
             run_seed,
             scenario,
+            None,
         )?;
         cleanup_benchmark_files(&base_path);
         let treatment_report = run_bandit_task_seeded_scenario(
@@ -915,6 +1232,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
             steps_per_episode,
             run_seed,
             scenario,
+            experiment.clone(),
         )?;
         cleanup_benchmark_files(&treatment_path);
         paired_runs.push(L2PairedRun {
@@ -963,6 +1281,8 @@ pub fn run_l2_benchmark_scenario_with_gate(
         delta_error_decrease_rate: treatment.error_decrease_rate - baseline.error_decrease_rate,
         paired_reward_difference,
         paired_best_arm_difference,
+        paired_reward_bootstrap: bootstrap_difference(&reward_differences, seed ^ 0x4c32),
+        paired_best_arm_bootstrap: bootstrap_difference(&best_arm_differences, seed ^ 0x4241),
         l0_influenced_runs,
         baseline_l2_disabled: baseline,
         treatment_l2_enabled: treatment,
@@ -984,6 +1304,54 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("state.json")
+    }
+
+    #[test]
+    fn score_aggregation_and_json_ignore_hash_map_iteration_order() {
+        let path = test_path("aggregate-order");
+        let mut kernel = Kernel::with_bandit_ucb(&path);
+        kernel.autosave = false;
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = false;
+        let mut left =
+            run_bandit_task_seeded_scenario(&mut kernel, 2, 4, 73, "regime_shift", None).unwrap();
+        let mut right = left.clone();
+        left.final_score_breakdown = HashMap::from_iter([
+            ("a".into(), 1.0e16),
+            ("b".into(), 1.0),
+            ("c".into(), -1.0e16),
+        ]);
+        right.final_score_breakdown = HashMap::from_iter([
+            ("c".into(), -1.0e16),
+            ("b".into(), 1.0),
+            ("a".into(), 1.0e16),
+        ]);
+        assert_eq!(
+            serde_json::to_vec(&left).unwrap(),
+            serde_json::to_vec(&right).unwrap()
+        );
+
+        let mut reverse = right.clone();
+        reverse.seed = left.seed.wrapping_add(1);
+        let forward = aggregate(&[left.clone(), right.clone()]);
+        let backward = aggregate(&[reverse, left]);
+        assert_eq!(
+            forward.mean_final_score_breakdown["a"],
+            backward.mean_final_score_breakdown["a"]
+        );
+        assert_eq!(
+            forward.mean_final_score_breakdown["b"],
+            backward.mean_final_score_breakdown["b"]
+        );
+        assert_eq!(
+            forward.mean_final_score_breakdown["c"],
+            backward.mean_final_score_breakdown["c"]
+        );
+        assert_eq!(
+            serde_json::to_vec(&forward.mean_final_score_breakdown).unwrap(),
+            serde_json::to_vec(&backward.mean_final_score_breakdown).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -1058,6 +1426,106 @@ mod tests {
             assert!(branch.mean_dwell_hold_count >= 0.0);
         }
         assert!(report.treatment_l2_enabled.mean_dwell_hold_count > 0.0);
+    }
+
+    #[test]
+    fn diagnostic_statistics_and_paired_replay_are_deterministic() {
+        let ranks = ranks(&[0.2, 0.1, 0.2, 0.4]);
+        assert_eq!(ranks, vec![2.5, 1.0, 2.5, 4.0]);
+        assert!(pearson(&[1.0, 1.0], &[0.0, 1.0]).is_none());
+        let constant = correlation(&[(0.0, 0.0); 8]);
+        assert_eq!(constant.pearson, None);
+        assert_eq!(constant.spearman, None);
+        let settings = L2ExperimentSettings {
+            spectral_control: true,
+            purity_prior: true,
+            reverse_brake: true,
+            history_discount: true,
+        };
+        let first = run_l2_benchmark_scenario_with_gate(
+            "regime_shift",
+            2,
+            8,
+            8,
+            20261115,
+            0.35,
+            3,
+            3,
+            Some(settings.clone()),
+        )
+        .unwrap();
+        let second = run_l2_benchmark_scenario_with_gate(
+            "regime_shift",
+            2,
+            8,
+            8,
+            20261115,
+            0.35,
+            3,
+            3,
+            Some(settings),
+        )
+        .unwrap();
+        let json = |report: &L2BenchmarkReport| serde_json::to_value(report).unwrap();
+        let first_json = json(&first);
+        let second_json = json(&second);
+        if first_json != second_json {
+            fn first_difference<'a>(
+                path: &str,
+                left: &'a serde_json::Value,
+                right: &'a serde_json::Value,
+            ) -> Option<(String, &'a serde_json::Value, &'a serde_json::Value)> {
+                match (left, right) {
+                    (serde_json::Value::Object(left), serde_json::Value::Object(right)) => {
+                        let mut keys: Vec<_> = left.keys().chain(right.keys()).collect();
+                        keys.sort_unstable();
+                        keys.dedup();
+                        keys.into_iter().find_map(|key| {
+                            first_difference(
+                                &format!("{path}.{key}"),
+                                left.get(key).unwrap_or(&serde_json::Value::Null),
+                                right.get(key).unwrap_or(&serde_json::Value::Null),
+                            )
+                        })
+                    }
+                    (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
+                        (0..left.len().max(right.len())).find_map(|index| {
+                            first_difference(
+                                &format!("{path}[{index}]"),
+                                left.get(index).unwrap_or(&serde_json::Value::Null),
+                                right.get(index).unwrap_or(&serde_json::Value::Null),
+                            )
+                        })
+                    }
+                    _ if left == right => None,
+                    _ => Some((path.to_string(), left, right)),
+                }
+            }
+            panic!(
+                "replay mismatch: {:?}",
+                first_difference("$", &first_json, &second_json)
+            );
+        }
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+        for (left, right) in first.paired_runs.iter().zip(&second.paired_runs) {
+            for (a, b) in [
+                (&left.baseline, &right.baseline),
+                (&left.treatment, &right.treatment),
+            ] {
+                assert_eq!(a.mean_reward, b.mean_reward);
+                assert_eq!(a.best_arm_rate, b.best_arm_rate);
+                assert_eq!(a.action_switches, b.action_switches);
+                assert_eq!(a.patches_accepted, b.patches_accepted);
+                assert_eq!(a.diagnostics, b.diagnostics);
+            }
+        }
+        let run = &first.paired_runs[0].treatment;
+        assert_eq!(run.pipeline.as_ref().unwrap().observations, 64);
+        assert_eq!(run.diagnostics.as_ref().unwrap().len(), 64);
+        assert!(run.signals.as_ref().unwrap().bias_to_next_reward.samples > 0);
     }
 
     #[test]

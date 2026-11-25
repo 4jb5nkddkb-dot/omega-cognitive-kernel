@@ -13,6 +13,13 @@ pub struct SpectralBin {
 pub struct SpectralPatch {
     pub dc_baseline: f64,
     pub high_freq_ratio: f64,
+    pub total_ac: f64,
+    /// AC energy divided by the squared anchor. A zero anchor uses a unit
+    /// denominator, making the configured threshold absolute at the origin.
+    pub normalized_energy: f64,
+    /// AC energy with the original `anchor² + 1e-6` diagnostic denominator.
+    /// Unlike `normalized_energy`, this value is not exactly scale-invariant.
+    pub snr: f64,
     pub filtered_spectrum: Vec<SpectralBin>,
 }
 
@@ -20,6 +27,8 @@ pub struct SpectralPatch {
 pub struct L1SpectralReflector {
     pub window_size: usize,
     pub energy_threshold: f64,
+    /// Relative AC energy threshold used by the anchored, scale-normalized API.
+    pub snr_threshold: f64,
     pub low_freq_cutoff: usize,
 }
 
@@ -28,6 +37,7 @@ impl Default for L1SpectralReflector {
         Self {
             window_size: 16,
             energy_threshold: 1e-3,
+            snr_threshold: 0.01,
             low_freq_cutoff: 2,
         }
     }
@@ -38,13 +48,35 @@ impl L1SpectralReflector {
         Self {
             window_size: window_size.max(2),
             energy_threshold: energy_threshold.max(0.0),
+            snr_threshold: 0.01,
             low_freq_cutoff: low_freq_cutoff.max(1),
         }
     }
 
+    /// Legacy absolute-energy gate. New control loops should provide the
+    /// established DC anchor and use `reflect_and_patch_anchored` instead.
     pub fn reflect_and_patch(&self, l0_rewards: &[f64]) -> Option<SpectralPatch> {
+        self.reflect(l0_rewards, None)
+    }
+
+    /// Return a low-pass patch when AC energy is significant relative to the
+    /// established anchor. Both total AC and the SNR threshold scale quadratically
+    /// with the input, so changing reward units does not change the decision.
+    pub fn reflect_and_patch_anchored(
+        &self,
+        l0_rewards: &[f64],
+        dc_anchor: f64,
+    ) -> Option<SpectralPatch> {
+        self.reflect(l0_rewards, Some(dc_anchor))
+    }
+
+    fn reflect(&self, l0_rewards: &[f64], dc_anchor: Option<f64>) -> Option<SpectralPatch> {
         let n = self.window_size;
-        if n < 2 || l0_rewards.len() < n {
+        if n < 2
+            || l0_rewards.len() < n
+            || !l0_rewards.iter().all(|value| value.is_finite())
+            || dc_anchor.is_some_and(|anchor| !anchor.is_finite())
+        {
             return None;
         }
         let win = &l0_rewards[l0_rewards.len() - n..];
@@ -75,7 +107,15 @@ impl L1SpectralReflector {
             }
         }
 
-        if total_ac <= self.energy_threshold {
+        let anchor = dc_anchor.unwrap_or(dc_baseline);
+        let anchor_power = anchor * anchor;
+        let normalized_energy = total_ac / anchor_power.max(1.0);
+        let snr = total_ac / (anchor_power + 1e-6);
+        let accepted = match dc_anchor {
+            Some(_) => normalized_energy > self.snr_threshold.max(0.0),
+            None => total_ac > self.energy_threshold.max(0.0),
+        };
+        if !accepted || !normalized_energy.is_finite() {
             return None;
         }
 
@@ -94,6 +134,9 @@ impl L1SpectralReflector {
         Some(SpectralPatch {
             dc_baseline,
             high_freq_ratio,
+            total_ac,
+            normalized_energy,
+            snr,
             filtered_spectrum,
         })
     }
@@ -133,5 +176,28 @@ mod tests {
         let restored = L1SpectralReflector::inverse_restore(&patch.filtered_spectrum);
         assert_eq!(restored.len(), 8);
         assert!(restored[7] > restored[0]);
+    }
+
+    #[test]
+    fn anchored_energy_gate_is_scale_invariant() {
+        let reflector = L1SpectralReflector::new(8, 1e-4, 1);
+        let step = [1.0, 1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 1.5];
+        let scaled: Vec<f64> = step.iter().map(|value| value * 100.0).collect();
+        let original = reflector
+            .reflect_and_patch_anchored(&step, 1.0)
+            .expect("normalized step");
+        let large = reflector
+            .reflect_and_patch_anchored(&scaled, 100.0)
+            .expect("scaled normalized step");
+        assert!((original.normalized_energy - large.normalized_energy).abs() < 1e-12);
+        assert_eq!(original.high_freq_ratio, large.high_freq_ratio);
+    }
+
+    #[test]
+    fn invalid_signal_fails_closed() {
+        let reflector = L1SpectralReflector::default();
+        assert!(reflector
+            .reflect_and_patch_anchored(&[f64::NAN; 16], 0.5)
+            .is_none());
     }
 }

@@ -507,11 +507,19 @@ impl ResidentController {
         }
     }
     pub fn beta(&self) -> f64 {
+        self.beta_for(false)
+    }
+
+    /// Return a regularization budget. Legacy controllers apply trust/confidence
+    /// here; the spectral experiment applies them once at the KL boundary.
+    pub fn beta_for(&self, spectral_weighting: bool) -> f64 {
         if self.gate_state == L2GateState::Dormant
             || self.last_selected_expert == KEEP_L0
             || self.retire_requested
         {
             0.0
+        } else if spectral_weighting {
+            self.beta_max.max(0.0)
         } else {
             self.beta_max * self.trust.alpha / self.trust.alpha_max.max(1.0e-9)
                 * self.model_confidence

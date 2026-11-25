@@ -28,6 +28,10 @@ pub trait DecisionMaker {
 
     fn set_l2_policy(&mut self, _policy: crate::types::L2Policy) {}
 
+    /// Discount sufficient statistics after a confirmed regime transition.
+    /// Decision makers without bandit statistics intentionally ignore this.
+    fn discount_bandit_history(&mut self, _factor: f64) {}
+
     fn l2_decision(&self) -> Option<L2DecisionRecord> {
         None
     }
