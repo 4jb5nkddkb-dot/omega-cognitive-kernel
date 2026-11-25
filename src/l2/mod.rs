@@ -59,6 +59,7 @@ pub struct L2Result {
     pub applied_policy: crate::types::L2Policy,
     pub veto_reason: Option<String>,
     pub rejection_reason: Option<String>,
+    pub spectral_output: Option<KernelStepOutput>,
 }
 
 pub struct L2MetaLayer {
@@ -101,6 +102,9 @@ pub struct L2MetaLayer {
     pub last_reward: f64,
     pub consecutive_l1_rollbacks: u32,
     pub current_cycle_recoveries: u32,
+    pub spectral_reflector: crate::l1::spectral::L1SpectralReflector,
+    pub spectral_gate: L2CognitiveGate,
+    pub spectral_history: Vec<f64>,
 }
 
 impl L2MetaLayer {
@@ -137,6 +141,9 @@ impl L2MetaLayer {
             last_reward: 0.5,
             consecutive_l1_rollbacks: 0,
             current_cycle_recoveries: 0,
+            spectral_reflector: crate::l1::spectral::L1SpectralReflector::default(),
+            spectral_gate: L2CognitiveGate::new(SpectralGateConfig::with_window(16)),
+            spectral_history: Vec::new(),
         }
     }
 
@@ -316,6 +323,20 @@ impl L2MetaLayer {
             self.controller.last_selected_expert = KEEP_L0;
             self.controller.certificate.lyapunov_veto = false;
         }
+        self.spectral_history
+            .push(1.0 - state.avg_prediction_error.clamp(0.0, 1.0));
+        if self.spectral_history.len() > 32 {
+            self.spectral_history.remove(0);
+        }
+        let spectral_out = self
+            .spectral_gate
+            .step(&self.spectral_reflector, &self.spectral_history);
+        let mut score_breakdown = score_breakdown;
+        score_breakdown.insert("spectral_bias".to_string(), spectral_out.bias);
+        score_breakdown.insert(
+            "spectral_residual".to_string(),
+            spectral_out.convergence_residual,
+        );
         let mut result = self.result(
             metrics,
             biases,
@@ -334,6 +355,7 @@ impl L2MetaLayer {
         )?;
         result.rejection_reason = rejection_reason.clone();
         self.last_rejection_reason = rejection_reason;
+        result.spectral_output = Some(spectral_out);
         Ok(result)
     }
 
@@ -396,6 +418,7 @@ impl L2MetaLayer {
                 .lyapunov_veto
                 .then(|| "lyapunov_veto".into()),
             rejection_reason: None,
+            spectral_output: None,
         })
     }
 
