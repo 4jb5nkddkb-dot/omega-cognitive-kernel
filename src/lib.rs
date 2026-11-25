@@ -116,6 +116,11 @@ pub use l0::observer::{
 pub use l0::observer::{DirSnapshotObserver, FileObserver, HttpObserver};
 pub use l0::observer::{MultiModalObserver, Observer};
 pub use l0::predictor::{ModelBasedPredictor, Predictor};
+pub use l1::{L1SpectralReflector, SpectralBin, SpectralPatch};
+pub use l2::{
+    CognitiveRealm, KernelStepOutput, L2CognitiveGate, L2Decision, L2State,
+    SpectralGateConfig,
+};
 pub use llm::{LlmBridge, LlmProposal};
 pub use planning::{Plan, PlanStep, ShortHorizonPlanner};
 pub use reactor::{PriorityReactor, ReactorTask};
