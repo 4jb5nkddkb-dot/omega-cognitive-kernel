@@ -335,7 +335,7 @@ impl L2MetaLayer {
         score_breakdown.insert("spectral_bias".to_string(), spectral_out.bias);
         score_breakdown.insert(
             "spectral_residual".to_string(),
-            spectral_out.convergence_residual),
+            spectral_out.convergence_residual,
         );
         let mut result = self.result(
             metrics,
