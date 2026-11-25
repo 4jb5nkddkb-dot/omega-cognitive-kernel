@@ -7,6 +7,12 @@ pub mod fixed_point;
 pub mod meta_cache;
 pub mod modulator;
 pub mod monitor;
+pub mod spectral_gate;
+
+pub use spectral_gate::{
+    CognitiveRealm, KernelStepOutput, L2CognitiveGate, L2Config as SpectralGateConfig,
+    L2Decision, L2State,
+};
 
 use crate::error::Result;
 use crate::types::{MetaMetrics, RuleEffect, SystemState};
