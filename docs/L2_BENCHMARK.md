@@ -4,7 +4,7 @@
 
 `benchmark-l2` compares two `BanditUcbDecisionMaker` kernels on the same seeded non-stationary two-armed bandit task. The only intentional policy difference is L2 enablement. UCB/L1 settings, detector and commit parameters, reward discount, persistence switches, and environment seeds are paired.
 
-The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline.
+The benchmark does **not** claim that one run proves improvement. It aggregates multiple seeds and reports treatment deltas against a baseline. The top-level `paired_runs` array retains both raw `BanditReport` values for each seed, the paired reward/best-arm/error deltas, and `treatment_influenced_l0`. The last flag is true only when an L2 commit, applied policy, or effect nudge occurred; cache hits and proposals alone do not qualify. `l0_influenced_runs` counts these runs. `paired_reward_difference` and `paired_best_arm_difference` report the per-seed mean difference and a 95% Student-t interval (using a normal approximation above 30 degrees of freedom); intervals are `null` with fewer than two runs. These descriptive intervals do not turn non-intervention differences into causal evidence. Use these records to diagnose seed-specific differences before attributing a result to L2.
 
 ## Run
 
@@ -48,7 +48,7 @@ UCB decisions use hysteresis: a seen candidate cannot replace the incumbent befo
 
 The UCB reward is `external_reward - 0.25 * error_delta - rollback_penalty * rollback_count - switch_cost`. The default rollback penalty is `0.35`. An accepted L1 patch that worsens error by more than `0.05` on its next observation restores the previous `RuleEffect`; only that actual restoration counts as an L1 rollback. Rejected/cooldown-skipped patches are not rollbacks. Restoring an effect may improve later error, but the rollback cost is still charged to the arm that caused it. Configure these values in `[bandit]`; zeros and `min_dwell_steps = 0` restore legacy switching/reward behavior.
 
-This is an L2-only ablation under the fixture's paired UCB policy, not a comparison of different decision makers. Positive deltas would support an L2 effect in this fixture; they would not establish external validity or statistical significance. L2 remains disabled by default.
+This is an L2-only ablation under the fixture's paired UCB policy, not a comparison of different decision makers. Positive deltas would support an L2 effect in this fixture; they would not establish external validity or statistical significance. New kernels enable L2 by default; the baseline explicitly disables it for comparison.
 
 The short benchmark fixture lowers both branches' `commit_threshold` to `0.35` (`0.50` for `degraded`) to exercise the controller. The production/default threshold remains `0.82`. This fixture is for mechanism measurement, not a production configuration recommendation.
 
@@ -86,7 +86,8 @@ Each run uses a fresh temporary state path. Persistent benchmark artifacts are r
 - `mean_l1_rollback_count`: actual L1 `RuleEffect` restorations after a harmful accepted patch;
 - `mean_l2_rollback_count`: actual L2 effect restorations, counted separately;
 - `dayan_convergence_rate` / `mean_final_dayan_residual`: internal relaxation convergence, measured as the final residual being at most `0.18`, below its initial value, with at least one decreasing update. This is separate from external optimal-arm recovery. For a frozen target, `r+ = (1 - relaxation)r`; moving targets add their absolute target change, so no global contraction claim is made.
-- `mean_committed_policies_applied`: committed snapshots that actually governed an L0 action, as distinct from proposals or queued commits;
+- `mean_committed_policies_applied`: committed snapshots whose recorded decision changed the original UCB candidate and selected that candidate, as distinct from proposals, queued commits, no-op policies, and safety-blocked execution;
+- `mean_expert_committed` / `mean_expert_applied` / `mean_expert_not_applied`: per-expert commit and actual-action-attribution counts. Only an applied commit receives the action's external reward in `mean_expert_reward`; a rejected or no-op proposal is not credited to its proposed expert. KEEP_L0 retains its actual selection propensity for feedback without becoming an intervention;
 - `mean_dwell_hold_count` / `mean_margin_hold_count`: UCB switch suppressions. `dwell_hold` has priority in the reason field when both gates fail.
 - `mean_lyapunov_vetoes`: proposals rejected by the one-step residual-potential check;
 - `mean_meta_cache_hits`: context-cache lookups, not evidence of improved recovery;
@@ -137,11 +138,9 @@ State schema v5 stores the resident controller, online Dayan state, bounded cach
 
 ## Historical results
 
-The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally not used as current acceptance evidence.
-
 The earlier composite constrained-baseline/UCB-treatment results are not evidence for this controller: they changed the decision maker as well as L2. They are intentionally omitted rather than presented as current acceptance evidence.
 
-## Current paired result (2026-11-23)
+## Historical paired result (2026-11-23)
 
 A release-build run used 20 seeds beginning at `20261115`, with 12 episodes × 12 steps, for `nonstationary`, `regime_shift`, and `cyclic_shift`. All three completed successfully.
 
@@ -151,9 +150,31 @@ A release-build run used 20 seeds beginning at `20261115`, with 12 episodes × 1
 | `regime_shift` | 0.787153 → 0.787153 | 0.877431 → 0.877431 | 0.00 / 0.00 | 12.85 | `null` |
 | `cyclic_shift` | 0.584028 → 0.584028 | 0.526736 → 0.526736 | 0.00 / 0.00 | 10.00 | `null` |
 
-The regime and cyclic runs recovered with the same mean external latency in both branches (29.85 and 6.05 steps respectively). Proposals were vetoed by the Lyapunov gate; there were no executable commits. Cache hits therefore provide **no evidence of warm-start benefit**. The tiny nonstationary reward difference is not accompanied by L0 policy intervention and is not an L2 effectiveness claim. Prediction-error improvement also remains unproven.
+The regime and cyclic runs recovered with the same mean external latency in both branches (29.85 and 6.05 steps respectively). Proposals were vetoed by the Lyapunov gate; there were no executable commits. Cache hits therefore provide **no evidence of warm-start benefit**. The tiny nonstationary reward difference is not accompanied by L0 policy intervention and is not an L2 effectiveness claim. Prediction-error improvement also remains unproven. In the current per-seed report, only seed `20261120` has a nonzero reward delta (`0.01388888888888884`), while all 20 runs have `treatment_influenced_l0 = false`.
 
 Reproduce with the recommended command, replacing `nonstationary` with `regime_shift` and `cyclic_shift` for the other two required runs. Retain the JSON as a CI artifact when publishing trend data. Continue to compare other seed ranges before making broader effectiveness claims or enabling L2 by default.
+
+## Current execution-attribution result (2026-11-25)
+
+After merging `origin/main` at `b642a64`, the upstream L1 spectral reflector, L2 cognitive gate, and telemetry remain wired into the runtime. Their output is added to `spectral_output` and the score breakdown only: it does not set a pending policy, grant an L2 commit, or bypass L0's decision and safety gates. Execution attribution uses the recorded L0 decision rather than treating every valid commit as an executed intervention. A proposed expert receives external reward only when its snapshot actually changed and governed the L0 selection. Otherwise the feedback belongs to KEEP_L0 with the logged selection propensity; the proposal itself remains separate in `l2_proposed_policy`.
+
+A release-build paired run used the CI fixture: `nonstationary`, five seeds `20261115..20261119`, 8 episodes × 8 steps:
+
+```bash
+cargo run --locked --release --bin omega-kernel -- benchmark-l2 \
+  --scenario nonstationary --runs 5 --episodes 8 --steps 8 \
+  --seed 20261115 --json
+```
+
+| Mean reward, off → on | Best-arm rate, off → on | Reward delta | Best-arm delta | Commits / actually applied | Cache hits | Error delta, off → on |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.703125 → 0.703125 | 0.687500 → 0.687500 | 0.000000 | 0.000000 | 2.20 / 0.20 | 6.00 | 0.055699 → 0.058215 |
+
+Only seed `20261118` had an actual L0 intervention; the other four seeds did not. Of 11 total commits, one was actually applied and ten were not. The per-expert means were `[KEEP_L0, STABILIZE, EXPLORE, OBSERVE]`: commits `[0.0, 0.4, 0.2, 1.0]`, actually applied `[0.0, 0.2, 0.0, 0.0]`, and not applied `[0.0, 0.2, 0.2, 1.0]`. Thus the nonzero commit count is not evidence that all proposals executed.
+
+**The mechanism is observable, but no benefit is demonstrated:** both reward and best-arm-rate deltas are zero, and mean error delta is slightly worse with L2. Five seeds are insufficient for an effectiveness or production-default claim. No gate parameters or metrics were tuned to improve this result. Any policy tuning must be a separate experiment with a new paired measurement.
+
+Verification on this synchronized tree: 150 default Rust tests and 151 all-feature Rust tests passed with `cargo nextest`; default/all-target and all-feature/all-target Clippy passed with warnings denied; formatting passed. Python 3.13.18 passed all 11 installed-extension tests using a local `maturin --compatibility off` wheel. That local wheel is **not** manylinux2014 certification: the host build's glibc symbols were too new, so the manylinux2014 compliance check failed and remains for the containerized CI workflow.
 
 ## CI / regression use
 

@@ -71,8 +71,8 @@ pub struct L2MetaLayer {
     /// The monitor still runs when disabled so benchmark baselines retain
     /// comparable observability without receiving L2 interventions.
     ///
-    /// Default is **false**. Enable explicitly with `Kernel::set_l2_enabled(true)`
-    /// only after reproducible benchmarks show a positive gain over the disabled baseline.
+    /// New kernels enable bounded interventions by default. Use
+    /// `Kernel::set_l2_enabled(false)` for an observational baseline.
     pub enabled: bool,
     pub in_fixed_point: bool,
     /// How many consecutive steps we have been inside the fixed point.

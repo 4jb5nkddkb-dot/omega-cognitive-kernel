@@ -39,7 +39,7 @@ python3 -B hooks/cline/auto_commit.py --enable
 python3 -B hooks/cline/auto_commit.py --disable
 ```
 
-The configuration is local-only `.omega/auto-commit.json`. Before committing, the automation rejects unreviewed untracked paths outside project source/test/docs/script/hook/workflow directories, then runs `cargo fmt`, Clippy, `cargo test --locked`, and skill validation. Any failure skips the commit and push. The hook never cancels the completed Cline task; inspect stderr for a skipped run. It uses a generic message derived from the previous commit, so use a manual commit for selective staging or a curated commit message.
+The configuration is local-only `.omega/auto-commit.json`. Before committing, the automation rejects unreviewed untracked paths outside project source/test/docs/script/hook/workflow directories, then runs `cargo fmt`, Clippy, `cargo test --locked`, and skill validation. Any failure skips the commit and push. The hook never cancels the completed Cline task; inspect stderr for a skipped run. It uses the fixed subject `chore: verify completed task changes`, without recursively incorporating the previous subject. Pass `--message 'type(scope): concise subject'` when running the script manually to provide a curated message. Use a manual commit for selective staging or a review of exactly which files will be included.
 
 ## Test
 

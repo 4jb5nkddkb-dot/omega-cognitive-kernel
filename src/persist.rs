@@ -181,7 +181,7 @@ impl Default for KernelSnapshot {
             strategies: HashMap::new(),
             active_modules: HashMap::new(),
             patch_history: Vec::new(),
-            l2_enabled: false,
+            l2_enabled: true,
             l2_in_fixed_point: false,
             l2_dwell_steps: 0,
             l2_last_alignment_score: 0.0,
@@ -339,6 +339,13 @@ mod tests {
     use std::env::temp_dir;
 
     #[test]
+    fn new_snapshots_enable_l2_but_not_l1_self_modification() {
+        let snapshot = KernelSnapshot::default();
+        assert!(snapshot.l2_enabled);
+        assert!(!snapshot.self_modify_enabled);
+    }
+
+    #[test]
     fn roundtrip_snapshot_file() {
         let path = temp_dir().join(format!("omega-s2-{}.json", crate::new_uuid()));
         let snap = KernelSnapshot {
@@ -397,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_one_to_two() {
+    fn migrates_version_one_to_current() {
         // A v1 snapshot lacks the v2 safety fields entirely; they must default.
         let path = temp_dir().join(format!("omega-v1-{}.json", crate::new_uuid()));
         let raw = r#"{
@@ -501,6 +508,58 @@ mod tests {
         assert!(!loaded.self_modify_enabled);
         assert!(loaded.l2_rollback_effect.is_none());
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrates_v3_and_v4_without_inventing_l2_permission() {
+        for version in [3, 4] {
+            let mut value = serde_json::to_value(KernelSnapshot::default()).unwrap();
+            value["version"] = serde_json::json!(version);
+            value["l2_enabled"] = serde_json::json!(false);
+            value["l2_controller"]["gate_state"] = serde_json::json!("ACTIVE");
+            value["l2_controller"]["trust"]["alpha"] = serde_json::json!(0.9);
+            value["l2_pending_policy"]["committed"] = serde_json::json!(true);
+            value["l2_applied_policy"]["committed"] = serde_json::json!(true);
+
+            let migrated = KernelSnapshot::from_json(&value.to_string()).unwrap();
+            assert_eq!(migrated.version, CURRENT_SCHEMA_VERSION);
+            assert!(!migrated.l2_enabled);
+            assert_eq!(
+                migrated.l2_controller.gate_state,
+                crate::l2::control::L2GateState::Dormant
+            );
+            assert_eq!(migrated.l2_controller.trust.alpha, 0.0);
+            assert!(!migrated.l2_pending_policy.committed);
+            assert!(!migrated.l2_applied_policy.committed);
+        }
+    }
+
+    #[test]
+    fn legacy_decision_cannot_claim_an_l2_intervention() {
+        let mut value = serde_json::to_value(crate::types::L2DecisionRecord {
+            selected_arm: 0,
+            selected_bias: "stabilize".into(),
+            candidate_arm: 1,
+            mean_reward: 0.5,
+            exploration_bonus: 0.1,
+            ucb_score: Some(0.5),
+            candidate_ucb_score: Some(0.6),
+            current_ucb_score: Some(0.5),
+            reason: crate::types::L2DecisionReason::DwellHold,
+            dwell_steps: 2,
+            dwell_suppressed: true,
+            margin_suppressed: false,
+            l2_policy_applied: true,
+            switched: false,
+            safety_override: false,
+            adjusted_reward: None,
+            rollback_count: 0,
+            switch_cost_applied: 0.0,
+        })
+        .unwrap();
+        value.as_object_mut().unwrap().remove("l2_policy_applied");
+        let record: crate::types::L2DecisionRecord = serde_json::from_value(value).unwrap();
+        assert!(!record.l2_policy_applied);
     }
 
     #[test]

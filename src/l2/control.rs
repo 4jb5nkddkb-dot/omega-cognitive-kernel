@@ -337,6 +337,8 @@ impl ResidentController {
     /// Consume exactly one outcome for the policy that acted before this call.
     /// `executed_expert = KEEP_L0` means no intervention was applied and the
     /// reward update uses L0's own selection propensity (IPS still works).
+    /// The policy remains noncommitted; its probabilities describe the actual
+    /// selection rather than granting a new intervention.
     pub fn observe(&mut self, feedback: ControlFeedback, policy: crate::types::L2Policy) {
         if self.feedback_settled {
             return;
@@ -406,9 +408,9 @@ impl ResidentController {
             .sum::<f64>()
             / libm::log(2.0);
         self.entropy_sum += entropy;
+        let probabilities = policy.expert_probabilities;
         let policy = policy.effective();
         let expert = policy.expert;
-        let probabilities = policy.expert_probabilities;
         self.experts
             .update_ips(expert, probabilities, feedback.reward);
 
@@ -692,6 +694,29 @@ mod tests {
         assert_eq!(controller.gate_state, L2GateState::Dormant);
         assert!(!controller.retire_requested);
         assert_eq!(controller.trust.alpha, 0.0);
+    }
+
+    #[test]
+    fn keep_l0_feedback_uses_actual_selection_propensity() {
+        let mut controller = ResidentController::default();
+        let probabilities = [0.4, 0.3, 0.2, 0.1];
+        controller.experts.last_probabilities = probabilities;
+        let before = controller.experts.cumulative_reward;
+        controller.observe(
+            ControlFeedback {
+                error: 0.2,
+                reward: 0.5,
+                rollback: false,
+                consequence: 0.0,
+                kl_policy: [1.0, 0.0],
+            },
+            L2Policy {
+                expert_probabilities: probabilities,
+                ..L2Policy::default()
+            },
+        );
+        assert!((controller.experts.cumulative_reward[0] - before[0] - 0.5 / 0.4).abs() < 1e-10);
+        assert_eq!(controller.experts.last_probabilities, probabilities);
     }
 
     #[test]

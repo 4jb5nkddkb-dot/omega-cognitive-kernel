@@ -17,10 +17,14 @@ fn main() -> Result<()> {
     let state = match arg {
         Some(p) => PathBuf::from(p),
         None => {
-            let path = env::temp_dir().join(format!(
-                "omega-audit-panel-{}.json",
+            let dir = env::temp_dir().join(format!(
+                "omega-audit-panel-{}-{}",
+                std::process::id(),
                 omega_cognitive_kernel::new_uuid()
             ));
+            std::fs::create_dir_all(&dir)
+                .map_err(|error| omega_cognitive_kernel::OmegaError::Persist(error.to_string()))?;
+            let path = dir.join("state.json");
             let mut k = Kernel::with_state_path(&path);
             k.autosave = true;
             k.auto_checkpoint_on_patch = true;
@@ -89,10 +93,13 @@ mod tests {
     #[test]
     fn audit_panel_summarizes_demo_state() {
         // Create a temporary state file with some demo data
-        let path = temp_dir().join(format!(
-            "omega-audit-test-{}.json",
+        let dir = temp_dir().join(format!(
+            "omega-audit-test-{}-{}",
+            std::process::id(),
             omega_cognitive_kernel::new_uuid()
         ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
 
         // Create kernel and run some steps
         let mut k = Kernel::with_state_path(&path);
@@ -115,8 +122,7 @@ mod tests {
         assert!(!status.self_modify_enabled);
         assert!(status.strategy_count > 0);
 
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -124,7 +130,8 @@ mod tests {
         // Use a unique temp subdirectory to avoid interference from other tests
         // that might create audit logs in the same temp directory.
         let unique_dir = temp_dir().join(format!(
-            "omega-audit-test-{}",
+            "omega-audit-test-{}-{}",
+            std::process::id(),
             omega_cognitive_kernel::new_uuid()
         ));
         std::fs::create_dir_all(&unique_dir).unwrap();

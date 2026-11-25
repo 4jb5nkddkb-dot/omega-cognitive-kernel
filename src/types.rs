@@ -97,6 +97,11 @@ pub struct L2DecisionRecord {
     pub dwell_steps: u64,
     pub dwell_suppressed: bool,
     pub margin_suppressed: bool,
+    /// The committed L2 policy changed the original UCB candidate and its
+    /// candidate was the action actually selected. Missing legacy records
+    /// cannot claim a policy intervention.
+    #[serde(default)]
+    pub l2_policy_applied: bool,
     pub switched: bool,
     pub safety_override: bool,
     pub adjusted_reward: Option<f64>,

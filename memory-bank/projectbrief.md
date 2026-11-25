@@ -25,7 +25,7 @@ Kernel::step(goal)
 
 L1 is the discrete patch channel and is disabled by default through `self_modify_enabled = false`. L1 must distill a trajectory, reflect a candidate patch, sanitize its `RuleEffect`, validate it through `CodeSandbox`, and only then update the active effect and versioned store. A cooldown counter limits immediate repatching.
 
-L2 is independent and disabled by default. It monitors metrics even when disabled, and may change biases, constraints, and the current `RuleEffect` only when explicitly enabled and fixed-point/alignment scoring clears the commit threshold and cooldown/defensive checks. Negative consequence feedback can restore the saved pre-commit effect.
+L2 is independent and enabled by default for new kernels. It monitors metrics even when disabled, and may change biases, constraints, and the current `RuleEffect` only while enabled and fixed-point/alignment scoring clears the commit threshold and cooldown/defensive checks. Negative consequence feedback can restore the saved pre-commit effect. Legacy snapshots without an explicit L2 permission remain disabled after migration.
 
 ## Repository structure
 
@@ -35,4 +35,4 @@ The repository also includes Python bindings under `bindings/python`, examples u
 
 ## Baseline captured from source
 
-The working tree was clean before Memory Bank generation. The source package declares version `0.6.0`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `2`; the default state path is `.omega/state.json`.
+The working tree was clean before Memory Bank generation. The source package declares version `0.6.0`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `5`; the default state path is `.omega/state.json`.

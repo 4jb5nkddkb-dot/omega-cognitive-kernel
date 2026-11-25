@@ -97,10 +97,13 @@ def reject_unreviewed_untracked(project: Path) -> None:
         raise RuntimeError("auto-commit: untracked paths require review: " + ", ".join(rejected))
 
 
-def commit_and_push(project: Path) -> str:
+def commit_and_push(project: Path, subject: str | None = None) -> str:
     paths = changed_paths(project)
     if not paths or paths == [str(CONFIG)]:
         return "auto-commit: no changes"
+    message = subject or "chore: verify completed task changes"
+    if not message.strip():
+        raise RuntimeError("auto-commit: --message must not be empty")
     reject_unreviewed_untracked(project)
 
     run(project, ["cargo", "fmt", "--all"])
@@ -117,8 +120,6 @@ def commit_and_push(project: Path) -> str:
         run(project, ["git", "add", "--"] + untracked)
     if run(project, ["git", "diff", "--cached", "--quiet"], check=False).returncode == 0:
         return "auto-commit: no changes after formatting"
-    subject = run(project, ["git", "log", "-1", "--format=%s"]).stdout.strip()
-    message = f"chore: verified task changes after {subject}" if subject else "chore: verified task changes"
     run(project, ["git", "commit", "-m", message])
     pushed = False
     if enabled(project)[1]:
@@ -135,6 +136,10 @@ def main() -> int:
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--enable", action="store_true")
     parser.add_argument("--disable", action="store_true")
+    parser.add_argument(
+        "--message",
+        help="Concise Conventional Commit subject; never derived from the previous commit",
+    )
     args = parser.parse_args()
     project = args.project.resolve()
     try:
@@ -144,7 +149,7 @@ def main() -> int:
             return 0
         if not enabled(project)[0]:
             return 0
-        print(commit_and_push(project), file=sys.stderr)
+        print(commit_and_push(project, args.message), file=sys.stderr)
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
         # A lifecycle hook must not cancel the completed Cline task.
         print(f"auto-commit: skipped: {exc}", file=sys.stderr)

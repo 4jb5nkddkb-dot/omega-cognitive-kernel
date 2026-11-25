@@ -950,8 +950,10 @@ where
         self.inner
             .l0
             .decision
-            .set_l2_policy(self.inner.l2.pending_policy);
+            .set_l2_policy(crate::types::L2Policy::default());
         self.inner.l0.decision.set_bandit_config(snap.bandit_config);
+        // A snapshot's pending policy still needs its explicit execution handoff
+        // in `run_once`; restoring it directly here would bypass that audit step.
         if let Some(decision) = snap.last_l2_decision {
             self.inner.l0.decision.restore_l2_decision(decision);
         }
@@ -1284,7 +1286,12 @@ mod tests {
         let mut restored = Kernel::with_bandit_ucb(&kernel.state_path);
         restored.apply_snapshot(kernel.snapshot());
         assert_eq!(restored.inner.l2.pending_policy, policy);
-        assert_eq!(restored.inner.l0.decision.snapshot().l2_policy, policy);
+        // The pending policy survives the snapshot; L0 receives it at the next
+        // cycle boundary, rather than silently executing during restoration.
+        assert_eq!(
+            restored.inner.l0.decision.snapshot().l2_policy,
+            crate::types::L2Policy::default()
+        );
         assert!(!restored.inner.l2.controller.feedback_settled);
         assert!(!restored.inner.l2.controller.retire_requested);
 
@@ -1534,6 +1541,7 @@ mod tests {
         let mut kernel = Kernel::with_bandit_ucb(&path);
         kernel.autosave = false;
         kernel.auto_checkpoint_on_patch = false;
+        kernel.dump_trajectory = true;
         kernel.inner.l0.decision.observe_with_feedback(
             0,
             1.0,
@@ -1555,13 +1563,23 @@ mod tests {
         );
         assert!(restarted.status().last_l2_decision.is_some());
         let replay = restarted.replay_trajectory(1).unwrap();
-        let replayed = replay.tail[0].l2_decision.as_ref().expect("replay UCB");
+        let raw = std::fs::read_to_string(path.with_file_name("trajectory.jsonl")).unwrap();
+        assert!(!raw.is_empty(), "trajectory was not written: {raw}");
+        let replayed = replay.tail[0]
+            .l2_decision
+            .as_ref()
+            .unwrap_or_else(|| panic!("replay UCB missing: {raw}"));
         assert_eq!(replayed.selected_arm, 1);
         assert_eq!(replayed.reason, crate::types::L2DecisionReason::Switched);
         assert_eq!(
-            replay.tail[0].l2_applied_policy,
-            crate::types::L2Policy::default()
+            replay.tail[0].l2_applied_policy.expert,
+            crate::l2::control::KEEP_L0
         );
+        assert!(replay.tail[0]
+            .l2_applied_policy
+            .expert_probabilities
+            .iter()
+            .all(|p| *p > 0.0));
         assert!(replay.tail[0].l2_dayan_residual.is_finite());
         let _ = std::fs::remove_dir_all(dir);
     }

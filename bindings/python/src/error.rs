@@ -26,6 +26,9 @@ impl From<PythonBindingError> for PyErr {
             PythonBindingError::Serde(_)
             | PythonBindingError::InvalidArgument(_)
             | PythonBindingError::SnapshotJson(_) => PyValueError::new_err(err.to_string()),
+            PythonBindingError::Kernel(omega_cognitive_kernel::OmegaError::Persist(_)) => {
+                PyValueError::new_err(err.to_string())
+            }
             _ => PyRuntimeError::new_err(err.to_string()),
         }
     }

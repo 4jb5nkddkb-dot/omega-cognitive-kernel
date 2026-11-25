@@ -54,6 +54,7 @@ impl Default for BanditUcbSnapshot {
 pub struct BanditUcbDecisionMaker {
     state: BanditUcbSnapshot,
     exploration: f64,
+    last_kl_policy: [f64; 2],
 }
 
 impl Default for BanditUcbDecisionMaker {
@@ -61,6 +62,7 @@ impl Default for BanditUcbDecisionMaker {
         Self {
             state: BanditUcbSnapshot::default(),
             exploration: core::f64::consts::SQRT_2,
+            last_kl_policy: [1.0, 0.0],
         }
     }
 }
@@ -78,9 +80,8 @@ impl BanditUcbDecisionMaker {
     }
 
     pub fn restore(&mut self, snapshot: BanditUcbSnapshot) {
-        let policy = self.state.l2_policy.effective();
         self.state = snapshot;
-        self.state.l2_policy = policy;
+        self.last_kl_policy = self.kl_policy();
     }
 
     pub fn mean_reward(&self, arm: usize) -> Option<f64> {
@@ -156,6 +157,7 @@ impl BanditUcbDecisionMaker {
                 dwell_steps: self.state.dwell_steps,
                 dwell_suppressed: false,
                 margin_suppressed: false,
+                l2_policy_applied: false,
                 switched: false,
                 safety_override: false,
                 adjusted_reward: Some(adjusted),
@@ -181,19 +183,6 @@ impl BanditUcbDecisionMaker {
     fn record_ucb(&self, arm: usize) -> Option<f64> {
         let score = self.ucb(arm);
         score.is_finite().then_some(score)
-    }
-
-    fn candidate(&self) -> usize {
-        // Revalidate the immutable snapshot at the final injection boundary.
-        // Neither a stale restore nor a diagnostic gate/beta value can leak.
-        let policy = self.state.l2_policy.effective();
-        if !policy.committed {
-            return if self.ucb(1) > self.ucb(0) { 1 } else { 0 };
-        }
-        let distribution = self.kl_policy();
-        // Execute the deterministic maximizer; retain the full distribution
-        // for replay and action-entropy fingerprints.
-        usize::from(distribution[1] > distribution[0])
     }
 
     /// Exact solution of E[R] - beta KL(pi || prior) for a validated commit.
@@ -248,7 +237,15 @@ impl BanditUcbDecisionMaker {
     }
 
     fn decide_arm(&mut self) -> L2DecisionRecord {
-        let candidate = self.candidate();
+        let policy = self.state.l2_policy.effective();
+        let baseline_candidate = if self.ucb(1) > self.ucb(0) { 1 } else { 0 };
+        let kl_policy = self.kl_policy();
+        self.last_kl_policy = kl_policy;
+        let candidate = if policy.committed {
+            usize::from(kl_policy[1] > kl_policy[0])
+        } else {
+            baseline_candidate
+        };
         let incumbent = self.state.current_arm;
         let previous_dwell = self.state.dwell_steps;
         let mut selected = incumbent.unwrap_or(candidate);
@@ -266,12 +263,23 @@ impl BanditUcbDecisionMaker {
         let mut dwell_suppressed = false;
         let mut margin_suppressed = false;
         let safety_override = self.state.safety_override;
+        // A committed EXPLORE policy gets one candidate evaluation without
+        // L0's anti-oscillation holds. Safety always takes precedence, and the
+        // policy is consumed after this decision so it cannot act repeatedly.
+        let explore_probe = !safety_override && policy.committed && policy.expert == 2;
+        if incumbent.is_some() && explore_probe {
+            reason = L2DecisionReason::Explore;
+        }
 
         if safety_override && selected != 0 {
             selected = 0;
             reason = L2DecisionReason::SafetyOverride;
         } else if let Some(current) = incumbent {
-            if candidate != current && !safety_override && self.state.counts[candidate] > 0 {
+            if candidate != current
+                && !safety_override
+                && !explore_probe
+                && self.state.counts[candidate] > 0
+            {
                 if previous_dwell < self.state.config.min_dwell_steps {
                     dwell_suppressed = true;
                 }
@@ -299,6 +307,11 @@ impl BanditUcbDecisionMaker {
         };
         self.state.current_arm = Some(selected);
         self.state.safety_override = false;
+        let l2_policy_applied = policy.committed
+            && !safety_override
+            && candidate != baseline_candidate
+            && selected == candidate;
+        self.state.l2_policy = crate::types::L2Policy::default();
         let record = L2DecisionRecord {
             selected_arm: selected,
             selected_bias: if selected == 1 {
@@ -317,6 +330,7 @@ impl BanditUcbDecisionMaker {
             dwell_steps: self.state.dwell_steps,
             dwell_suppressed,
             margin_suppressed,
+            l2_policy_applied,
             switched,
             safety_override,
             adjusted_reward: None,
@@ -358,9 +372,8 @@ impl DecisionMaker for BanditUcbDecisionMaker {
                 .map_err(|e| crate::error::OmegaError::Memory(e.to_string()))?,
         );
         params.insert("rule_effect".into(), effect);
-        let applied = self.state.l2_policy.effective();
-        params.insert("kl_policy".into(), serde_json::json!(self.kl_policy()));
-        params.insert("l2_policy".into(), serde_json::json!(applied));
+        params.insert("kl_policy".into(), serde_json::json!(self.last_kl_policy));
+        params.insert("l2_policy".into(), serde_json::json!(self.state.l2_policy));
         Ok(vec![Action {
             name,
             params,
@@ -491,10 +504,29 @@ mod tests {
         assert!(dm.kl_policy()[1] > 0.5);
         let record = decision(&mut dm);
         assert_eq!(record.candidate_arm, 1);
-        // KL guidance cannot bypass L0's independent switch-margin gate.
-        assert_eq!(record.selected_arm, 0);
-        assert!(record.margin_suppressed);
-        assert_eq!(record.reason, L2DecisionReason::MarginHold);
+        assert_eq!(record.selected_arm, 1);
+        assert!(!record.margin_suppressed);
+        assert!(!record.dwell_suppressed);
+        assert_eq!(record.reason, L2DecisionReason::Explore);
+        assert!(record.l2_policy_applied);
+        assert!(!dm.snapshot().l2_policy.committed);
+        dm.set_bandit_config(BanditConfig {
+            switch_margin: 0.75,
+            ..dm.config().clone()
+        });
+        // Exploration is a one-step probe, not a persistent override.
+        dm.observe(1, 0.2);
+        dm.restore(BanditUcbSnapshot {
+            means: [0.0, 0.5],
+            counts: [32, 128],
+            total: 9,
+            current_arm: Some(0),
+            dwell_steps: 2,
+            ..dm.snapshot()
+        });
+        let next = decision(&mut dm);
+        assert_eq!(next.reason, L2DecisionReason::DwellHold);
+        assert!(!next.l2_policy_applied);
     }
 
     #[test]
@@ -594,6 +626,65 @@ mod tests {
         }
         assert_eq!(decision(&mut penalized).selected_arm, 1);
         assert_eq!(decision(&mut normal).selected_arm, 0);
+    }
+
+    #[test]
+    fn consumed_policy_does_not_reappear_after_snapshot_restore() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            means: [0.8, 0.2],
+            counts: [32, 32],
+            total: 256,
+            current_arm: Some(0),
+            dwell_steps: 5,
+            ..dm.snapshot()
+        });
+        dm.set_l2_policy(crate::types::L2Policy {
+            prior: [0.01, 0.99],
+            beta: 0.5,
+            alpha: 0.1,
+            committed: true,
+            expert: 2,
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence: 0.9,
+            expert_probabilities: [0.05, 0.05, 0.85, 0.05],
+        });
+        assert!(decision(&mut dm).l2_policy_applied);
+        let mut restored = dm.clone();
+        restored.restore(dm.snapshot());
+        assert!(!restored.snapshot().l2_policy.committed);
+        assert!(!decision(&mut restored).l2_policy_applied);
+    }
+
+    #[test]
+    fn stabilize_commit_still_obeys_l0_hysteresis() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            means: [0.8, 0.2],
+            counts: [32, 128],
+            total: 9,
+            current_arm: Some(0),
+            dwell_steps: 5,
+            ..dm.snapshot()
+        });
+        dm.set_l2_policy(crate::types::L2Policy {
+            prior: [0.1, 0.9],
+            beta: 0.5,
+            alpha: 0.1,
+            committed: true,
+            expert: 1,
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence: 0.9,
+            expert_probabilities: [0.05, 0.85, 0.05, 0.05],
+        });
+        let record = decision(&mut dm);
+        assert_eq!(record.candidate_arm, 0);
+        assert_eq!(record.selected_arm, 0);
+        assert!(!record.margin_suppressed);
+        assert!(!record.dwell_suppressed);
+        // STABILIZE changes the incumbent prior, but this is not an action
+        // intervention: its maximizer is identical to the original UCB arm.
+        assert!(!record.l2_policy_applied);
     }
 
     #[test]

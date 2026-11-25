@@ -1,7 +1,7 @@
 # API notes — 0.6.x
 
 **Source baseline:** `0.6.0`
-**On-disk state schema:** `2`
+**On-disk state schema:** `5`
 **API status:** the 0.6 surface is implemented in the current source tree. L1/L2 heuristics and the exact trajectory payload remain experimental.
 
 This document describes the public Rust API, persisted state, audit/event stream, and compatibility expectations. It complements [`INTEGRATING.md`](INTEGRATING.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
@@ -44,35 +44,34 @@ The runtime has two intentionally independent mutation channels:
 | Channel | Public control | Default | Effect |
 |---|---|---:|---|
 | L1 discrete patch | `self_modify_enabled` / `KernelConfig.self_modify_enabled` | `false` | Allows a validated `CognitivePatch` to install a new `RuleEffect` and active-module version |
-| L2 continuous modulation | `set_l2_enabled(bool)` | `false` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
+| L2 continuous modulation | `set_l2_enabled(bool)` | `true` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
 
-`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, keep both gates disabled (the default). Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
+`self_modify_enabled = false` does not disable L2. To freeze all policy mutation, disable both gates explicitly. Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
 
 L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed.
 
-## Schema v2 and migration
+## Schema v5 and migration
 
-`CURRENT_SCHEMA_VERSION` is `2`. `KernelSnapshot` persists the following groups of state:
+`CURRENT_SCHEMA_VERSION` is `5`. `KernelSnapshot` persists the following groups of state:
 
 - `total_steps`, `biases`, `constraints`, CAS totals/error/adaptation score.
 - The active `RuleEffect`.
 - Case memory, case capacity, strategy memory, active modules, and patch history.
 - L2 enablement, fixed-point/dwell/alignment state, commit threshold/cooldown, consequence and defensive state, detector history/configuration, and negative-reward tracking.
-- L1 `self_modify_enabled` and `steps_since_last_patch`.
+- L1 `self_modify_enabled`, `steps_since_last_patch`, and pending rollback state.
 - Optional `l2_rollback_effect`, the pre-commit effect used for negative-feedback rollback.
+- UCB decision state/configuration, the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots.
 
 Loading accepts older snapshots and calls `KernelSnapshot::migrate`:
 
 ```text
-v0 or missing version -> v1 -> v2
-v1 -> v2 with safe defaults
-v2 -> current state
-newer than v2 -> error
+v0 or missing version -> v1 -> v2 -> v3 -> v4 -> v5
+newer than v5 -> error
 ```
 
-For the v1-to-v2 transition, missing safety fields default to the safe behavior: L1 disabled, a warm patch cooldown, and no saved L2 rollback effect. A future schema bump must add an explicit migration path and regression tests before release.
+Missing legacy safety fields default to L1/L2 disabled, a warm patch cooldown, no saved rollback effect, and dormant `KEEP_L0` policies. When L2 is disabled, migration clears restored pending/applied interventions rather than granting permission from serialized controller state. A future schema bump must add an explicit migration path and regression tests before release.
 
-State saves create the parent directory, serialize version `2`, write a same-directory temporary file, call `sync_all`, and atomically rename it over the target. Failed replacement removes the temporary file and preserves the previous target where the operating system permits it.
+State saves create the parent directory, serialize version `5`, write a same-directory temporary file, call `sync_all`, and atomically rename it over the target. Failed replacement removes the temporary file and preserves the previous target where the operating system permits it.
 
 ## L2 API and consequence feedback
 
@@ -134,7 +133,19 @@ l2_enabled
 l2_commit_cooldown
 last_l2_consequence_score
 l2_defensive_mode
-l2_negative_consequence_streak
+last_l2_decision
+l2_gate_state
+l2_alpha
+l2_expert_weights
+l2_beta
+l2_lyapunov_potential
+l2_lyapunov_veto
+l2_meta_cache_hit
+l2_dayan_residual
+l2_applied_policy
+l2_pending_policy
+l2_meta_cache_entries
+l2_last_rejection_reason
 ```
 
 Consumers should use named JSON fields and tolerate additive fields in future versions.
@@ -165,7 +176,7 @@ Kernel::set_event_hook(FnMut(&AuditEvent) + Send + 'static)
 Kernel::clear_event_hook()
 ```
 
-A hook fires only after the related audit record has been appended successfully. `AuditLog::byte_len()` returns a cursor position and `AuditLog::poll_after(offset)` returns complete records plus the next cursor. An incomplete trailing JSONL line is held for a later poll; if the file was truncated or rotated, polling resynchronizes from offset zero.
+A hook fires only after the related audit record has been appended successfully. `AuditLog::byte_len()` returns a cursor position and `AuditLog::poll_after(offset)` returns complete records plus the next cursor. An incomplete trailing JSONL line is held for a later poll; if the file was truncated or rotated, polling resynchronizes from offset zero. A malformed complete record returns an error with its path, line, and byte offset instead of being silently dropped. The line number is relative to the requested polling slice; the byte offset is absolute.
 
 The `Kernel::step` event ordering is intentionally observable:
 
@@ -179,7 +190,7 @@ Step
   -> autosave, if enabled
 ```
 
-Audit append, trajectory write, and autosave errors are returned to the caller. A failed optional pre-patch checkpoint does not suppress the primary `PatchAccepted` event; if its own audit append fails, that failure is returned.
+Audit append, trajectory write, and autosave errors are returned to the caller. A failed optional pre-patch checkpoint does not suppress the primary `PatchAccepted` event; if its own audit append fails, that failure is returned. External execution precedes these writes, so a returned error does not roll back an action already performed by an executor. Integrators must define adapter-specific timeout, idempotency, and recovery behavior.
 
 ## Offline trajectory replay
 
