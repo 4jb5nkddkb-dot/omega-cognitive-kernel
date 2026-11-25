@@ -959,7 +959,7 @@ fn pearson(x: &[f64], y: &[f64]) -> Option<f64> {
         .sum::<f64>();
     let sx = x.iter().map(|a| (a - mx).powi(2)).sum::<f64>().sqrt();
     let sy = y.iter().map(|b| (b - my).powi(2)).sum::<f64>().sqrt();
-    (sx > 0.0 && sy > 0.0).then(|| numerator / (sx * sy))
+    (sx > 0.0 && sy > 0.0).then_some(numerator / (sx * sy))
 }
 
 fn ranks(values: &[f64]) -> Vec<f64> {
