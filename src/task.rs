@@ -11,6 +11,14 @@ use hashbrown::HashMap;
 use serde::Serialize;
 use std::env::temp_dir;
 
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct L2ExpertMetrics {
+    pub committed: u64,
+    pub applied: u64,
+    pub not_applied: u64,
+    pub reward_sum: f64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BanditReport {
     pub scenario: String,
@@ -56,6 +64,7 @@ pub struct BanditReport {
     pub margin_hold_count: u64,
     pub active_steps: u64,
     pub committed_policies_applied: u64,
+    pub expert_metrics: [L2ExpertMetrics; 4],
     pub lyapunov_vetoes: u64,
     pub meta_cache_hits: u64,
     pub recovery_latencies: Vec<u32>,
@@ -96,6 +105,10 @@ pub struct L2BenchmarkAggregate {
     pub mean_margin_hold_count: f64,
     pub mean_active_steps: f64,
     pub mean_committed_policies_applied: f64,
+    pub mean_expert_committed: [f64; 4],
+    pub mean_expert_applied: [f64; 4],
+    pub mean_expert_not_applied: [f64; 4],
+    pub mean_expert_reward: [Option<f64>; 4],
     pub mean_lyapunov_vetoes: f64,
     pub mean_meta_cache_hits: f64,
     pub recovery_event_rate: f64,
@@ -207,7 +220,7 @@ where
     let mut post_commit_arm_changes = 0usize;
     let mut distinct_actions = std::collections::HashSet::new();
     let mut previous_action: Option<String> = None;
-    let mut pending_commit: Option<(String, usize)> = None;
+    let mut pending_proposal: Option<(usize, String, usize)> = None;
     let mut max_fixed_point_dwell = 0u64;
     let mut consequence_sum = 0.0;
     let mut early_err = None;
@@ -221,6 +234,8 @@ where
     let mut margin_hold_count = 0;
     let mut active_steps = 0;
     let mut committed_policies_applied = 0;
+    let mut expert_metrics: [L2ExpertMetrics; 4] =
+        core::array::from_fn(|_| L2ExpertMetrics::default());
     let mut lyapunov_vetoes = 0;
     let mut meta_cache_hits = 0;
     let mut recovery_latencies = Vec::new();
@@ -332,8 +347,13 @@ where
             );
             initial_dayan_residual.get_or_insert(r.l2.dayan_residual);
             previous_dayan_residual = Some(r.l2.dayan_residual);
+            let l2_policy_applied =
+                r.l2.decision
+                    .as_ref()
+                    .map(|decision| decision.l2_policy_applied)
+                    .unwrap_or(applied.committed);
             active_steps += u64::from(r.l2.gate_state == crate::l2::control::L2GateState::Active);
-            committed_policies_applied += u64::from(applied.committed);
+            committed_policies_applied += u64::from(l2_policy_applied);
             lyapunov_vetoes += u64::from(r.l2.lyapunov_veto);
             meta_cache_hits += u64::from(r.l2.meta_cache_hit);
             if let Some(decision) = &r.l2.decision {
@@ -358,16 +378,19 @@ where
             {
                 action_switches += 1;
             }
-            if let Some((before_action, before_arm)) = pending_commit.take() {
-                if action != before_action {
-                    post_commit_action_changes += 1;
-                }
-                if arm != before_arm {
-                    post_commit_arm_changes += 1;
+            if let Some((commit_step, before_action, before_arm)) = pending_proposal.take() {
+                debug_assert_eq!(commit_step + 1, kernel.inner.total_steps as usize);
+                if l2_policy_applied {
+                    if action != before_action {
+                        post_commit_action_changes += 1;
+                    }
+                    if arm != before_arm {
+                        post_commit_arm_changes += 1;
+                    }
                 }
             }
             if r.l2.modulation_committed {
-                pending_commit = Some((action.clone(), arm));
+                pending_proposal = Some((kernel.inner.total_steps as usize, action.clone(), arm));
             }
             previous_action = Some(action.clone());
             let p = if scenario == "degraded" && ep >= episodes / 2 {
@@ -382,6 +405,25 @@ where
                 0.25
             };
             let reward = if rng.next_f64() < p { 1.0 } else { 0.0 };
+            if let Some(proposed) = r
+                .trajectory
+                .actions
+                .first()
+                .and_then(|action| action.params.get("l2_proposed_policy"))
+                .and_then(|value| {
+                    serde_json::from_value::<crate::types::L2Policy>(value.clone()).ok()
+                })
+                .filter(|policy| policy.committed && policy.expert < 4)
+            {
+                let metrics = &mut expert_metrics[proposed.expert];
+                metrics.committed += 1;
+                if l2_policy_applied {
+                    metrics.applied += 1;
+                    metrics.reward_sum += reward;
+                } else {
+                    metrics.not_applied += 1;
+                }
+            }
 
             kernel.inner.l0.memory.record_reward(&action, reward);
             // External reward is separated from error improvement and explicit
@@ -528,6 +570,7 @@ where
         margin_hold_count,
         active_steps,
         committed_policies_applied,
+        expert_metrics,
         lyapunov_vetoes,
         meta_cache_hits,
         recovery_latencies,
@@ -584,6 +627,10 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             mean_margin_hold_count: 0.0,
             mean_active_steps: 0.0,
             mean_committed_policies_applied: 0.0,
+            mean_expert_committed: [0.0; 4],
+            mean_expert_applied: [0.0; 4],
+            mean_expert_not_applied: [0.0; 4],
+            mean_expert_reward: [None; 4],
             mean_lyapunov_vetoes: 0.0,
             mean_meta_cache_hits: 0.0,
             recovery_event_rate: 0.0,
@@ -593,6 +640,13 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
     }
     let n = reports.len() as f64;
     let mean = |f: fn(&BanditReport) -> f64| reports.iter().map(f).sum::<f64>() / n;
+    let mean_expert = |f: fn(&L2ExpertMetrics) -> f64, expert: usize| {
+        reports
+            .iter()
+            .map(|report| f(&report.expert_metrics[expert]))
+            .sum::<f64>()
+            / n
+    };
     L2BenchmarkAggregate {
         runs,
         mean_reward: mean(|r| r.mean_reward),
@@ -641,6 +695,28 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
         mean_margin_hold_count: mean(|r| r.margin_hold_count as f64),
         mean_active_steps: mean(|r| r.active_steps as f64),
         mean_committed_policies_applied: mean(|r| r.committed_policies_applied as f64),
+        mean_expert_committed: core::array::from_fn(|expert| {
+            mean_expert(|metrics| metrics.committed as f64, expert)
+        }),
+        mean_expert_applied: core::array::from_fn(|expert| {
+            mean_expert(|metrics| metrics.applied as f64, expert)
+        }),
+        mean_expert_not_applied: core::array::from_fn(|expert| {
+            mean_expert(|metrics| metrics.not_applied as f64, expert)
+        }),
+        mean_expert_reward: core::array::from_fn(|expert| {
+            let applied = reports
+                .iter()
+                .map(|r| r.expert_metrics[expert].applied)
+                .sum::<u64>();
+            (applied > 0).then(|| {
+                reports
+                    .iter()
+                    .map(|r| r.expert_metrics[expert].reward_sum)
+                    .sum::<f64>()
+                    / applied as f64
+            })
+        }),
         mean_lyapunov_vetoes: mean(|r| r.lyapunov_vetoes as f64),
         mean_meta_cache_hits: mean(|r| r.meta_cache_hits as f64),
         recovery_event_rate: if shift_events == 0 {
@@ -848,8 +924,7 @@ pub fn run_l2_benchmark_scenario_with_gate(
             delta_error_delta: (treatment_report.final_avg_error
                 - treatment_report.initial_avg_error)
                 - (base_report.final_avg_error - base_report.initial_avg_error),
-            treatment_influenced_l0: treatment_report.l2_commits > 0
-                || treatment_report.committed_policies_applied > 0
+            treatment_influenced_l0: treatment_report.committed_policies_applied > 0
                 || treatment_report.l2_nudges > 0,
             baseline: base_report,
             treatment: treatment_report,
@@ -1004,9 +1079,8 @@ mod tests {
         assert_eq!(report.paired_reward_difference.ci95_high, None);
         assert_eq!(report.paired_runs.len(), 1);
         let paired = &report.paired_runs[0];
-        let treatment_influenced_l0 = paired.treatment.l2_commits > 0
-            || paired.treatment.committed_policies_applied > 0
-            || paired.treatment.l2_nudges > 0;
+        let treatment_influenced_l0 =
+            paired.treatment.committed_policies_applied > 0 || paired.treatment.l2_nudges > 0;
         assert_eq!(
             report.l0_influenced_runs,
             u32::from(treatment_influenced_l0)
@@ -1021,6 +1095,12 @@ mod tests {
             paired.treatment.best_arm_rate - paired.baseline.best_arm_rate
         );
         assert_eq!(paired.treatment_influenced_l0, treatment_influenced_l0);
+        for metrics in &paired.treatment.expert_metrics {
+            assert_eq!(metrics.committed, metrics.applied + metrics.not_applied);
+            if metrics.applied == 0 {
+                assert_eq!(metrics.reward_sum, 0.0);
+            }
+        }
         assert!(
             report.treatment_l2_enabled.mean_committed_policies_applied
                 <= report.treatment_l2_enabled.mean_l2_commits

@@ -535,6 +535,34 @@ mod tests {
     }
 
     #[test]
+    fn legacy_decision_cannot_claim_an_l2_intervention() {
+        let mut value = serde_json::to_value(crate::types::L2DecisionRecord {
+            selected_arm: 0,
+            selected_bias: "stabilize".into(),
+            candidate_arm: 1,
+            mean_reward: 0.5,
+            exploration_bonus: 0.1,
+            ucb_score: Some(0.5),
+            candidate_ucb_score: Some(0.6),
+            current_ucb_score: Some(0.5),
+            reason: crate::types::L2DecisionReason::DwellHold,
+            dwell_steps: 2,
+            dwell_suppressed: true,
+            margin_suppressed: false,
+            l2_policy_applied: true,
+            switched: false,
+            safety_override: false,
+            adjusted_reward: None,
+            rollback_count: 0,
+            switch_cost_applied: 0.0,
+        })
+        .unwrap();
+        value.as_object_mut().unwrap().remove("l2_policy_applied");
+        let record: crate::types::L2DecisionRecord = serde_json::from_value(value).unwrap();
+        assert!(!record.l2_policy_applied);
+    }
+
+    #[test]
     fn rejects_future_schema() {
         let path = temp_dir().join(format!("omega-future-{}.json", crate::new_uuid()));
         let snap = KernelSnapshot {

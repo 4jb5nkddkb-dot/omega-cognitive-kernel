@@ -7,6 +7,7 @@
 - Document the current source's schema v5 state and add legacy-migration and Python snapshot coverage without changing the historical 0.6.0 schema-v2 release notes.
 - Return path/line/byte-offset errors for malformed audit records in Rust and Python; retain incomplete trailing records for subsequent polling.
 - Add per-seed paired L2 benchmark reports with descriptive 95% intervals so non-intervention differences cannot be mistaken for demonstrated L0 influence. Isolate task/tool-gate/audit-panel test state and benchmark sidecars in per-run directories.
+- Attribute L2 feedback and benchmark rewards to the policy that actually changed the executed L0 decision, retain KEEP_L0 selection propensities, consume each committed snapshot once, and preserve queued policy state across restart without injecting it during snapshot restoration. Add per-expert applied/not-applied evidence; spectral cognitive-realm output remains observational and does not grant execution permission.
 - Fix the Rust 1.74 Clippy gate, cover the active development branch in CI, and stop recursively deriving auto-commit subjects from previous commits.
 
 ## [0.6.0] — 2026-11-22

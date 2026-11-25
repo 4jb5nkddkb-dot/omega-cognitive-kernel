@@ -53,7 +53,7 @@ where
         self.l2.applied_policy = self.l2.pending_policy.effective();
         self.l2.pending_policy = crate::types::L2Policy::default();
         self.l0.decision.set_l2_policy(self.l2.applied_policy);
-        let trajectory = self.l0.step(&intent, &self.constraints)?;
+        let mut trajectory = self.l0.step(&intent, &self.constraints)?;
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
 
         let avg_err = self.l0.memory.cas.avg_prediction_error;
@@ -89,7 +89,37 @@ where
         // cycle. Overwriting L0 here would attribute the next proposal to the
         // action that has already executed.
         l2_result.applied_policy = self.l2.applied_policy;
-        l2_result.decision = self.l0.decision.l2_decision();
+        l2_result.decision = trajectory
+            .actions
+            .first()
+            .and_then(|action| action.params.get("l2_decision"))
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
+        let proposed_policy = self.l2.applied_policy;
+        let l2_policy_applied = match &l2_result.decision {
+            Some(decision) => decision.l2_policy_applied,
+            None => proposed_policy.committed,
+        };
+        let executed_policy = if l2_policy_applied {
+            proposed_policy
+        } else {
+            crate::types::L2Policy {
+                expert_probabilities: self.l2.controller.experts.last_probabilities,
+                ..crate::types::L2Policy::default()
+            }
+        };
+        // Persist the actual action policy, not just a cosmetic result field:
+        // observe_l2_feedback consumes this exact value after the reward arrives.
+        self.l2.applied_policy = executed_policy;
+        l2_result.applied_policy = executed_policy;
+        if let Some(action) = trajectory.actions.first_mut() {
+            action.params.insert(
+                "l2_proposed_policy".into(),
+                serde_json::json!(proposed_policy),
+            );
+            action
+                .params
+                .insert("l2_policy".into(), serde_json::json!(executed_policy));
+        }
 
         if let Some(nudged) = &l2_result.effect_nudge {
             self.l0.memory.cognitive_effect = nudged.clone();
@@ -106,6 +136,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l0::bandit_decision::BanditUcbDecisionMaker;
     use crate::l0::decision::ConstrainedDecisionMaker;
     use crate::l0::executor::SandboxedExecutor;
     use crate::l0::observer::MultiModalObserver;
@@ -148,6 +179,94 @@ mod tests {
             constraints: safety::default_constraints(),
             total_steps: 0,
         }
+    }
+
+    #[test]
+    fn no_op_policy_is_logged_but_not_credited_to_its_expert() {
+        let l0 = L0WorldLayer {
+            observer: MultiModalObserver::new(),
+            predictor: ModelBasedPredictor,
+            decision: BanditUcbDecisionMaker::default(),
+            executor: SandboxedExecutor::new(vec!["stabilize".into(), "explore".into()]),
+            memory: MemoryFacade::new(),
+            learner: Learner::default(),
+        };
+        let mut kernel = OmegaOrchestrator {
+            l0,
+            l1: L1CognitiveLayer::new(),
+            l2: L2MetaLayer::new(),
+            biases: HashMap::new(),
+            constraints: safety::default_constraints(),
+            total_steps: 0,
+        };
+        let mut decision = kernel.l0.decision.snapshot();
+        decision.means = [0.8, 0.2];
+        decision.counts = [32, 128];
+        decision.total = 9;
+        decision.current_arm = Some(0);
+        decision.dwell_steps = 2;
+        kernel.l0.decision.restore(decision);
+        let policy = crate::types::L2Policy {
+            prior: [0.1, 0.9],
+            beta: 0.5,
+            alpha: 0.1,
+            committed: true,
+            expert: 1,
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence: 0.9,
+            expert_probabilities: [0.05, 0.85, 0.05, 0.05],
+        };
+        kernel.l2.pending_policy = policy;
+        kernel.l2.controller.experts.last_probabilities = policy.expert_probabilities;
+        let before = kernel.l2.controller.experts.cumulative_reward;
+        let before_weights = kernel.l2.controller.experts.weights;
+        let result = kernel
+            .run_once("test actual intervention attribution")
+            .unwrap();
+        kernel.l2.controller.feedback_settled = false;
+        kernel.l2.controller.observe(
+            crate::l2::control::ControlFeedback {
+                error: 0.1,
+                reward: 1.0,
+                rollback: false,
+                consequence: 0.0,
+                kl_policy: [0.0, 1.0],
+            },
+            kernel.l2.applied_policy,
+        );
+        let after = kernel.l2.controller.experts.cumulative_reward;
+        assert!(after[0] > before[0]);
+        assert!(after[1] < before[1] * 0.97 + 0.5 / 0.85);
+        let weights = kernel.l2.controller.experts.weights;
+        assert!(weights[0] > weights[1]);
+        assert!(weights[1] < before_weights[1]);
+        assert!(weights[2] < before_weights[2]);
+        assert!(weights[3] < before_weights[3]);
+        assert_eq!(weights[1], weights[2]);
+        assert_eq!(weights[2], weights[3]);
+        assert_eq!(
+            kernel.l2.controller.experts.last_probabilities,
+            policy.expert_probabilities
+        );
+        assert_eq!(result.l2.applied_policy.expert, crate::l2::control::KEEP_L0);
+        assert_eq!(
+            result.l2.applied_policy.expert_probabilities,
+            policy.expert_probabilities
+        );
+        assert!(!result.l2.decision.unwrap().l2_policy_applied);
+        let action = &result.trajectory.actions[0];
+        assert_eq!(
+            serde_json::from_value::<crate::types::L2Policy>(
+                action.params["l2_proposed_policy"].clone()
+            )
+            .unwrap(),
+            policy
+        );
+        assert_eq!(
+            serde_json::from_value::<crate::types::L2Policy>(action.params["l2_policy"].clone())
+                .unwrap(),
+            result.l2.applied_policy
+        );
     }
 
     #[test]
