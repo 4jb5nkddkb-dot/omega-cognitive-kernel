@@ -12,6 +12,7 @@ permissions:
 jobs:
   report:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -22,7 +23,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release --bin omega-kernel
+        run: cargo build --locked --release --bin omega-kernel
 
       - name: Run short demo and capture status
         id: run

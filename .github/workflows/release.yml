@@ -21,6 +21,7 @@ jobs:
   validate-version:
     name: Validate package versions
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -34,6 +35,7 @@ jobs:
     name: Build Linux
     needs: [validate-version]
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
 
@@ -52,15 +54,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Test (CLI surface)
-        run: cargo test --release
+        run: cargo test --release --locked
 
       - name: Build CLI binaries
         run: |
-          cargo build --release --bin omega-kernel
-          cargo build --release --bin omega-audit-panel
+          cargo build --release --locked --bin omega-kernel
+          cargo build --release --locked --bin omega-audit-panel
 
       - name: Build GUI dashboard
-        run: cargo build --release --features gui --bin omega-dashboard
+        run: cargo build --release --features gui --bin omega-dashboard --locked
 
       - name: Package artifacts
         run: |
@@ -85,6 +87,7 @@ jobs:
     name: Build Windows
     needs: [validate-version]
     runs-on: windows-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
 
@@ -96,11 +99,11 @@ jobs:
 
       - name: Build CLI binaries
         run: |
-          cargo build --release --bin omega-kernel
-          cargo build --release --bin omega-audit-panel
+          cargo build --release --bin omega-kernel --locked
+          cargo build --release --bin omega-audit-panel --locked
 
       - name: Build GUI dashboard
-        run: cargo build --release --features gui --bin omega-dashboard
+        run: cargo build --release --features gui --bin omega-dashboard --locked
 
       - name: Package artifacts
         shell: pwsh
@@ -122,6 +125,7 @@ jobs:
     name: Publish GitHub Release
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
 
