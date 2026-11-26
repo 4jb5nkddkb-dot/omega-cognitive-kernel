@@ -251,4 +251,4 @@ mod tests {
         assert!(memory.cognitive_effect == crate::types::RuleEffect::default());
         assert!(!l1.pending_rollback);
     }
-    }
+}
