@@ -49,6 +49,7 @@ pub mod prelude {
 pub mod api;
 #[cfg(feature = "std")]
 pub mod audit;
+pub mod body;
 #[cfg(feature = "std")]
 pub mod checkpoint;
 #[cfg(feature = "std")]
@@ -97,6 +98,10 @@ pub use task::{
 pub use types::*;
 
 // Public adapter surface — implement these to plug real world I/O into the kernel.
+pub use body::{
+    BodyBus, BodyChannelInfo, BodyCommandProposal, BodyPacket, BodyPacketStatus, BodySummary,
+    ChannelKind,
+};
 pub use goals::{
     GoalNode, GoalStatus, GoalTree, GoalTreeSummary, IntrinsicMotivation, IntrinsicSignal,
 };
