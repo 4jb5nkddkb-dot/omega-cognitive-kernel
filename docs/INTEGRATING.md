@@ -61,12 +61,17 @@ redact_user_content = true
 The privacy table is optional; old configuration files keep the legacy `false` default. Redaction affects known goal/task/checkpoint-label text written by the configured kernel. See [persistence privacy and file permissions](./persistence-privacy.md) for the full recording scope, paths, Unix modes, Windows ACL behavior, and limitations.
 
 ```rust
-use omega_cognitive_kernel::{Kernel, KernelConfig};
+use omega_cognitive_kernel::Kernel;
 
-let cfg = KernelConfig::load("omega.toml")?;
-let mut k = Kernel::with_state_path(cfg.resolved_state_path());
-k.apply_config(&cfg);
+let mut k = Kernel::from_config_path("omega.toml")?;
 ```
+
+`from_config_path` applies the TOML settings and loads the snapshot if the
+configured state file already exists. `Kernel::open(Some(path))` has the same
+resume-if-present behavior for a direct state path. When using custom adapters,
+construct the kernel with `cfg.resolved_state_path()`, apply the config, then
+call `load()` when that state path exists; the `drop_inbox_loop` example shows
+this pattern.
 
 ---
 

@@ -127,9 +127,13 @@ impl CheckpointStore {
                 continue;
             }
             let data = fs::read_to_string(&path).map_err(|e| OmegaError::Persist(e.to_string()))?;
-            if let Ok(m) = serde_json::from_str::<CheckpointMeta>(&data) {
-                out.push(m);
-            }
+            let meta = serde_json::from_str::<CheckpointMeta>(&data).map_err(|error| {
+                OmegaError::Persist(format!(
+                    "malformed checkpoint metadata {}: {error}",
+                    path.display()
+                ))
+            })?;
+            out.push(meta);
         }
         out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(out)
@@ -198,5 +202,19 @@ mod tests {
             );
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn malformed_metadata_is_an_error() {
+        let dir = temp_dir().join(format!("omega-ckpt-corrupt-{}", crate::new_uuid()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("broken.meta.json"), b"{not-json}").unwrap();
+        let store = CheckpointStore {
+            dir: dir.clone(),
+            max_keep: 32,
+        };
+        let error = store.list().unwrap_err().to_string();
+        assert!(error.contains("malformed checkpoint metadata"), "{error}");
+        let _ = fs::remove_dir_all(dir);
     }
 }

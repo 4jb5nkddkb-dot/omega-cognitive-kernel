@@ -8,6 +8,9 @@
 - Document persistence paths, default recording scope, redaction limits, and cleanup of historical append-only logs.
 
 ### Correctness / verification
+- Make async observer/executor adapters reusable across calls, propagate async logging and tool-audit failures, and bound HTTP observation bodies at 1 MiB for both sync and async readers.
+- Record L1 rejection only for actual validation failures, preserve `PatchAccepted` when automatic checkpoints are disabled, and resolve CLI configuration/state paths before opening a snapshot.
+- Fail closed on malformed restored arm/expert indices and corrupt checkpoint metadata; make effect sanitization non-finite-safe and zero-capacity case memories bounded.
 - Make prioritized case replay deterministic across kernels, threads, and repeated runs. Schema v6 persists each memory's replay cursor; legacy snapshots migrate without granting L2 permissions.
 - Add opt-in spectral-control experiments, non-mutating L0 dry-runs, per-step signal and execution diagnostics, paired bootstrap intervals, and documented acceptance criteria. Spectral intervention remains disabled by default; the preregistered discovery and independent validation runs did not demonstrate improvement, so this route is stopped without further parameter tuning.
 - Make benchmark reports byte-replayable with key-sorted aggregation/serialization and local replay cursors. Keep wall-clock patch metadata out of fixed-point control scoring.
@@ -21,6 +24,7 @@
 ### Documentation
 - Align schema-v6 migration, executable source-installation guidance, and independent L1/L2 defaults with the current runtime. Document L2 `L2Policy` execution attribution separately from commits and no-op proposals.
 - Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
+- Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
 
 ## [0.6.0] — 2026-11-22
 
