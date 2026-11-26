@@ -12,10 +12,10 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     ));
     std::fs::create_dir_all(&dir).expect("create test directory");
     let state = dir.join("state.json");
-    let binary = env!("CARGO_BIN_EXE_omega-kernel");
+    let binary = omega_kernel_binary();
     let state_arg = state.to_str().expect("UTF-8 state path");
 
-    let demo = Command::new(binary)
+    let demo = Command::new(&binary)
         .args(["--state", state_arg, "demo", "--steps", "3"])
         .output()
         .expect("run demo");
@@ -26,7 +26,7 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     );
     assert!(state.is_file(), "demo did not save the requested state");
 
-    let status = Command::new(binary)
+    let status = Command::new(&binary)
         .args(["--state", state_arg, "status", "--json"])
         .output()
         .expect("run status");
@@ -40,7 +40,7 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     assert_eq!(status["l2_gate_state"], "DORMANT");
     assert!(status["last_l2_decision"].is_null());
 
-    let audit = Command::new(binary)
+    let audit = Command::new(&binary)
         .args(["--state", state_arg, "audit", "--summary"])
         .output()
         .expect("run audit");
@@ -49,6 +49,11 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     assert!(audit.contains("steps              : 3"), "{audit}");
 
     let _ = std::fs::remove_dir_all(dir);
+}
+
+fn omega_kernel_binary() -> String {
+    std::env::var("CARGO_BIN_EXE_omega-kernel")
+        .expect("Cargo should provide the omega-kernel path when running this integration test")
 }
 
 #[test]
@@ -72,8 +77,8 @@ fn config_selects_and_loads_the_configured_state_before_override() {
     )
     .expect("write config");
 
-    let binary = env!("CARGO_BIN_EXE_omega-kernel");
-    let status = Command::new(binary)
+    let binary = omega_kernel_binary();
+    let status = Command::new(&binary)
         .args(["--config", config.to_str().unwrap(), "run", "--steps", "2"])
         .output()
         .expect("run with configured state");
@@ -86,7 +91,7 @@ fn config_selects_and_loads_the_configured_state_before_override() {
         serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
     assert_eq!(snapshot["total_steps"], 2);
 
-    let status = Command::new(binary)
+    let status = Command::new(&binary)
         .args([
             "--config",
             config.to_str().unwrap(),
@@ -114,9 +119,9 @@ fn config_selects_and_loads_the_configured_state_before_override() {
 
 #[test]
 fn benchmark_spectral_intervention_is_explicitly_opt_in() {
-    let binary = env!("CARGO_BIN_EXE_omega-kernel");
+    let binary = omega_kernel_binary();
     let run = |extra: &[&str]| {
-        let output = Command::new(binary)
+        let output = Command::new(&binary)
             .args([
                 "benchmark-l2",
                 "--scenario",
@@ -155,7 +160,7 @@ fn benchmark_spectral_intervention_is_explicitly_opt_in() {
         true
     );
 
-    let rejected = Command::new(binary)
+    let rejected = Command::new(&binary)
         .args(["benchmark-l2", "--no-purity-prior", "--json"])
         .output()
         .expect("reject orphan ablation");
