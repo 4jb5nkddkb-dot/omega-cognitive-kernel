@@ -58,10 +58,10 @@ where
         if self.l1.pending_rollback {
             let error_delta = self.l0.memory.cas.avg_prediction_error - pre_step_avg_err;
             if self.l1.observe_consequence(error_delta) {
-                   if let Some(effect) = self.l1.take_rollback_effect() {
-                          self.l0.memory.cognitive_effect = effect;
-                         self.l2.pending_l1_rollback = true;
-                   }
+                if let Some(effect) = self.l1.take_rollback_effect() {
+                    self.l0.memory.cognitive_effect = effect;
+                    self.l2.pending_l1_rollback = true;
+                }
             }
         }
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
