@@ -14,7 +14,6 @@ use alloc::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-
 impl ChannelKind {
     pub fn parse(raw: &str) -> core::result::Result<Self, String> {
         let normalized = raw.trim().to_ascii_lowercase();
@@ -175,7 +174,11 @@ impl BodyBus {
     /// Read last known value for a channel (observation only).
     pub fn read(&self, name: &str) -> BodyPacket {
         if !self.channels.contains_key(name) {
-            return self.packet(name, BodyPacketStatus::UnknownChannel, Some("not_registered"));
+            return self.packet(
+                name,
+                BodyPacketStatus::UnknownChannel,
+                Some("not_registered"),
+            );
         }
         self.packet(name, BodyPacketStatus::Ok, None)
     }
@@ -185,7 +188,11 @@ impl BodyBus {
     /// Allowed for `Sensor` and `Bidirectional` channels. Does not touch the world.
     pub fn inject(&mut self, name: &str, value: Value, timestamp_ms: u64) -> BodyPacket {
         let Some(ch) = self.channels.get_mut(name) else {
-            return self.packet(name, BodyPacketStatus::UnknownChannel, Some("not_registered"));
+            return self.packet(
+                name,
+                BodyPacketStatus::UnknownChannel,
+                Some("not_registered"),
+            );
         };
         if ch.kind == ChannelKind::Actuator {
             return self.packet(
@@ -208,7 +215,11 @@ impl BodyBus {
         timestamp_ms: u64,
     ) -> BodyPacket {
         let Some(ch) = self.channels.get_mut(name) else {
-            return self.packet(name, BodyPacketStatus::UnknownChannel, Some("not_registered"));
+            return self.packet(
+                name,
+                BodyPacketStatus::UnknownChannel,
+                Some("not_registered"),
+            );
         };
         if ch.kind == ChannelKind::Sensor {
             return self.packet(
@@ -237,7 +248,11 @@ impl BodyBus {
     /// Still never issues tokens or writes CAS; `write_authorized` stays `false`.
     pub fn apply_command(&mut self, name: &str, value: Value, timestamp_ms: u64) -> BodyPacket {
         let Some(ch) = self.channels.get_mut(name) else {
-            return self.packet(name, BodyPacketStatus::UnknownChannel, Some("not_registered"));
+            return self.packet(
+                name,
+                BodyPacketStatus::UnknownChannel,
+                Some("not_registered"),
+            );
         };
         if ch.kind == ChannelKind::Sensor {
             return self.packet(
@@ -286,12 +301,7 @@ impl BodyBus {
         }
     }
 
-    fn packet(
-        &self,
-        name: &str,
-        status: BodyPacketStatus,
-        error: Option<&str>,
-    ) -> BodyPacket {
+   fn packet(&self, name: &str, status: BodyPacketStatus, error: Option<&str>) -> BodyPacket {
         let ch = self.channels.get(name);
         BodyPacket {
             status,
