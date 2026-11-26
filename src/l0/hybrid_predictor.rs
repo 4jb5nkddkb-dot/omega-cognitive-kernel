@@ -367,13 +367,14 @@ mod tests {
     #[test]
     fn hybrid_predictor_implements_l0_trait() {
         let predictor = HybridWorldPredictor::new();
-        let obs = vec![Observation {
+        let item = Observation {
           timestamp: crate::now_utc(),  
           content: serde_json::json!({"x": 0.4}),
           confidence: 0.9,
-         source: "sensor".into(),
+           source: "sensor".into(),
             modality: crate::types::Modality::Text,
-        }];
+        };
+        let obs = vec![item];
         let preds = predictor
             .predict(&obs, &HashMap::new())
             .expect("predict ok");
