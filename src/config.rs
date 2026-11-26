@@ -108,6 +108,8 @@ pub struct KernelConfig {
     /// Master switch for autonomous cognitive code / rule evolution (L1 patches).
     /// Default **false** — self-modification only when explicitly enabled.
     pub self_modify_enabled: bool,
+#[serde(default)]
+    pub l1_shadow_mode: bool,
     /// If true, every step appends a full trajectory record to trajectory.jsonl
     /// beside the state file. Default true for auditability.
     pub dump_trajectory: bool,
@@ -235,6 +237,7 @@ impl Default for KernelConfig {
             default_goal: None,
             intervention: InterventionPolicy::default(),
             self_modify_enabled: false,
+            l1_shadow_mode: false,
             dump_trajectory: true,
             bandit: crate::types::BanditConfig::default(),
             l2: L2Config::default(),
