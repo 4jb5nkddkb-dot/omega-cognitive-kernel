@@ -81,10 +81,7 @@ pub fn migrate_payload(payload: &WeightsPayload) -> Result<WeightsPayload> {
     let clean_deltas = payload.delta_history.clone();
     let mut extra = payload.extra.clone();
     if payload.version < WEIGHTS_VERSION {
-        extra.insert(
-            "migrated_from".into(),
-            serde_json::json!(payload.version),
-        );
+        extra.insert("migrated_from".into(), serde_json::json!(payload.version));
     }
     export_weights(clean_weights, clean_deltas, extra)
 }
