@@ -16,15 +16,16 @@
 //! ```
 //!
 //! Bind: `127.0.0.1` only. No TLS, no auth — demo use only.
-
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::{Kernel, Result};
 use std::env;
-use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const DEFAULT_PORT: u16 = 8787;
+const CLIENT_READ_TIMEOUT: Duration = Duration::from_millis(250);
 
 fn main() -> Result<()> {
     let state = resolve_state_path()?;
@@ -48,69 +49,82 @@ fn main() -> Result<()> {
         .map_err(|e| omega_cognitive_kernel::OmegaError::Persist(format!("bind {addr}: {e}")))?;
 
     for conn in listener.incoming() {
-        let mut stream = match conn {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("accept error: {e}");
-                continue;
-            }
-        };
-        let mut buf = [0u8; 4096];
-        let n = stream.read(&mut buf).unwrap_or(0);
-        let req = String::from_utf8_lossy(&buf[..n]);
-        let line = req.lines().next().unwrap_or("");
-        let (method, path) = parse_request_line(line);
-
-        let (status, content_type, body) = match (method.as_str(), path.as_str()) {
-            ("GET", "/health") => (
-                200,
-                "application/json",
-                r#"{"ok":true,"service":"omega-audit-shim"}"#.to_string(),
-            ),
-            ("GET", p) if p == "/status" || p.starts_with("/status?") => {
-                match load_status(&state) {
-                    Ok(j) => (200, "application/json", j),
-                    Err(e) => (500, "text/plain", format!("status: {e}")),
-                }
-            }
-            ("GET", p) if p == "/audit/summary" || p.starts_with("/audit/summary?") => {
-                match audit.summarize() {
-                    Ok(s) => match serde_json::to_string_pretty(&s) {
-                        Ok(j) => (200, "application/json", j),
-                        Err(e) => (500, "text/plain", format!("serialize: {e}")),
-                    },
-                    Err(e) => (500, "text/plain", format!("summarize: {e}")),
-                }
-            }
-            ("GET", p) if p.starts_with("/audit/tail") => {
-                let n = query_param(p, "n")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(20);
-                match audit.tail(n) {
-                    Ok(rows) => match serde_json::to_string_pretty(&rows) {
-                        Ok(j) => (200, "application/json", j),
-                        Err(e) => (500, "text/plain", format!("serialize: {e}")),
-                    },
-                    Err(e) => (500, "text/plain", format!("tail: {e}")),
-                }
-            }
-            ("GET", "/") => (
-                200,
-                "text/plain",
-                "omega audit shim\nGET /health\nGET /status\nGET /audit/summary\nGET /audit/tail?n=20\n"
-                    .into(),
-            ),
-            _ => (404, "text/plain", "not found\n".into()),
-        };
-
-        let resp = format!(
-            "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            reason(status),
-            body.len(),
-        );
-        let _ = stream.write_all(resp.as_bytes());
+        match conn {
+            Ok(stream) => handle_connection(stream, &state, &audit),
+            Err(e) => eprintln!("accept error: {e}"),
+        }
     }
     Ok(())
+}
+
+fn handle_connection(mut stream: TcpStream, state: &Path, audit: &AuditLog) {
+    if let Err(e) = stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT)) {
+        eprintln!("set read timeout error: {e}");
+        return;
+    }
+
+    let mut buf = [0u8; 4096];
+    let n = match stream.read(&mut buf) {
+        Ok(0) => return,
+        Ok(n) => n,
+        Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => return,
+        Err(e) => {
+            eprintln!("read request error: {e}");
+            return;
+        }
+    };
+    let req = String::from_utf8_lossy(&buf[..n]);
+    let line = req.lines().next().unwrap_or("");
+    let (method, path) = parse_request_line(line);
+
+    let (status, content_type, body) = match (method.as_str(), path.as_str()) {
+        ("GET", "/health") => (
+            200,
+            "application/json",
+            r#"{"ok":true,"service":"omega-audit-shim"}"#.to_string(),
+        ),
+        ("GET", p) if p == "/status" || p.starts_with("/status?") => {
+            match load_status(state) {
+                Ok(j) => (200, "application/json", j),
+                Err(e) => (500, "text/plain", format!("status: {e}")),
+            }
+        }
+        ("GET", p) if p == "/audit/summary" || p.starts_with("/audit/summary?") => {
+            match audit.summarize() {
+                Ok(s) => match serde_json::to_string_pretty(&s) {
+                    Ok(j) => (200, "application/json", j),
+                    Err(e) => (500, "text/plain", format!("serialize: {e}")),
+                },
+                Err(e) => (500, "text/plain", format!("summarize: {e}")),
+            }
+        }
+        ("GET", p) if p.starts_with("/audit/tail") => {
+            let n = query_param(p, "n")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20);
+            match audit.tail(n) {
+                Ok(rows) => match serde_json::to_string_pretty(&rows) {
+                    Ok(j) => (200, "application/json", j),
+                    Err(e) => (500, "text/plain", format!("serialize: {e}")),
+                },
+                Err(e) => (500, "text/plain", format!("tail: {e}")),
+            }
+        }
+        ("GET", "/") => (
+            200,
+            "text/plain",
+            "omega audit shim\nGET /health\nGET /status\nGET /audit/summary\nGET /audit/tail?n=20\n"
+                .into(),
+        ),
+        _ => (404, "text/plain", "not found\n".into()),
+    };
+
+    let resp = format!(
+        "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        reason(status),
+        body.len(),
+    );
+    let _ = stream.write_all(resp.as_bytes());
 }
 
 fn load_status(state: &Path) -> std::result::Result<String, String> {
@@ -163,5 +177,70 @@ fn reason(code: u16) -> &'static str {
         404 => "Not Found",
         500 => "Internal Server Error",
         _ => "OK",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Instant;
+
+    #[test]
+    fn idle_client_does_not_block_the_next_request() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let addr = listener.local_addr().expect("listener address");
+        let state = env::temp_dir().join(format!(
+            "omega-shim-idle-test-{}-{}.json",
+            std::process::id(),
+            omega_cognitive_kernel::new_uuid()
+        ));
+        let audit = AuditLog::beside_state(&state);
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = thread::spawn(move || {
+            let (idle_stream, _) = listener.accept().expect("accept idle connection");
+            accepted_tx
+                .send(())
+                .expect("notify idle connection accepted");
+            handle_connection(idle_stream, &state, &audit);
+
+            let (request_stream, _) = listener.accept().expect("accept health request");
+            handle_connection(request_stream, &state, &audit);
+        });
+
+        let idle_client = TcpStream::connect(addr).expect("connect idle client");
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("server should accept the idle connection first");
+
+        let started = Instant::now();
+        let mut client = TcpStream::connect(addr).expect("connect health client");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set health client read timeout");
+        client
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .expect("send health request");
+        let mut response = String::new();
+        let read_result = client.read_to_string(&mut response);
+
+        // If the server is still blocked, closing this socket lets the test thread terminate.
+        drop(idle_client);
+        server.join().expect("server thread should finish");
+        read_result.expect("health request should receive a response");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "health request took too long: {:?}",
+            started.elapsed()
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert!(
+            response.ends_with(r#"{"ok":true,"service":"omega-audit-shim"}"#),
+            "{response}"
+        );
     }
 }
