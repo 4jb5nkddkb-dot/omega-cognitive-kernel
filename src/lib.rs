@@ -109,9 +109,7 @@ pub use l0::executor::{AsyncExecutor, AsyncExecutorAdapter, AsyncLoggingExecutor
 pub use l0::executor::{Executor, SandboxedExecutor};
 #[cfg(feature = "std")]
 pub use l0::executor::{LoggingExecutor, ToolGateExecutor};
-pub use l0::hybrid_predictor::{
-    HybridWorldModel, HybridWorldPredictor, TinyAttentionPredictor,
-};
+pub use l0::hybrid_predictor::{HybridWorldModel, HybridWorldPredictor, TinyAttentionPredictor};
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub use l0::observer::{
