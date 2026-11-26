@@ -183,3 +183,95 @@ fn benchmark_spectral_intervention_is_explicitly_opt_in() {
         .expect("reject orphan ablation");
     assert!(!rejected.status.success());
 }
+#[test]
+fn cli_checkpoint_and_rollback_restores_prior_state() {
+    let dir = std::env::temp_dir().join(format!(
+        "omega-cli-rollback-test-{}-{}",
+        std::process::id(),
+        omega_cognitive_kernel::new_uuid()
+    ));
+    std::fs::create_dir_all(&dir).expect("create test directory");
+    let state = dir.join("state.json");
+    let binary = omega_kernel_binary();
+    let state_arg = state.to_str().expect("UTF-8 state path");
+
+    let run1 = Command::new(&binary)
+        .args(["--state", state_arg, "run", "--steps", "3"])
+        .output()
+        .expect("run initial steps");
+    assert!(
+        run1.status.success(),
+        "initial run failed: {}",
+        String::from_utf8_lossy(&run1.stderr)
+    );
+
+    let cp = Command::new(&binary)
+        .args(["--state", state_arg, "checkpoint", "--label", "pre-mutation"])
+        .output()
+        .expect("create checkpoint");
+    assert!(
+        cp.status.success(),
+        "checkpoint failed: {}",
+        String::from_utf8_lossy(&cp.stderr)
+    );
+    let cp_stdout = String::from_utf8(cp.stdout).expect("checkpoint UTF-8");
+    assert!(cp_stdout.contains("(step=3)"), "{cp_stdout}");
+    let cp_id = cp_stdout
+        .split("checkpoint created:")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("checkpoint uuid in stdout")
+        .to_string();
+
+    let list = Command::new(&binary)
+        .args(["--state", state_arg, "checkpoints"])
+        .output()
+        .expect("list checkpoints");
+    assert!(list.status.success());
+    let list_stdout = String::from_utf8(list.stdout).expect("checkpoints UTF-8");
+    assert!(list_stdout.contains(&cp_id), "{list_stdout}");
+    assert!(list_stdout.contains("pre-mutation"), "{list_stdout}");
+
+    let run2 = Command::new(&binary)
+        .args(["--state", state_arg, "run", "--steps", "4"])
+        .output()
+        .expect("run additional steps");
+    assert!(
+        run2.status.success(),
+        "second run failed: {}",
+        String::from_utf8_lossy(&run2.stderr)
+    );
+
+    let mid_status = Command::new(&binary)
+        .args(["--state", state_arg, "status", "--json"])
+        .output()
+        .expect("read mid status");
+    assert!(mid_status.status.success());
+    let mid_json: serde_json::Value =
+        serde_json::from_slice(&mid_status.stdout).expect("mid status JSON");
+    assert_eq!(mid_json["total_steps"], 7);
+
+    let rb = Command::new(&binary)
+        .args(["--state", state_arg, "rollback", &cp_id])
+        .output()
+        .expect("run rollback");
+    assert!(
+        rb.status.success(),
+        "rollback failed: {}",
+        String::from_utf8_lossy(&rb.stderr)
+    );
+    let rb_stdout = String::from_utf8(rb.stdout).expect("rollback UTF-8");
+    assert!(rb_stdout.contains("rolled back to"), "{rb_stdout}");
+    assert!(rb_stdout.contains("now at step 3"), "{rb_stdout}");
+
+    let after_status = Command::new(&binary)
+        .args(["--state", state_arg, "status", "--json"])
+        .output()
+        .expect("read after-rollback status");
+    assert!(after_status.status.success());
+    let after_json: serde_json::Value =
+        serde_json::from_slice(&after_status.stdout).expect("after status JSON");
+    assert_eq!(after_json["total_steps"], 3);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
