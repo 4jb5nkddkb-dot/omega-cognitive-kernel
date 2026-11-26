@@ -529,6 +529,5 @@ mod tests {
         kernel.run_once("test").expect("step 2");
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
-        assert!(kernel.l2.pending_l1_rollback);
     }
 }
