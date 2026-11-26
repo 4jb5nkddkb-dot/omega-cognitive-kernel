@@ -206,7 +206,13 @@ fn cli_checkpoint_and_rollback_restores_prior_state() {
     );
 
     let cp = Command::new(&binary)
-        .args(["--state", state_arg, "checkpoint", "--label", "pre-mutation"])
+        .args([
+            "--state",
+            state_arg,
+            "checkpoint",
+            "--label",
+            "pre-mutation",
+        ])
         .output()
         .expect("create checkpoint");
     assert!(
