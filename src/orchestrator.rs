@@ -59,8 +59,8 @@ where
             let error_delta = self.l0.memory.cas.avg_prediction_error - pre_step_avg_err;
             if self.l1.observe_consequence(error_delta) {
                if let Some(effect) = self.l1.take_rollback_effect() {
-                  self.l0.memory.cognitive_effect = effect;
-                 self.l2.pending_l1_rollback = true;
+                      self.l0.memory.cognitive_effect = effect;
+                     self.l2.pending_l1_rollback = true;
                }
             }
         }
@@ -515,19 +515,18 @@ mod tests {
     }
     #[test]
    fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
-       let mut kernel = make_kernel();
-       let initial_effect = kernel.l0.memory.cognitive_effect.clone();
-       kernel.l1.self_modify_enabled = true;
-       kernel.l1.steps_since_last_patch = 10;
-       kernel.l1.reflector.error_threshold = 0.15;
-       kernel.l0.memory.cas.avg_prediction_error = 0.6;
-       let step1 = kernel.run_once("test").expect("step 1");
-       assert!(step1.l1.patched);
-       assert!(kernel.l1.pending_rollback);
-       kernel.l0.memory.cas.avg_prediction_error = 0.0;
-       kernel.run_once("test").expect("step 2");
-       assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
-       assert!(!kernel.l1.pending_rollback);
-       
+        let mut kernel = make_kernel();
+        let initial_effect = kernel.l0.memory.cognitive_effect.clone();
+        kernel.l1.self_modify_enabled = true;
+        kernel.l1.steps_since_last_patch = 10;
+        kernel.l1.reflector.error_threshold = 0.15;
+        kernel.l0.memory.cas.avg_prediction_error = 0.6;
+        let step1 = kernel.run_once("test").expect("step 1");
+        assert!(step1.l1.patched);
+        assert!(kernel.l1.pending_rollback);
+        kernel.l0.memory.cas.avg_prediction_error = 0.0;
+        kernel.run_once("test").expect("step 2");
+        assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
+        assert!(!kernel.l1.pending_rollback);
    }
 }
