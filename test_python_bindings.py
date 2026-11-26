@@ -34,6 +34,19 @@ def test_initialization_and_persistence(state_path):
     assert Path(reopened.status().state_path) == state_path
 
 
+def test_from_config_path_loads_toml(tmp_path):
+    state_path = tmp_path / "configured-state.json"
+    config_path = tmp_path / "kernel.toml"
+    config_path.write_text(
+        f"state_path = {json.dumps(str(state_path))}\nautosave = false\n",
+        encoding="utf-8",
+    )
+
+    configured = ok.Kernel.from_config_path(str(config_path))
+    assert Path(configured.state_path()) == state_path
+    assert configured.status().total_steps == 0
+
+
 def test_single_step_and_run(kernel):
     step = kernel.step("test goal")
     assert step.steps == 1
