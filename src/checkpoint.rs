@@ -51,19 +51,47 @@ impl CheckpointStore {
         damping: f64,
         snapshot: &KernelSnapshot,
     ) -> Result<CheckpointMeta> {
-        fs::create_dir_all(&self.dir).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        self.save_with_privacy(label, step, avg_err, damping, snapshot, false)
+    }
+
+    /// Save a checkpoint, optionally redacting known user-provided content.
+    pub fn save_with_privacy(
+        &self,
+        label: &str,
+        step: u64,
+        avg_err: f64,
+        damping: f64,
+        snapshot: &KernelSnapshot,
+        redact_user_content: bool,
+    ) -> Result<CheckpointMeta> {
+        crate::private_fs::create_dir_all(&self.dir)
+            .map_err(|e| OmegaError::Persist(e.to_string()))?;
         let meta = CheckpointMeta {
             id: crate::new_uuid(),
-            label: label.into(),
+            label: if redact_user_content {
+                "[REDACTED]".into()
+            } else {
+                label.into()
+            },
             step,
             created_at: crate::now_utc(),
             avg_err,
             damping,
         };
-        snapshot.save_to(&self.snap_path(meta.id))?;
+        let mut persisted_snapshot = snapshot.clone();
+        if redact_user_content {
+            persisted_snapshot.redact_user_content();
+        }
+        persisted_snapshot.save_to(&self.snap_path(meta.id))?;
         let json =
             serde_json::to_string_pretty(&meta).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        fs::write(self.meta_path(meta.id), json).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        use std::io::Write;
+        crate::private_fs::open_options()
+            .write(true)
+            .create_new(true)
+            .open(self.meta_path(meta.id))
+            .and_then(|mut file| file.write_all(json.as_bytes()))
+            .map_err(|e| OmegaError::Persist(e.to_string()))?;
         self.prune()?;
         Ok(meta)
     }
@@ -149,6 +177,30 @@ mod tests {
         let meta = store.save("before-patch", 3, 0.4, 1.0, &snap).unwrap();
         assert_eq!(store.list().unwrap().len(), 1);
         assert_eq!(store.load_snapshot(meta.id).unwrap().total_steps, 3);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(store.snap_path(meta.id))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(store.meta_path(meta.id))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

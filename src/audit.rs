@@ -9,7 +9,7 @@ use crate::prelude::*;
 use crate::error::{OmegaError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -187,15 +187,33 @@ impl AuditLog {
     }
 
     pub fn append(&self, event: AuditEvent) -> Result<()> {
+        self.append_with_privacy(event, false)
+    }
+
+    /// Append an event, optionally replacing user-provided text fields before serialization.
+    pub fn append_with_privacy(
+        &self,
+        mut event: AuditEvent,
+        redact_user_content: bool,
+    ) -> Result<()> {
+        if redact_user_content {
+            match &mut event {
+                AuditEvent::Step { goal, .. } => *goal = "[REDACTED]".into(),
+                AuditEvent::Checkpoint { label, .. } => *label = "[REDACTED]".into(),
+                AuditEvent::TaskEpisode { task, .. } => *task = "[REDACTED]".into(),
+                _ => {}
+            }
+        }
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
+            crate::private_fs::create_dir_all(parent)
+                .map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
         let rec = AuditRecord {
             ts: crate::now_utc(),
             event,
         };
         let line = serde_json::to_string(&rec).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        let mut f = OpenOptions::new()
+        let mut f = crate::private_fs::open_options()
             .create(true)
             .append(true)
             .open(&self.path)
@@ -314,6 +332,14 @@ mod tests {
             damping: 1.0,
         })
         .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
         let rows = log.tail(10).unwrap();
         assert_eq!(rows.len(), 1);
         let sum = log.summarize().unwrap();
@@ -424,5 +450,27 @@ mod tests {
         assert!(off3 > off);
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn appending_does_not_change_permissions_of_an_existing_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_dir().join(format!("omega-audit-existing-{}.jsonl", crate::new_uuid()));
+        fs::write(&path, b"").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        AuditLog { path: path.clone() }
+            .append(AuditEvent::TaskEpisode {
+                task: "existing".into(),
+                reward: 0.5,
+                steps: 1,
+            })
+            .unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        let _ = fs::remove_file(path);
     }
 }

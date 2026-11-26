@@ -69,6 +69,8 @@ pub mod orchestrator;
 #[cfg(feature = "std")]
 pub mod persist;
 pub mod planning;
+#[cfg(feature = "std")]
+mod private_fs;
 pub mod reactor;
 pub mod safety;
 #[cfg(feature = "std")]
@@ -83,7 +85,9 @@ pub use api::{
 #[cfg(feature = "std")]
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
 #[cfg(feature = "std")]
-pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig, L2Config};
+pub use config::{
+    InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig, L2Config, PrivacyConfig,
+};
 pub use critic::{Critic, ReflectionReport, RewardSignal, TrialBudget};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};

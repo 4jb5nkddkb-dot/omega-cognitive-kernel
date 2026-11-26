@@ -87,6 +87,14 @@ impl InterventionPolicy {
     }
 }
 
+/// Persistence privacy controls. Redaction is opt-in to preserve legacy output.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrivacyConfig {
+    /// Replace known user-provided goal/task/checkpoint-label text in persisted output.
+    pub redact_user_content: bool,
+}
+
 /// Serializable product config (omega.toml).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -113,6 +121,8 @@ pub struct KernelConfig {
     /// If true, every step appends a full trajectory record to trajectory.jsonl
     /// beside the state file. Default true for auditability.
     pub dump_trajectory: bool,
+    /// Optional privacy controls for user-provided text persisted to disk.
+    pub privacy: PrivacyConfig,
     /// Hysteresis and consequence costs for UCB-backed bandit decisions.
     pub bandit: crate::types::BanditConfig,
     /// Resident L2 controller. Monitoring is always on; bounded interventions
@@ -239,6 +249,7 @@ impl Default for KernelConfig {
             self_modify_enabled: false,
             l1_shadow_mode: false,
             dump_trajectory: true,
+            privacy: PrivacyConfig::default(),
             bandit: crate::types::BanditConfig::default(),
             l2: L2Config::default(),
         }

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Privacy / persistence
+- Add opt-in `[privacy].redact_user_content` for known user goals, task names, and checkpoint labels written by the kernel; retain legacy defaults and schema compatibility.
+- Create new Unix persistence directories with owner-only `0700` and files with owner-only `0600`; document existing-file behavior and Windows ACL inheritance.
+- Document persistence paths, default recording scope, redaction limits, and cleanup of historical append-only logs.
+
 ### Correctness / verification
 - Make async observer/executor adapters reusable across calls, propagate async logging and tool-audit failures, and bound HTTP observation bodies at 1 MiB for both sync and async readers.
 - Record L1 rejection only for actual validation failures, preserve `PatchAccepted` when automatic checkpoints are disabled, and resolve CLI configuration/state paths before opening a snapshot.

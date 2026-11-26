@@ -167,6 +167,7 @@ For custom world integration, implement the public `Observer`, `DecisionMaker`, 
 | `autosave` | `true` | Save after successful steps |
 | `auto_checkpoint_on_patch` | `true` | Capture pre-step state for patch recovery |
 | `dump_trajectory` | `true` | Append a trajectory row for each step |
+| `privacy.redact_user_content` | `false` | Replace known user goal/task/checkpoint-label text in kernel-owned persistence |
 | `error_threshold` | `0.30` | L1 mean-error threshold |
 | `min_steps_between_patches` | `3` | L1 patch cooldown |
 | `max_risk` | `0.65` | L0 decision constraint |
@@ -184,6 +185,9 @@ error_threshold = 0.30
 min_steps_between_patches = 3
 max_risk = 0.65
 self_modify_enabled = false
+
+[privacy]
+redact_user_content = false
 ```
 
 ## Persistence, audit, and replay
@@ -201,6 +205,8 @@ Given a state path such as `.omega/state.json`, the runtime stores:
 The current on-disk schema is version `6`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, the resident L2 controller, bounded cache, Dayan residual, pending/applied policy snapshots, and a per-instance case-replay cursor. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
 
 State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored. These failures do not roll back an external action that an executor already performed; custom executors need their own timeout, idempotency, and recovery policy.
+
+On Unix, newly created persistence directories request mode `0700` and files request `0600`; existing sidecar files and directories are not chmod'd. State is atomically replaced on save and therefore adopts the private file mode on its next save. Windows uses the current user's default ACL/inheritance. The opt-in redaction scope, exact paths, old-file behavior, and limitations are documented in [`docs/persistence-privacy.md`](docs/persistence-privacy.md).
 
 The audit stream includes `Step`, `PatchAccepted`, `PatchRejected`, `Checkpoint`, `Rollback`, `TaskEpisode`, tool allow/deny events, fixed-point transitions, and L2 modulation proposal/commit events. `set_event_hook` is invoked only after the related audit record has been appended successfully. Reading, summarizing, or polling malformed complete JSONL records returns an error with the path, line, and byte offset instead of silently dropping events. Polling retains an incomplete trailing line for a later read.
 
@@ -257,6 +263,7 @@ Current behavior is documented in the files below. `RELEASE_NOTES_v*.md`, `docs/
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layer model, safety gates, and persistence design |
 | [`docs/API_0.5.md`](docs/API_0.5.md) | Public API, schema, replay, and events |
 | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | Adapters, configuration, and embedding |
+| [`docs/persistence-privacy.md`](docs/persistence-privacy.md) | Persisted data scope, opt-in redaction, and file permissions |
 | [`docs/CLOSED_LOOP.md`](docs/CLOSED_LOOP.md) | Safety switches and trajectory behavior |
 | [`docs/DASHBOARD.md`](docs/DASHBOARD.md) | Operator dashboard workflows |
 | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | 中文可移植性摘要；权威矩阵见 `docs/HOST_PORTABILITY.md` |

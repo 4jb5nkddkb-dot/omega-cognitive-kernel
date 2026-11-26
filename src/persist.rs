@@ -285,9 +285,18 @@ impl KernelSnapshot {
         Ok(self)
     }
 
+    /// Redact known user-provided goal text before writing a snapshot.
+    /// Numeric learning state and schema remain unchanged.
+    pub fn redact_user_content(&mut self) {
+        for case in &mut self.cases {
+            case.goal = "[REDACTED]".into();
+        }
+    }
+
     pub fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
+            crate::private_fs::create_dir_all(parent)
+                .map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
         let mut snap = self.clone();
         snap.version = CURRENT_SCHEMA_VERSION;
@@ -303,7 +312,10 @@ impl KernelSnapshot {
         let temp_path = parent.join(format!(".{file_name}.{}.tmp", crate::new_uuid()));
         let result = (|| -> Result<()> {
             use std::io::Write;
-            let mut file = fs::File::create(&temp_path)
+            let mut file = crate::private_fs::open_options()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
                 .map_err(|e| OmegaError::Persist(format!("state temp create: {e}")))?;
             file.write_all(json.as_bytes())
                 .and_then(|()| file.sync_all())
@@ -381,6 +393,14 @@ mod tests {
             ..KernelSnapshot::default()
         };
         snap.save_to(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
         let loaded = KernelSnapshot::load_from(&path).unwrap();
         assert_eq!(loaded.version, CURRENT_SCHEMA_VERSION);
         assert_eq!(loaded.total_steps, 7);
