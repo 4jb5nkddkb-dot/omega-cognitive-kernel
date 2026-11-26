@@ -360,9 +360,9 @@ fn experiment_rollback() -> bool {
                 "-".to_string()
             } else {
                v.iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             }
         };
         let restore = match w.restore_ok {
