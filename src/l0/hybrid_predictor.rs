@@ -301,11 +301,11 @@ impl Predictor for HybridWorldPredictor {
     ) -> Result<Vec<Prediction>> {
         let mut obs_vec = BTreeMap::new();
         for (idx, obs) in observations.iter().enumerate() {
-            if let Some(num) = obs.payload.as_f64() {
+            if let Some(num) = obs.content.as_f64() {
                 if num.is_finite() {
                     obs_vec.insert(obs.source.clone(), num);
                 }
-            } else if let Some(obj) = obs.payload.as_object() {
+            } else if let Some(obj) = obs.content.as_object() {
                 for (k, v) in obj {
                     if let Some(num) = v.as_f64() {
                         if num.is_finite() {
@@ -368,10 +368,12 @@ mod tests {
     fn hybrid_predictor_implements_l0_trait() {
         let predictor = HybridWorldPredictor::new();
         let obs = vec![Observation {
-            modality: crate::types::Modality::Text,
-            source: "sensor".into(),
-            payload: serde_json::json!({"x": 0.4}),
-            timestamp: "1970-01-01T00:00:00Z".into(),
+          timestamp: crate::now_utc(),  
+          content: serde_json::json!({"x": 0.4}),
+          confidence: 0.9,
+         source: "sensor".into(),
+        modality: crate::types::Modality::Text,
+          
         }];
         let preds = predictor
             .predict(&obs, &HashMap::new())
