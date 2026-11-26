@@ -18,6 +18,12 @@ The roadmap marks the 0.5.x schema/replay/events/strategy weights/dashboard/CLI 
 
 ## Verification state
 
+### Comprehensive code review, 2026-11-26
+
+Reviewed the runtime, safety/persistence, async/network adapters, CLI, and Python binding paths from the `bc3b636` main baseline. Fixed one-shot async adapter consumption, swallowed async/tool-audit errors, unbounded HTTP observation reads, incorrect L1 rejection/acceptance auditing, CLI config-path loading, unsafe restored indices, and silently corrupt checkpoint metadata. Schema v6 and public audit variants remain unchanged; disabled L1 no longer creates `PatchRejected` events, and disabling automatic checkpoints no longer suppresses `PatchAccepted`.
+
+Passed: `cargo fmt --all -- --check`; `cargo clippy --locked --all-targets --all-features -- -D warnings`; `cargo test --locked --all-targets` (176 library tests); `cargo test --locked --all-features --all-targets` (180 library tests plus binary/CLI targets); `cargo +1.74.0 test --locked --lib --no-default-features --features std` (165 tests); `bash scripts/test-no-std.sh`; WASI smoke with installed Wasmtime (restore and continue from step 4 to 5); Python 3.13/maturin with 12 pytest tests. Benchmark replay determinism also passed. Local execution used Python 3.13 because pinned PyO3 0.23 does not support the system Python 3.14.
+
 ### Documentation audit, 2026-11-26
 
 Baseline `main` at `9b5e13a` includes schema v6 and automatic L1 rollback on worsening error. `cargo test --locked` passed 175 tests (170 library, 3 audit-panel, 2 CLI); `cargo test --locked --all-features` passed 176 tests with the dashboard test. The eight ordinary-L2 reports and eight spectral reports were regenerated in release mode. Ordinary results match `docs/EXPERIMENTS.md`; spectral reward outcomes match, but the corrected pre-action dry-run counts are 19 candidate changes and 9 selected changes for discovery `regime_shift`. Local Python and Rust 1.74 checks were not run during this documentation pass; the corresponding CI jobs are separate evidence.

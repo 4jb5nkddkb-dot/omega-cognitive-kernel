@@ -114,7 +114,7 @@ mod tests {
         assert!(summary.total_events > 0);
         assert!(summary.steps > 0);
         assert_eq!(summary.patches_accepted, 0); // self_modify_enabled = false by default
-        assert!(summary.patches_rejected > 0);
+        assert_eq!(summary.patches_rejected, 0);
 
         // Test that we can open the kernel and get status
         let kernel = Kernel::open(Some(path.to_str().unwrap())).unwrap();

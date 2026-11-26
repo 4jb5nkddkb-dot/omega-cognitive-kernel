@@ -162,6 +162,15 @@ def test_audit_log_reports_corrupt_records(state_path):
         log.summarize()
 
 
+def test_checkpoint_store_reports_corrupt_metadata(state_path):
+    checkpoint_dir = state_path.parent / "checkpoints"
+    checkpoint_dir.mkdir()
+    (checkpoint_dir / "broken.meta.json").write_text("{not-json}", encoding="utf-8")
+    store = ok.CheckpointStore.beside_state(str(state_path))
+    with pytest.raises(ValueError, match="malformed checkpoint metadata"):
+        store.list()
+
+
 def test_self_modify_flag_survives_restart(state_path):
     # Enable L1 self-modify via the snapshot, persist, restart, and confirm the
     # switch is still on rather than reverting to the safe default-off.

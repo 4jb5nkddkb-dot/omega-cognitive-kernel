@@ -237,12 +237,28 @@ impl RuleEffect {
         &["noop", "observe", "explore", "exploit", "stabilize"];
 
     pub fn sanitize(mut self) -> Self {
-        self.error_damping = self.error_damping.clamp(0.2, 1.5);
-        self.min_uncertainty = self.min_uncertainty.clamp(0.01, 0.5);
-        self.explore_bonus = self.explore_bonus.clamp(-1.5, 1.5);
-        self.risk_tolerance = self.risk_tolerance.clamp(0.15, 0.85);
+        self.error_damping = if self.error_damping.is_finite() {
+            self.error_damping.clamp(0.2, 1.5)
+        } else {
+            1.0
+        };
+        self.min_uncertainty = if self.min_uncertainty.is_finite() {
+            self.min_uncertainty.clamp(0.01, 0.5)
+        } else {
+            0.05
+        };
+        self.explore_bonus = if self.explore_bonus.is_finite() {
+            self.explore_bonus.clamp(-1.5, 1.5)
+        } else {
+            0.0
+        };
+        self.risk_tolerance = if self.risk_tolerance.is_finite() {
+            self.risk_tolerance.clamp(0.15, 0.85)
+        } else {
+            0.45
+        };
         self.action_preference.retain(|k, v| {
-            if !Self::ALLOWED_ACTIONS.contains(&k.as_str()) {
+            if !Self::ALLOWED_ACTIONS.contains(&k.as_str()) || !v.is_finite() {
                 return false;
             }
             *v = v.clamp(-5.0, 5.0);

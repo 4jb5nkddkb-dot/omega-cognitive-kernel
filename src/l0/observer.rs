@@ -9,6 +9,8 @@ use crate::types::{Modality, Observation};
 use std::future::Future;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
+#[cfg(all(feature = "std", feature = "async"))]
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "std")]
 use std::time::Duration;
 
@@ -35,7 +37,7 @@ pub trait AsyncObserver {
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub struct AsyncObserverAdapter<O> {
-    inner: Option<O>,
+    inner: Arc<Mutex<Option<O>>>,
 }
 
 #[cfg(feature = "async")]
@@ -43,14 +45,16 @@ pub struct AsyncObserverAdapter<O> {
 impl<O> AsyncObserverAdapter<O> {
     pub fn new(observer: O) -> Self {
         Self {
-            inner: Some(observer),
+            inner: Arc::new(Mutex::new(Some(observer))),
         }
     }
 
-    pub fn into_inner(mut self) -> O {
-        self.inner
-            .take()
-            .expect("AsyncObserverAdapter already consumed")
+    pub fn into_inner(self) -> O {
+        Arc::try_unwrap(self.inner)
+            .ok()
+            .and_then(|mutex| mutex.into_inner().ok())
+            .and_then(Option::from)
+            .expect("AsyncObserverAdapter is still in use")
     }
 }
 
@@ -58,16 +62,19 @@ impl<O> AsyncObserverAdapter<O> {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<O: Observer + Send + 'static> AsyncObserver for AsyncObserverAdapter<O> {
     fn observe_async(&mut self) -> impl Future<Output = Result<Vec<Observation>>> + Send {
-        let mut observer = self
-            .inner
-            .take()
-            .expect("AsyncObserverAdapter already consumed");
+        let inner = Arc::clone(&self.inner);
         async move {
-            let result = tokio::task::spawn_blocking(move || observer.observe()).await;
-            match result {
-                Ok(r) => r,
-                Err(e) => Err(crate::error::OmegaError::Other(anyhow::anyhow!(e))),
-            }
+            tokio::task::spawn_blocking(move || {
+                let mut guard = inner.lock().map_err(|_| {
+                    OmegaError::ExecutionBlocked("observer adapter lock poisoned".into())
+                })?;
+                let observer = guard.as_mut().ok_or_else(|| {
+                    OmegaError::ExecutionBlocked("AsyncObserverAdapter already consumed".into())
+                })?;
+                observer.observe()
+            })
+            .await
+            .map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))?
         }
     }
 }
@@ -260,6 +267,27 @@ impl HttpObserver {
     }
 }
 
+/// Maximum bytes retained from an observation response before parsing.
+#[cfg(any(feature = "ureq", all(feature = "std", feature = "async")))]
+const HTTP_BODY_LIMIT: usize = 1024 * 1024;
+
+#[cfg(any(feature = "ureq", all(feature = "std", feature = "async")))]
+fn read_bounded_body(reader: impl std::io::Read) -> Result<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader
+        .take(HTTP_BODY_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| OmegaError::ExecutionBlocked(format!("HttpObserver body: {e}")))?;
+    if bytes.len() > HTTP_BODY_LIMIT {
+        return Err(OmegaError::ExecutionBlocked(format!(
+            "HttpObserver body exceeds {HTTP_BODY_LIMIT} bytes"
+        )));
+    }
+    String::from_utf8(bytes)
+        .map_err(|e| OmegaError::ExecutionBlocked(format!("HttpObserver body is not UTF-8: {e}")))
+}
+
 #[cfg(feature = "ureq")]
 impl Observer for HttpObserver {
     fn observe(&mut self) -> Result<Vec<Observation>> {
@@ -273,9 +301,7 @@ impl Observer for HttpObserver {
             OmegaError::ExecutionBlocked(format!("HttpObserver GET {}: {e}", self.url))
         })?;
         let status = resp.status();
-        let body = resp
-            .into_string()
-            .map_err(|e| OmegaError::ExecutionBlocked(format!("HttpObserver body: {e}")))?;
+        let body = read_bounded_body(resp.into_reader())?;
 
         let content = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
             serde_json::json!({
@@ -459,6 +485,26 @@ impl AsyncHttpObserver {
 }
 
 #[cfg(all(feature = "std", feature = "async"))]
+async fn read_async_bounded_body(mut response: reqwest::Response) -> Result<String> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body: {e}")))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > HTTP_BODY_LIMIT {
+            return Err(OmegaError::ExecutionBlocked(format!(
+                "AsyncHttpObserver body exceeds {HTTP_BODY_LIMIT} bytes"
+            )));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|e| {
+        OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body is not UTF-8: {e}"))
+    })
+}
+
+#[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
 impl AsyncObserver for AsyncHttpObserver {
     fn observe_async(&mut self) -> impl Future<Output = Result<Vec<Observation>>> + Send {
@@ -480,9 +526,7 @@ impl AsyncObserver for AsyncHttpObserver {
                     OmegaError::ExecutionBlocked(format!("AsyncHttpObserver GET {}: {e}", url))
                 })?;
                 let status = resp.status().as_u16();
-                let body = resp.text().await.map_err(|e| {
-                    OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body: {e}"))
-                })?;
+                let body = read_async_bounded_body(resp).await?;
                 let content =
                     serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
                         serde_json::json!({
@@ -522,9 +566,7 @@ impl AsyncObserver for AsyncHttpObserver {
                         ))
                     })?;
                     let status = resp.status();
-                    let body = resp.into_string().map_err(|e| {
-                        OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body: {e}"))
-                    })?;
+                    let body = read_bounded_body(resp.into_reader())?;
                     Ok::<(u16, String), OmegaError>((status, body))
                 })
                 .await;
@@ -571,5 +613,78 @@ mod tests {
         let count = v[0].content["entry_count"].as_u64().unwrap();
         assert!(count >= 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", feature = "async"))]
+    fn async_adapter_can_observe_repeatedly() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let mut observer = AsyncObserverAdapter::new(MultiModalObserver::new());
+            for expected_step in 1..=2 {
+                let observations = observer.observe_async().await.unwrap();
+                assert_eq!(observations[0].content["step"], expected_step);
+            }
+            assert_eq!(observer.into_inner().step_counter, 2);
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "ureq")]
+    fn http_observer_rejects_oversized_body() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            stream
+                .write_all(
+                    br"HTTP/1.1 200 OK
+Content-Length: 1048577
+Connection: close
+
+",
+                )
+                .unwrap();
+            let payload = vec![b'x'; HTTP_BODY_LIMIT + 1];
+            let _ = stream.write_all(&payload);
+        });
+        let error = HttpObserver::new(format!("http://{address}/large"))
+            .observe()
+            .unwrap_err();
+        assert!(error.to_string().contains("exceeds"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", feature = "async"))]
+    fn async_http_observer_rejects_oversized_body() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            stream
+                .write_all(
+                    br"HTTP/1.1 200 OK
+Content-Length: 1048577
+Connection: close
+
+",
+                )
+                .unwrap();
+            let payload = vec![b'x'; HTTP_BODY_LIMIT + 1];
+            let _ = stream.write_all(&payload);
+        });
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let error = runtime
+            .block_on(AsyncHttpObserver::new(format!("http://{address}/large")).observe_async())
+            .unwrap_err();
+        assert!(error.to_string().contains("exceeds"), "{error}");
+        server.join().unwrap();
     }
 }

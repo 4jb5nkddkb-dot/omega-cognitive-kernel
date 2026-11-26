@@ -695,24 +695,26 @@ where
 
         self.append_trajectory(goal, &result)?;
         if result.l1.patched {
-            if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
+            if let Some(d) = result.l1.effect_damping {
                 // Best-effort pre-patch checkpoint. A failure to save the optional
                 // rollback snapshot must NOT suppress the primary PatchAccepted
                 // event: the patch was really accepted and that fact is what the
                 // audit trail must record. Checkpoint failure is propagated only
                 // if its own audit event also fails.
-                if let Ok(meta) = self.checkpoints().save(
-                    "pre-patch",
-                    self.inner.total_steps.saturating_sub(1),
-                    snap.cas_avg_prediction_error,
-                    snap.cognitive_effect.error_damping,
-                    &snap,
-                ) {
-                    self.append_event(AuditEvent::Checkpoint {
-                        checkpoint_id: meta.id,
-                        step: meta.step,
-                        label: meta.label,
-                    })?;
+                if let Some(snap) = pre_snap {
+                    if let Ok(meta) = self.checkpoints().save(
+                        "pre-patch",
+                        self.inner.total_steps.saturating_sub(1),
+                        snap.cas_avg_prediction_error,
+                        snap.cognitive_effect.error_damping,
+                        &snap,
+                    ) {
+                        self.append_event(AuditEvent::Checkpoint {
+                            checkpoint_id: meta.id,
+                            step: meta.step,
+                            label: meta.label,
+                        })?;
+                    }
                 }
                 self.append_event(AuditEvent::PatchAccepted {
                     step: self.inner.total_steps,
@@ -721,10 +723,14 @@ where
                     description: "cognitive_rules".into(),
                 })?;
             }
-        } else if let Some(reason) = &result.l1.reason {
+        } else if result.l1.safety_degraded {
             self.append_event(AuditEvent::PatchRejected {
                 step: self.inner.total_steps,
-                reason: reason.clone(),
+                reason: result
+                    .l1
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "patch rejected".into()),
             })?;
         }
         if self.autosave {
@@ -1040,6 +1046,32 @@ mod tests {
     use crate::l0::decision::DecisionMaker;
     use std::env::temp_dir;
     use std::io::Write;
+
+    #[test]
+    fn disabled_l1_is_not_a_patch_rejection_and_disabled_checkpoint_keeps_acceptance() {
+        let dir = temp_dir().join(format!("omega-audit-patch-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut kernel = Kernel::with_state_path(&path);
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        kernel.step("disabled means no candidate").unwrap();
+        assert_eq!(kernel.audit_summary().unwrap().patches_rejected, 0);
+
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.set_l2_enabled(false);
+        kernel.inner.l1.self_modify_enabled = true;
+        kernel.inner.l1.steps_since_last_patch = 10;
+        kernel.inner.l1.reflector.error_threshold = 0.15;
+        kernel.inner.l0.memory.cas.avg_prediction_error = 0.6;
+        let result = kernel.step("force a validated patch").unwrap();
+        assert!(result.l1.patched);
+        let summary = kernel.audit_summary().unwrap();
+        assert_eq!(summary.patches_accepted, 1);
+        assert_eq!(summary.patches_rejected, 0);
+        assert_eq!(summary.checkpoints, 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn event_hook_fires() {

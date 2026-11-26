@@ -25,29 +25,21 @@ impl CheckpointStore {
 
     /// List all checkpoints (newest first)
     pub fn list(&self) -> PyResult<Vec<CheckpointMeta>> {
-        use std::fs;
-        if !Path::new(&self.dir).exists() {
-            return Ok(vec![]);
-        }
-        let mut out = Vec::new();
-        for entry in fs::read_dir(&self.dir).map_err(PythonBindingError::Io)? {
-            let entry = entry.map_err(PythonBindingError::Io)?;
-            let path = entry.path();
-            if !path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.ends_with(".meta.json"))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let data = fs::read_to_string(&path).map_err(PythonBindingError::Io)?;
-            if let Ok(m) = serde_json::from_str::<CheckpointMeta>(&data) {
-                out.push(m);
-            }
-        }
-        out.sort_by_key(|a| std::cmp::Reverse(a.created_at.clone()));
-        Ok(out)
+        let store = omega_cognitive_kernel::checkpoint::CheckpointStore {
+            dir: Path::new(&self.dir).to_path_buf(),
+            max_keep: 32,
+        };
+        let checkpoints = store.list().map_err(PythonBindingError::Kernel)?;
+        checkpoints
+            .into_iter()
+            .map(|checkpoint| {
+                serde_json::to_value(checkpoint)
+                    .map_err(PythonBindingError::Serde)
+                    .and_then(|value| {
+                        serde_json::from_value(value).map_err(PythonBindingError::Serde)
+                    })
+            })
+            .collect()
     }
 
     /// Load a snapshot by checkpoint ID
