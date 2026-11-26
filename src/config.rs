@@ -108,7 +108,7 @@ pub struct KernelConfig {
     /// Master switch for autonomous cognitive code / rule evolution (L1 patches).
     /// Default **false** — self-modification only when explicitly enabled.
     pub self_modify_enabled: bool,
-#[serde(default)]
+    #[serde(default)]
     pub l1_shadow_mode: bool,
     /// If true, every step appends a full trajectory record to trajectory.jsonl
     /// beside the state file. Default true for auditability.
