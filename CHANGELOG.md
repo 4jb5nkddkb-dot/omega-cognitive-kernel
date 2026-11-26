@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+Changes in this section are not included in the pending v0.6.0 release noted below.
+
 ### Privacy / persistence
 - Add opt-in `[privacy].redact_user_content` for known user goals, task names, and checkpoint labels written by the kernel; retain legacy defaults and schema compatibility.
 - Create new Unix persistence directories with owner-only `0700` and files with owner-only `0600`; document existing-file behavior and Windows ACL inheritance.
@@ -27,11 +29,11 @@
 - Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
 - Sync `README.md` (adding `l1_shadow_mode`, L1/L2 write mutual-exclusion arbitration, L1 automatic rollback, `CodeSandbox` static validation boundaries, and updated repository layout), the `RELEASING.md` release checklist, and `.github/pull_request_template.md` against the `main` branch source code.
 
-## [0.6.0] — 2026-11-22
+## [0.6.0] — Unreleased
 
 ### Highlights
 - **Generic decision pipeline**: `Kernel<O, D, E>` now supports custom `DecisionMaker` implementations in addition to observer and executor adapters. Added the `BanditKernel` alias and `Kernel::with_bandit_ucb(path)` for UCB-based bandit tasks.
-- **L2 disabled by default**: `L2MetaLayer` starts with `enabled = false`. Metrics remain available for observability and controlled comparisons, but no biases, constraints, or `RuleEffect` are modified unless callers explicitly enable L2. The UCB treatment shows a small positive benchmark delta, while evidence across broader tasks and seed ranges remains necessary before changing the safe default.
+- **L2 enabled by default**: new kernels and missing `[l2]` configuration enable bounded interventions. Legacy snapshots without an explicit L2 permission migrate with L2 disabled. The UCB treatment shows a small positive benchmark delta, while evidence across broader tasks and seed ranges remains necessary before drawing broad effectiveness conclusions.
 - **Measurable nonstationary bandit delta**: the UCB-based treatment reports positive mean-reward and best-arm-rate deltas over the constrained-decision, L2-disabled baseline. This compares different decision policies, so it does not isolate the effect of L2 modulation or establish production effectiveness.
 - **Schema v2 and fail-closed persistence**: safety and rollback state survives restarts, and durable audit, trajectory, and autosave failures propagate through `Kernel::step` instead of being silently discarded.
 
@@ -43,7 +45,7 @@
   - `steps_since_last_patch` — the L1 patch cooldown survives restart instead of resetting.
   - `l2_rollback_effect` — the pre-commit policy needed for negative-feedback rollback survives an L2 commit + restart.
   - v0/v1 snapshots migrate up automatically; the new fields default to the safe pre-v2 behavior (L1 disabled, warm cooldown, no rollback effect).
-- **L2 default disabled**: `L2MetaLayer` now starts with `enabled = false`. The monitor still evaluates metrics for observability and baseline comparisons, but no biases, constraints, or `RuleEffect` are modified unless the caller explicitly enables L2 with `Kernel::set_l2_enabled(true)`. See the highlighted evidence-driven default above.
+- **L2 default enabled**: new kernels and missing `[l2]` configuration enable bounded `RuleEffect` modulation; callers can use `Kernel::set_l2_enabled(false)` for monitoring-only baselines. Legacy snapshots without an explicit L2 permission still migrate with L2 disabled.
 
 ### Maintenance
 - Honor explicit `--state` and configuration paths in `demo`, isolate the default demo's sidecar files, and add an end-to-end demo/status/audit regression test.
@@ -64,7 +66,7 @@
 - `release-pypi.yml` is split into build → test → publish: macOS (universal2) wheels and an sdist are added, every wheel is installed and `pytest`-tested on its native platform/version before publication, and publication is gated on those tests passing (Trusted Publishing via the `release` environment).
 
 ### Documentation
-- Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (now default `false`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
+- Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (default `true`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
 - `RELEASING.md` documents the PyPI build/test/publish pipeline and the one-time Trusted Publisher setup.
 - Clarify version mapping in `README.md`: distinguish source package versions from Git tags and registry availability.
 - Add `docs/TROUBLESHOOTING.md` with common issues and solutions for installation, runtime, configuration, performance, and Python-specific problems.
