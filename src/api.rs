@@ -289,8 +289,9 @@ fn fresh_step_id() -> Uuid {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
-    let suffix =
-        ((std::process::id() as u64) << 32) | COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
+    // Process IDs are unavailable on some std targets, including WASI.
+    // Combine wall-clock nanoseconds with a process-local sequence instead.
+    let suffix = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
     Uuid::from_u128(((timestamp as u128) << 64) | suffix as u128)
 }
 
@@ -752,7 +753,6 @@ where
         if !self.dump_trajectory {
             return Ok(());
         }
-        use std::io::Write;
         let path = self.trajectory_path();
         let rec = serde_json::json!({
             "ts": crate::now_utc_string(),
