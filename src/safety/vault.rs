@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(vault.open(&old_blob).expect("open legacy"), plaintext);
 
         let path = temp_path("migration");
-        fs::write(&path, &old_blob).expect("write legacy blob");
+        fs::write(&path, old_blob).expect("write legacy blob");
         let migrated_plaintext = vault.load_sealed(&path).expect("read legacy blob");
         vault
             .save_sealed(&path, &migrated_plaintext)
