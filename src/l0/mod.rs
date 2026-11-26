@@ -56,13 +56,29 @@ where
         intent: &Intent,
         constraints: &HashMap<String, f64>,
     ) -> Result<Trajectory> {
+        self.step_with_executor_hooks(intent, constraints, || Ok(()), || Ok(()))
+    }
+
+    pub(crate) fn step_with_executor_hooks<Before, After>(
+        &mut self,
+        intent: &Intent,
+        constraints: &HashMap<String, f64>,
+        mut before_executor: Before,
+        mut after_executor_success: After,
+    ) -> Result<Trajectory>
+    where
+        Before: FnMut() -> Result<()>,
+        After: FnMut() -> Result<()>,
+    {
         let observations = self.observer.observe()?;
         let mem_ctx = self.memory.retrieve(&intent.goal, 5)?;
         let predictions = self.predictor.predict(&observations, &mem_ctx)?;
         let actions = self
             .decision
             .decide(intent, &predictions, constraints, &mem_ctx)?;
+        before_executor()?;
         let outcomes = self.executor.execute(&actions)?;
+        after_executor_success()?;
         let errors = self.compute_errors(&predictions, &actions);
 
         let mut meta = HashMap::new();
