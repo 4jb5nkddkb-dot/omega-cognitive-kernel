@@ -235,11 +235,17 @@ mod tests {
         l1.shadow_mode = true;
         l1.reflector.error_threshold = 0.1;
         let trajectory = Trajectory {
-            observations: vec![], predictions: vec![], actions: vec![],
-            outcomes: vec![], prediction_errors: vec![0.8], meta: HashMap::new(),
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![],
+            outcomes: vec![],
+            prediction_errors: vec![0.8],
+            meta: HashMap::new(),
             };
         let mut memory = MemoryFacade::default();
-        let res = l1.process(&trajectory, &mut memory).expect("shadow process");
+        let res = l1
+            .process(&trajectory, &mut memory)
+            .expect("shadow process");
         assert!(!res.patched);
         assert!(res.patch_id.is_some());
         assert!(memory.cognitive_effect == crate::types::RuleEffect::default());
