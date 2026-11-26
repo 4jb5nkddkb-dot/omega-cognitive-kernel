@@ -51,6 +51,8 @@ where
     pub auto_checkpoint_on_patch: bool,
     /// When true, append full step trajectory to trajectory.jsonl beside state.
     pub dump_trajectory: bool,
+    /// Whether known user-provided text is redacted from persisted output.
+    pub redact_user_content: bool,
     /// Optional in-process hook invoked after each audit event is appended.
     event_hook: Option<EventHook>,
 }
@@ -295,6 +297,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            redact_user_content: false,
             event_hook: None,
         }
     }
@@ -322,6 +325,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            redact_user_content: false,
             event_hook: None,
         }
     }
@@ -353,11 +357,13 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
         let autosave = self.autosave;
         let auto_ckpt = self.auto_checkpoint_on_patch;
         let dump = self.dump_trajectory;
+        let redact = self.redact_user_content;
         let hook = self.event_hook.take();
         *self = Self::with_state_path(path);
         self.autosave = autosave;
         self.auto_checkpoint_on_patch = auto_ckpt;
         self.dump_trajectory = dump;
+        self.redact_user_content = redact;
         self.event_hook = hook;
         if self.state_path.exists() {
             std::fs::remove_file(&self.state_path)
@@ -410,6 +416,7 @@ where
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            redact_user_content: false,
             event_hook: None,
         }
     }
@@ -421,6 +428,7 @@ where
         self.autosave = cfg.autosave;
         self.auto_checkpoint_on_patch = cfg.auto_checkpoint_on_patch;
         self.dump_trajectory = cfg.dump_trajectory;
+        self.redact_user_content = cfg.privacy.redact_user_content;
         self.inner.l0.decision.set_bandit_config(cfg.bandit.clone());
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
@@ -564,7 +572,8 @@ where
     /// audit trail silently drops the transition. The in-process hook fires only
     /// after the append has actually succeeded.
     fn append_event(&mut self, event: AuditEvent) -> Result<()> {
-        self.audit().append(event.clone())?;
+        self.audit()
+            .append_with_privacy(event.clone(), self.redact_user_content)?;
         self.emit_event(&event);
         Ok(())
     }
@@ -598,10 +607,19 @@ where
         }
         use std::io::Write;
         let path = self.trajectory_path();
+        let persisted_goal = if self.redact_user_content {
+            "[REDACTED]"
+        } else {
+            goal
+        };
+        if let Some(parent) = path.parent() {
+            crate::private_fs::create_dir_all(parent)
+                .map_err(|e| OmegaError::Persist(e.to_string()))?;
+        }
         let rec = serde_json::json!({
             "ts": crate::now_utc_string(),
             "step": self.inner.total_steps,
-            "goal": goal,
+            "goal": persisted_goal,
             "action": result.trajectory.actions.first().map(|a| a.name.clone()),
             "prediction_errors": result.trajectory.prediction_errors,
             "patched": result.l1.patched,
@@ -633,7 +651,7 @@ where
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
         // Fail-closed: a trajectory write failure is a real error, not ignored.
-        let mut f = std::fs::OpenOptions::new()
+        let mut f = crate::private_fs::open_options()
             .create(true)
             .append(true)
             .open(&path)
@@ -701,12 +719,13 @@ where
                 // event: the patch was really accepted and that fact is what the
                 // audit trail must record. Checkpoint failure is propagated only
                 // if its own audit event also fails.
-                if let Ok(meta) = self.checkpoints().save(
+                if let Ok(meta) = self.checkpoints().save_with_privacy(
                     "pre-patch",
                     self.inner.total_steps.saturating_sub(1),
                     snap.cas_avg_prediction_error,
                     snap.cognitive_effect.error_damping,
                     &snap,
+                    self.redact_user_content,
                 ) {
                     self.append_event(AuditEvent::Checkpoint {
                         checkpoint_id: meta.id,
@@ -965,7 +984,7 @@ where
     }
 
     pub fn snapshot_json(&self) -> Result<String> {
-        self.snapshot().to_json()
+        self.persistence_snapshot().to_json()
     }
 
     pub fn apply_snapshot_json(&mut self, json: &str) -> Result<()> {
@@ -975,7 +994,15 @@ where
     }
 
     pub fn save(&self) -> Result<()> {
-        self.snapshot().save_to(&self.state_path)
+        self.persistence_snapshot().save_to(&self.state_path)
+    }
+
+    fn persistence_snapshot(&self) -> KernelSnapshot {
+        let mut snapshot = self.snapshot();
+        if self.redact_user_content {
+            snapshot.redact_user_content();
+        }
+        snapshot
     }
 
     pub fn load(&mut self) -> Result<()> {
@@ -986,12 +1013,13 @@ where
 
     pub fn checkpoint(&mut self, label: &str) -> Result<CheckpointMeta> {
         let snap = self.snapshot();
-        let meta = self.checkpoints().save(
+        let meta = self.checkpoints().save_with_privacy(
             label,
             self.inner.total_steps,
             self.inner.l0.memory.cas.avg_prediction_error,
             self.inner.l0.memory.cognitive_effect.error_damping,
             &snap,
+            self.redact_user_content,
         )?;
         self.append_event(AuditEvent::Checkpoint {
             checkpoint_id: meta.id,
@@ -1054,6 +1082,103 @@ mod tests {
         let _ = k.step("test");
         assert!(fired.load(std::sync::atomic::Ordering::SeqCst) >= 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn privacy_redacts_user_text_from_all_kernel_persistence_paths() {
+        let dir = temp_dir().join(format!("omega-privacy-{}", crate::new_uuid()));
+        let state_path = dir.join("state.json");
+        let mut kernel = Kernel::with_state_path(&state_path);
+        kernel.autosave = false;
+        kernel.redact_user_content = true;
+
+        let goal_secret = "private-goal-needle";
+        let task_secret = "private-task-needle";
+        let label_secret = "private-label-needle";
+        let hook_saw_original_goal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_flag = hook_saw_original_goal.clone();
+        kernel.set_event_hook(move |event| {
+            if let AuditEvent::Step { goal, .. } = event {
+                hook_flag.store(goal == goal_secret, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        kernel.step(goal_secret).unwrap();
+        assert!(hook_saw_original_goal.load(std::sync::atomic::Ordering::SeqCst));
+        kernel.audit_task(task_secret, 0.8, 1).unwrap();
+        let checkpoint = kernel.checkpoint(label_secret).unwrap();
+        kernel.save().unwrap();
+
+        let snapshot_json = kernel.snapshot_json().unwrap();
+        let audit_path = dir.join("audit.jsonl");
+        let trajectory_path = dir.join("trajectory.jsonl");
+        let checkpoint_dir = dir.join("checkpoints");
+        let checkpoint_meta = checkpoint_dir.join(format!("{}.meta.json", checkpoint.id));
+        let checkpoint_state = checkpoint_dir.join(format!("{}.state.json", checkpoint.id));
+        let files = [
+            std::fs::read_to_string(&state_path).unwrap(),
+            std::fs::read_to_string(&audit_path).unwrap(),
+            std::fs::read_to_string(&trajectory_path).unwrap(),
+            std::fs::read_to_string(&checkpoint_meta).unwrap(),
+            std::fs::read_to_string(&checkpoint_state).unwrap(),
+            snapshot_json,
+        ];
+        for contents in &files {
+            assert!(!contents.contains(goal_secret), "{contents}");
+            assert!(!contents.contains(task_secret), "{contents}");
+            assert!(!contents.contains(label_secret), "{contents}");
+            assert!(contents.contains("[REDACTED]") || contents.contains("\"[REDACTED]\""));
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&state_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(&audit_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(&trajectory_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(&checkpoint_dir)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&checkpoint_meta)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(&checkpoint_state)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
