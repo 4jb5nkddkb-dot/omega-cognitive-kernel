@@ -90,6 +90,80 @@ L0 dry-run 克隆 UCB 快照，分别应用/移除同一个 L2Policy，报告候
 
 ---
 
+## 十一、普通 Resident L2 执行前诊断（2026-11-26）
+
+基线：`main` 的 `75382b0`。本轮只修正观测并测量现有控制器，不调整
+阈值、探索算法、reward shaping 或回滚规则，也不重开第十节已停止的频谱路线。
+
+### 实验卡
+
+- 假设：普通 L2 的受限专家策略能够改变 L0 候选及实际选臂；配对 reward 差为正。
+- 场景：先用 `nonstationary` 做机制诊断，再以 `stable`、`regime_shift`、
+  `cyclic_shift` 检验跨场景表现；每个场景 30 个配对种子，`12 episodes × 12 steps`。
+- 种子：发现集从 `20261115` 开始；独立复验集从 `20270001` 开始。
+- 主成功标准：`regime_shift` 的配对 reward 差 Student-t 95% 区间下界 `> 0`。
+- 安全标准：`stable` 的配对 reward 差 95% 区间下界 `>= -0.01`。
+- 机制条件：pre-action dry-run 预测的选臂与实际选臂一致；commit 数与诊断计数一致；
+  `selected_changes` 描述反事实选臂差异，`applied` 另行描述通过正式执行归因的干预。
+- 失败标准：主指标未达标，或机制计数不一致；均不宣称 L2 有效。
+- 停止条件：完成固定场景与种子即停止，不根据结果追加调参或更换主指标。
+
+### 测量修复契约
+
+旧的 dry-run 在 L0 动作执行后读取快照，已将 incumbent/dwell 推进，并重新
+施加一个本应在下一步执行的策略；其“选臂改变数”不能归因于当前动作。
+修复后，在动作前保存同一快照，先清除上一步已消费的 `l2_policy`，再分别运行
+KEEP_L0 和当前 `pending_policy`，与 orchestrator 的实际覆盖顺序一致。dry-run
+不写磁盘、不生成环境 reward、不执行 patch，也不得改变真实运行。
+
+`pipeline.proposals` 统计当前 step 新生成的 commit，`applied` 统计当前 step
+真正执行的策略，二者不得混用。`candidate_changes_not_selected` 专门记录
+候选改变但被 L0 dwell/margin/safety 阻止的情况。`applied` 包括把候选保持在
+incumbent 的干预，因此不必然产生反事实换臂，不能与 `selected_changes` 强行
+等齐。逐 seed 的 Spearman 相关仍只是时间序列探索性诊断；频谱 bias 不是外部
+reward 预测器。
+
+### 结果与停止决定
+
+下表为 release 模式、每组 30 个配对种子、`12 episodes × 12 steps` 的结果。
+`t95` 为配对 Student-t 95% 区间，`b95` 为按 seed 重采样 bootstrap 95% 区间；
+数值保留 6 位小数。8 份报告共 34,560 个 treatment step，pre-action dry-run 的
+预测选臂与实际选臂全部一致，`pipeline.proposals` 与 `l2_commits` 逐 seed 一致。
+
+| 种子组 | 场景 | reward 差 | t95 | b95 | commit / 候选变 / 反事实换臂 / 候选变未换臂 |
+|---|---|---:|---|---|---:|
+| 发现集 `20261115` | `stable` | -0.001389 | [-0.003362, 0.000585] | [-0.003472, 0.000000] | 44 / 10 / 4 / 6 |
+| 发现集 | `nonstationary` | +0.006481 | [-0.002728, 0.015691] | [0.000000, 0.016204] | 53 / 14 / 4 / 10 |
+| 发现集 | `regime_shift` | +0.002315 | [-0.000974, 0.005604] | [0.000000, 0.005787] | 156 / 66 / 6 / 60 |
+| 发现集 | `cyclic_shift` | 0.000000 | [0.000000, 0.000000] | [0.000000, 0.000000] | 20 / 1 / 0 / 1 |
+| 复验集 `20270001` | `stable` | +0.000926 | [-0.003029, 0.004881] | [-0.002778, 0.005093] | 49 / 10 / 4 / 6 |
+| 复验集 | `nonstationary` | -0.007407 | [-0.017250, 0.002435] | [-0.018056, -0.000231] | 49 / 12 / 4 / 8 |
+| 复验集 | `regime_shift` | -0.002315 | [-0.004607, -0.000023] | [-0.004861, -0.000463] | 190 / 80 / 7 / 73 |
+| 复验集 | `cyclic_shift` | +0.000926 | [-0.000968, 0.002819] | [0.000000, 0.002778] | 29 / 3 / 1 / 2 |
+
+复现命令（场景替换为 `stable`、`nonstationary`、`regime_shift`、`cyclic_shift`，
+复验时将 seed 改为 `20270001`）：
+
+```bash
+cargo run --locked --release --bin omega-kernel -- benchmark-l2 \
+  --scenario regime_shift --runs 30 --episodes 12 --steps 12 \
+  --seed 20261115 --diagnostics --json > regime_shift-discovery.json
+```
+
+机制诊断：发现集 `regime_shift` 的 156 次 commit 只有 66 次改变候选，且 60 次
+候选改变没有造成反事实换臂。普通 L2 没有外部 reward 预测器；`model_confidence`
+属于 residual 模型。`nonstationary` 与 `stable` 的频谱信号为零方差，相关系数为
+`null`，不能解释为“相关系数等于零”或据此证明所有 L2 信号无用。
+
+- **已验证（限本 fixture 与种子）**：执行前 dry-run 与真实动作一致；诊断开关不改变
+  真实配对结果；主成功标准未通过，独立复验未重现发现集的正向点估计。
+- **安全边界**：两组 `stable` 的 t95 下界均大于 `-0.01`，达到预设保护标准。
+- **停止决定**：结束本轮普通 Resident L2 参数调优，不叠加 Thompson sampling、
+  reward shaping 或回滚阈值调整。保留下一层干预效率的测量；若未来换控制假设，
+  必须另写实验卡，重点解释候选改变与 L0 门控的损失，而非只增加 commit。
+
+---
+
 ## 一、基本原则
 
 1. **可回退**：任何实验都能回到已知的稳定状态。
