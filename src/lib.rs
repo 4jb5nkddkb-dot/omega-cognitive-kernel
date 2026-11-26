@@ -55,6 +55,7 @@ pub mod checkpoint;
 pub mod config;
 #[cfg(all(feature = "std", feature = "toml"))]
 pub mod config_toml;
+pub mod critic;
 pub mod error;
 pub mod goals;
 pub mod introspect;
@@ -82,6 +83,7 @@ pub use api::{
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
 #[cfg(feature = "std")]
 pub use config::{InterventionLevel, InterventionMode, InterventionPolicy, KernelConfig, L2Config};
+pub use critic::{Critic, ReflectionReport, RewardSignal, TrialBudget};
 pub use error::{OmegaError, Result};
 pub use orchestrator::{OmegaOrchestrator, StepResult};
 #[cfg(feature = "std")]
@@ -121,7 +123,7 @@ pub use l1::{L1SpectralReflector, SpectralBin, SpectralPatch};
 pub use l2::{
     CognitiveRealm, KernelStepOutput, L2CognitiveGate, L2Decision, L2State, SpectralGateConfig,
 };
-pub use llm::{LlmBridge, LlmProposal};
+pub use llm::{parse_suggestion_json, LlmBridge, LlmProposal, SchemaResult};
 pub use planning::{Plan, PlanStep, ShortHorizonPlanner};
 pub use reactor::{PriorityReactor, ReactorTask};
 pub use safety::{ActionBoundary, AuthorizationToken, TokenBook};
