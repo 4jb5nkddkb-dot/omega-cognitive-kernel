@@ -125,6 +125,10 @@ pub use l2::{
     CognitiveRealm, KernelStepOutput, L2CognitiveGate, L2Decision, L2State, SpectralGateConfig,
 };
 pub use llm::{parse_suggestion_json, LlmBridge, LlmProposal, SchemaResult};
+pub use memory::{
+    export_weights, migrate_payload, squash_delta_history, verify_weights, WeightsPayload,
+    WEIGHTS_MAGIC, WEIGHTS_VERSION,
+};    
 pub use planning::{Plan, PlanStep, ShortHorizonPlanner};
 pub use reactor::{PriorityReactor, ReactorTask};
 pub use safety::{ActionBoundary, AuthorizationToken, TokenBook};
