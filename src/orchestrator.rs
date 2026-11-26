@@ -53,7 +53,17 @@ where
         self.l2.applied_policy = self.l2.pending_policy.effective();
         self.l2.pending_policy = crate::types::L2Policy::default();
         self.l0.decision.set_l2_policy(self.l2.applied_policy);
+        let pre_step_avg_err = self.l0.memory.cas.avg_prediction_error;
         let mut trajectory = self.l0.step(&intent, &self.constraints)?;
+        if self.l1.pending_rollback {
+            let error_delta = self.l0.memory.cas.avg_prediction_error - pre_step_avg_err;
+            if self.l1.observe_consequence(error_delta) {
+                if let Some(effect) = self.l1.take_rollback_effect() {
+                    self.l0.memory.cognitive_effect = effect;
+                    self.l2.pending_l1_rollback = true;
+                }
+            }
+        }
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
 
         let avg_err = self.l0.memory.cas.avg_prediction_error;
@@ -502,5 +512,22 @@ mod tests {
             assert!(spec.bias.is_finite());
             assert!(spec.convergence_residual.is_finite());
         }
+    }
+    #[test]
+    fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
+        let mut kernel = make_kernel();
+        let initial_effect = kernel.l0.memory.cognitive_effect.clone();
+        kernel.l2.enabled = false;
+        kernel.l1.self_modify_enabled = true;
+        kernel.l1.steps_since_last_patch = 10;
+        kernel.l1.reflector.error_threshold = 0.15;
+        kernel.l0.memory.cas.avg_prediction_error = 0.6;
+        let step1 = kernel.run_once("test").expect("step 1");
+        assert!(step1.l1.patched);
+        assert!(kernel.l1.pending_rollback);
+        kernel.l0.memory.cas.avg_prediction_error = -1.0;
+        kernel.run_once("test").expect("step 2");
+        assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
+        assert!(!kernel.l1.pending_rollback);
     }
 }
