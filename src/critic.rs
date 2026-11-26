@@ -27,7 +27,12 @@ impl Default for Critic {
 }
 
 impl Critic {
-    pub fn evaluate(&self, raw_reward: f64, prediction_error: f64, goal_progress: f64) -> RewardSignal {
+    pub fn evaluate(
+        &self,
+        raw_reward: f64,
+        prediction_error: f64,
+        goal_progress: f64,
+    ) -> RewardSignal {
         let error_penalty = self.error_weight * prediction_error.max(0.0);
         let progress_bonus = self.progress_weight * goal_progress;
         let net_signal = raw_reward - error_penalty + progress_bonus;
