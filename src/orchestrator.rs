@@ -64,8 +64,14 @@ where
                 }
             }
         }
+        let l1_write_blocked = self.l2.blocks_l1_write();
+        let saved_self_modify = self.l1.self_modify_enabled;
+        if l1_write_blocked {
+            self.l1.self_modify_enabled = false;
+        }
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
-
+        self.l1.self_modify_enabled = saved_self_modify;
+        
         let avg_err = self.l0.memory.cas.avg_prediction_error;
         let state = SystemState {
             active_code: self.l1.store.active.clone(),
@@ -530,4 +536,18 @@ mod tests {
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
     }
-}
+    #[test]
+    fn l2_defensive_mode_blocks_l1_write_arbitration() {
+        let mut kernel = make_kernel();
+        let initial_effect = kernel.l0.memory.cognitive_effect.clone();
+        kernel.l1.self_modify_enabled = true;
+        kernel.l1.steps_since_last_patch = 10;
+        kernel.l1.reflector.error_threshold = 0.15;
+        kernel.l0.memory.cas.avg_prediction_error = 0.6;
+        kernel.l2.defensive_mode = true;
+        let step = kernel.run_once("test").expect("step");
+        assert!(!step.l1.patched);
+        assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
+        assert!(kernel.l1.self_modify_enabled);
+    }
+    }
