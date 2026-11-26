@@ -31,6 +31,16 @@ pub struct CheckpointStore {
     pub max_keep: usize,
 }
 
+struct CheckpointSave<'a> {
+    label: &'a str,
+    step: u64,
+    avg_err: f64,
+    damping: f64,
+    snapshot: &'a KernelSnapshot,
+    redact_user_content: bool,
+    id: Uuid,
+}
+
 impl CheckpointStore {
     pub fn beside_state(state_path: &Path) -> Self {
         let dir = state_path
@@ -69,11 +79,32 @@ impl CheckpointStore {
         snapshot: &KernelSnapshot,
         redact_user_content: bool,
     ) -> Result<CheckpointMeta> {
+        self.save_with_privacy_and_id(CheckpointSave {
+            label,
+            step,
+            avg_err,
+            damping,
+            snapshot,
+            redact_user_content,
+            id: crate::new_uuid(),
+        })
+    }
+
+    fn save_with_privacy_and_id(&self, request: CheckpointSave<'_>) -> Result<CheckpointMeta> {
+        let CheckpointSave {
+            label,
+            step,
+            avg_err,
+            damping,
+            snapshot,
+            redact_user_content,
+            id,
+        } = request;
         crate::private_fs::create_dir_all(&self.dir)
             .map_err(|e| OmegaError::Persist(e.to_string()))?;
         self.cleanup_stale_metadata_temps();
         let meta = CheckpointMeta {
-            id: crate::new_uuid(),
+            id,
             label: if redact_user_content {
                 "[REDACTED]".into()
             } else {
@@ -88,10 +119,15 @@ impl CheckpointStore {
         if redact_user_content {
             persisted_snapshot.redact_user_content();
         }
-        persisted_snapshot.save_to(&self.snap_path(meta.id))?;
+        let snapshot_path = self.snap_path(meta.id);
+        save_snapshot_without_overwrite(&persisted_snapshot, &snapshot_path)?;
         let json =
             serde_json::to_string_pretty(&meta).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        write_metadata_atomically(&self.meta_path(meta.id), json.as_bytes())?;
+        let meta_path = self.meta_path(meta.id);
+        if let Err(error) = write_metadata_atomically(&meta_path, json.as_bytes()) {
+            let _ = fs::remove_file(&snapshot_path);
+            return Err(error);
+        }
         self.prune()?;
         Ok(meta)
     }
@@ -227,6 +263,26 @@ fn write_metadata_atomically(path: &Path, json: &[u8]) -> Result<()> {
     result
 }
 
+fn save_snapshot_without_overwrite(snapshot: &KernelSnapshot, path: &Path) -> Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            OmegaError::Persist(format!("invalid checkpoint path: {}", path.display()))
+        })?;
+    let temp_path = parent.join(format!(".{file_name}.{}.tmp", crate::new_uuid()));
+    let result = (|| {
+        snapshot.save_to(&temp_path)?;
+        fs::hard_link(&temp_path, path).map_err(|error| {
+            OmegaError::Persist(format!("checkpoint snapshot publish: {error}"))
+        })?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(temp_path);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +383,64 @@ mod tests {
 
         assert!(!stale_temp.exists());
         assert!(unrelated.exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn id_collision_does_not_replace_existing_snapshot_or_metadata() {
+        let dir = temp_dir().join(format!("omega-ckpt-collision-{}", crate::new_uuid()));
+        let store = CheckpointStore {
+            dir: dir.clone(),
+            max_keep: 32,
+        };
+        fs::create_dir_all(&dir).unwrap();
+        let id = crate::new_uuid();
+        let old_snapshot = b"original snapshot contents";
+        let old_metadata = b"original metadata contents";
+        fs::write(store.snap_path(id), old_snapshot).unwrap();
+        fs::write(store.meta_path(id), old_metadata).unwrap();
+
+        let result = store.save_with_privacy_and_id(CheckpointSave {
+            label: "collision",
+            step: 1,
+            avg_err: 0.0,
+            damping: 1.0,
+            snapshot: &KernelSnapshot::default(),
+            redact_user_content: false,
+            id,
+        });
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(store.snap_path(id)).unwrap(), old_snapshot);
+        assert_eq!(fs::read(store.meta_path(id)).unwrap(), old_metadata);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn metadata_collision_removes_only_the_new_snapshot() {
+        let dir = temp_dir().join(format!("omega-ckpt-meta-collision-{}", crate::new_uuid()));
+        let store = CheckpointStore {
+            dir: dir.clone(),
+            max_keep: 32,
+        };
+        fs::create_dir_all(&dir).unwrap();
+        let id = crate::new_uuid();
+        let old_metadata = b"original metadata contents";
+        fs::write(store.meta_path(id), old_metadata).unwrap();
+
+        let result = store.save_with_privacy_and_id(CheckpointSave {
+            label: "collision",
+            step: 1,
+            avg_err: 0.0,
+            damping: 1.0,
+            snapshot: &KernelSnapshot::default(),
+            redact_user_content: false,
+            id,
+        });
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(store.meta_path(id)).unwrap(), old_metadata);
+        assert!(!store.snap_path(id).exists());
         let _ = fs::remove_dir_all(dir);
     }
 }
