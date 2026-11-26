@@ -31,4 +31,4 @@ kernel.inner.l0.decision.observe(arm, reward); // if using BanditUcbDecisionMake
 
 ## Why this exists
 
-`BanditKernel` provides explicit arm tracking and selection instead of relying on soft modulation to change a constrained decision. `DecisionMaker::observe` feeds each selected arm's reward into UCB statistics. L1 and L2 remain independently gated and disabled by default; constructing a `BanditKernel` does not enable either mutation path.
+`BanditKernel` provides explicit arm tracking and selection instead of relying on soft modulation to change a constrained decision. `DecisionMaker::observe` feeds each selected arm's reward into UCB statistics. L1 and L2 have independent gates: L1 self-modification is disabled by default and bounded L2 intervention is enabled by default. Constructing a `BanditKernel` does not change either default.

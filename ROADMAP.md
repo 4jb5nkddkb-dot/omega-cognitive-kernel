@@ -2,7 +2,7 @@
 
 This roadmap describes the next development sequence for Omega Cognitive Kernel based on the current source tree, Memory Bank, changelog, benchmarks, and the existing 0.5 roadmap.
 
-The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `5`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
+The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `6`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
 
 ## Planning principles
 
@@ -20,7 +20,7 @@ The current implementation provides a generic `Kernel<O, D, E>` over observer, d
 
 ### Known baseline gaps
 
-The paired UCB nonstationary treatment records a small measured task-performance delta, but the current scenarios produce no executable L2 commits. This does not demonstrate an L2 benefit. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
+The paired benchmark now distinguishes commits, counterfactual candidate/selection changes, and formally attributed L0 interventions. The 2026-11-26 ordinary-L2 experiments produced executable commits, but failed the preregistered reward criterion and did not reproduce the positive discovery estimate in validation. Spectral-control experiments also failed to demonstrate benefit and remain opt-in. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
 
 ## Phase 0 — Stabilize and release the current line
 
@@ -30,20 +30,18 @@ The paired UCB nonstationary treatment records a small measured task-performance
 
 ### Work items
 
-- Align `Cargo.toml`, Python package metadata, README, API notes, architecture notes, release notes, and tags around a single declared source/release story.
-- Update `docs/API_0.5.md` to cover schema v5, L1/L2 independent gates, L2 consequence feedback, rollback state, current status fields, and fail-closed persistence semantics.
-- Update `ARCHITECTURE.md` to identify the current source baseline and schema version rather than the historical 0.5.1 label.
-- Complete the default, `--all-features`, Python, async, GUI, no-std, and WASM verification matrix in CI or document intentional exclusions.
-- Add release notes for the current source line and make `RELEASING.md` use version variables instead of stale historical branch/tag examples.
-- Establish a reproducible benchmark report with fixed seeds, baseline configuration, action diversity, switching behavior, post-commit consequences, and explicit improvement or no-improvement outcomes.
-- Add a documented compatibility policy for snapshot migration and additive audit-event changes.
+- Publish and verify the declared source line before presenting version-specific registry or tag installation commands.
+- Keep schema v6 migration, L1/L2 independent gates, `L2Policy` execution attribution, current status fields, and fail-closed persistence semantics synchronized with source.
+- Preserve the CI verification matrix for default, `--all-features`, Python, async, GUI, no-std, and WASM targets.
+- Archive benchmark JSON with its full implementation commit, command, diagnostic-definition version, and stdout checksum; avoid unverifiable local-only evidence.
+- Extend deterministic fault injection and resource-limit coverage as described in Phase 1.
 
 ### Exit criteria
 
 - A clean checkout can run the documented Rust and Python verification commands.
 - The declared source version, Python version, package metadata, release notes, and installation examples agree.
-- API/architecture docs describe the actual schema v5 and current L2 behavior.
-- L2 benchmark artifacts can be regenerated and compared across commits.
+- API/architecture docs describe the actual schema v6 and current L1/L2 behavior.
+- L2 benchmark artifacts can be regenerated and compared across commits with their diagnostic-definition version recorded.
 - No release is presented as verified when a required matrix entry was skipped.
 
 ## Phase 1 — Reliability, determinism, and observability
@@ -99,11 +97,10 @@ The paired UCB nonstationary treatment records a small measured task-performance
 
 ### Work items
 
-- Define benchmark scenarios for stationary, non-stationary, noisy, adversarial, and high-risk environments.
-- Compare L1 disabled/enabled and L2 disabled/enabled arms with fixed seeds and confidence intervals, not only single-run averages.
+- Extend the fixed-seed scenarios beyond the existing stable, nonstationary, degraded, fixed-point, regime-shift, and cyclic-shift fixtures into noisy, adversarial, and high-risk environments.
+- Evaluate each new controller hypothesis with fixed L1/L2 ablations, paired seeds, confidence intervals, and preregistered acceptance criteria; do not resume stopped parameter-tuning routes without a new hypothesis.
 - Track reward, prediction error, risk, action diversity, switching cost, patch frequency, rollback frequency, and defensive-mode duration.
-- Add a clear acceptance rule for modulation: a candidate must improve the declared objective without violating risk, persistence, or rollback invariants.
-- Add policy replay or counterfactual analysis only if it can remain bounded and does not imply re-executing an external world.
+- Retain bounded pre-action counterfactual analysis and its distinction from actual execution attribution; never substitute model self-evaluation for external reward.
 - Keep experimental heuristics behind explicit configuration and label them as experimental until promoted.
 
 ### Exit criteria

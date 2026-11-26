@@ -2,17 +2,9 @@
 
 **Package:** [omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel)
 
-The source tree currently targets **0.6.0**. Use crates.io for the latest published version rather than assuming a Git tag was published to crates.io.
+The source tree currently targets **0.6.0**, independently of registry availability. Use `cargo add omega-cognitive-kernel` for the latest published package; inspect its API and feature set rather than assuming it matches this checkout. For this checkout, use a path dependency or a verified full Git commit as described in [INTEGRATING.md](./INTEGRATING.md).
 
-```bash
-cargo add omega-cognitive-kernel
-```
-
-```toml
-omega-cognitive-kernel = "0.6.0"
-```
-
-Git tag install (CLI / GUI binaries) remains available — see README.
+Published release installation remains available through the README only when the corresponding tag or registry version actually exists.
 
 ## Publish checklist (next versions)
 

@@ -2,9 +2,9 @@
 
 **Problem:** assistants often stay trapped in the user's local frame ("fix dlltool") instead of proposing a lower-cost path (Codespaces) — or, worse, over-advise on high-stakes domains.
 
-**Response:** explicit **mode + friction + max intervention level**, stored in `omega.toml`, visible to operators via config and (later) audit panel.
+**Response:** explicit **mode + friction + max intervention level**, stored in `omega.toml`, visible to operators via config and the `audit --summary` policy block.
 
-This is **policy configuration**, not model weights. Runtime enforcement can grow in 0.5.x; the contract starts here.
+This is **policy configuration**, not model weights. The sections below distinguish the implemented policy helpers from host integrations that remain deferred.
 
 ---
 
@@ -64,6 +64,6 @@ Library helpers (already in `InterventionPolicy`):
 1. [x] Config types + example TOML + this doc
 2. [ ] Wire friction counters from host/agent observations
 3. [ ] Audit events: `path_alternative_suggested` / `intervention_suppressed`
-4. [ ] Surface policy block in `audit --summary`
+4. [x] Surface policy block in `audit --summary`
 
 See also: [AUDIT_PANEL.md](./AUDIT_PANEL.md), [PRODUCT.md](./PRODUCT.md).

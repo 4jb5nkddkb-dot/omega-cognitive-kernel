@@ -12,7 +12,7 @@ World (L0) -> Reflect & patch (L1) -> Meta-modulate (L2) -> bias next L0
 
 ## Why Omega?
 
-Adaptive systems often require retraining/fine-tuning or allow unrestricted code changes that are difficult to inspect and reverse. Omega takes a narrower approach: online adaptation is expressed as bounded `RuleEffect` data, validated before use, persisted as cognitive state, and exposed through audit and replay surfaces.
+Adaptive systems often require retraining/fine-tuning or allow unrestricted code changes that are difficult to inspect and reverse. Omega takes a narrower approach: online adaptation is expressed as bounded `RuleEffect` data and validated `L2Policy` snapshots, persisted as cognitive state, and exposed through audit and replay surfaces.
 
 The current repository is a **research prototype**. The Rust and Python packages declare version `0.6.0`. The `v0.6.0` tag and registry availability follow the release process; check the linked package registries for published versions.
 
@@ -42,7 +42,7 @@ L1 is disabled by default. The patch metadata may contain descriptive code and e
 
 ### L2: bounded meta-modulation
 
-L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it applies bounded changes to biases, constraints, and `RuleEffect`. L2 stores the pre-commit effect and accepts later reward/error/risk feedback through `observe_l2_consequence`.
+L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it queues an immutable `L2Policy` expert/KL prior for the next L0 decision. L0 dwell, margin, and safety checks still apply. L2 also retains rollback/consequence state and accepts reward/error/risk feedback through `observe_l2_consequence`.
 
 L2 is an independent channel and **enabled by default**; L1 self-modification remains disabled. To freeze all policy mutation, disable both gates. Use `set_l2_enabled(false)` for a monitoring-only baseline and `set_l2_enabled(true)` to re-enable bounded interventions. Benchmark results do not by themselves establish effectiveness across other tasks. See [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md).
 
@@ -50,32 +50,29 @@ L2 is an independent channel and **enabled by default**; L1 self-modification re
 
 ### Use the Rust library
 
+For the published Rust library, use:
+
 ```bash
 cargo add omega-cognitive-kernel
 ```
 
-Or add the dependency manually:
+This resolves the latest registry release, which may not expose the current checkout's API. To use the source in this repository, add a path dependency while developing locally:
 
 ```toml
 [dependencies]
-omega-cognitive-kernel = "0.6.0"
+omega-cognitive-kernel = { path = "/path/to/omega-cognitive-kernel" }
 ```
 
-### Install the CLI from the repository
+### Install the CLI from a checkout
+
+Run from the repository root:
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \
-  --tag v0.6.0 --locked
+cargo install --path . --locked
+cargo install --path . --locked --features gui --bin omega-dashboard
 ```
 
-Install the optional dashboard with the `gui` feature:
-
-```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel \
-  --tag v0.6.0 --locked --features gui --bin omega-dashboard
-```
-
-Check the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page for published binaries and the [crates.io package](https://crates.io/crates/omega-cognitive-kernel) for the latest published library version.
+For a reproducible remote source installation, use `--git <repository-url> --rev <verified-full-commit>` rather than an unpublished tag. Check the [Releases](https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/releases) page for published binaries and the [crates.io package](https://crates.io/crates/omega-cognitive-kernel) for the latest published library version.
 
 ### Python bindings
 
@@ -201,7 +198,7 @@ Given a state path such as `.omega/state.json`, the runtime stores:
 └── checkpoints/        # full rollback snapshots
 ```
 
-The current on-disk schema is version `5`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, and the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
+The current on-disk schema is version `6`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, the resident L2 controller, bounded cache, Dayan residual, pending/applied policy snapshots, and a per-instance case-replay cursor. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
 
 State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored. These failures do not roll back an external action that an executor already performed; custom executors need their own timeout, idempotency, and recovery policy.
 
@@ -218,8 +215,12 @@ src/
 ├── types.rs           # Observation, Action, Trajectory, RuleEffect, patches
 ├── l0/                # observers, predictors, decisions, executors
 ├── l1/                # abstraction, reflection, sandbox, versioned store
-├── l2/                # metrics, emergence, fixed-point, modulation
+├── l2/                # resident controller, fixed-point, L2Policy, spectral diagnostics
 ├── memory/            # cases, strategies, CAS, MemoryFacade
+├── body/ goals/       # independently exported body-channel and goal utilities
+├── planning/ reactor/ # proposal/scheduling helpers outside the default Kernel loop
+├── llm/ introspect/   # proposal validation and entropy observation helpers
+├── critic.rs          # bounded reward/trial utilities
 ├── persist.rs         # KernelSnapshot, migration, atomic save
 ├── audit.rs           # append-only events and polling
 └── safety/            # default decision constraints
@@ -249,6 +250,8 @@ Before changing behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs),
 
 ## Documentation map
 
+Current behavior is documented in the files below. `RELEASE_NOTES_v*.md`, `docs/API_FREEZE_0.4.md`, `docs/ROADMAP_0.5.md`, dated experiment results, and weekly reports are historical snapshots rather than current-default references.
+
 | Document | Focus |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layer model, safety gates, and persistence design |
@@ -256,7 +259,9 @@ Before changing behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs),
 | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | Adapters, configuration, and embedding |
 | [`docs/CLOSED_LOOP.md`](docs/CLOSED_LOOP.md) | Safety switches and trajectory behavior |
 | [`docs/DASHBOARD.md`](docs/DASHBOARD.md) | Operator dashboard workflows |
-| [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | `no_std`, WASM, and embedded portability |
+| [`docs/PORTABILITY.md`](docs/PORTABILITY.md) | 中文可移植性摘要；权威矩阵见 `docs/HOST_PORTABILITY.md` |
+| [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) | 实验方法、预注册判据及结果（中文） |
+| [`docs/HOST_PORTABILITY.md`](docs/HOST_PORTABILITY.md) | Host/no_std/WASM and snapshot verification matrix |
 | [`docs/L2_BENCHMARK.md`](docs/L2_BENCHMARK.md) | Reproducible L2 baseline comparison |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Installation and runtime troubleshooting |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release history and unreleased changes |

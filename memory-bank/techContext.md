@@ -14,7 +14,9 @@ The default features are `std`, `ureq`, and `toml`. `gui` enables eframe/egui/rf
 
 `src/api.rs` owns the product-facing generic `Kernel`, default construction, configuration application, step/run/status, snapshot conversion, save/load, checkpoint/rollback, event hooks, audit access, and trajectory replay. `src/orchestrator.rs` composes the three layers.
 
-`src/types.rs` defines `Observation`, `Prediction`, `Intent`, `Action`, `Trajectory`, `RuleEffect`, `CognitivePatch`, `MetaMetrics`, and `SystemState`. `src/l0` defines `Observer`, `Predictor`, `DecisionMaker`, `Executor`, and `L0WorldLayer`. `src/l1` defines the abstraction/reflector/sandbox/store patch path. `src/l2` defines monitor, detector, fixed-point scorer, modulator, and consequence handling. `src/memory` defines case, strategy, CAS, and facade state.
+`src/types.rs` defines `Observation`, `Prediction`, `Intent`, `Action`, `Trajectory`, `RuleEffect`, `CognitivePatch`, `MetaMetrics`, and `SystemState`. `src/l0` defines `Observer`, `Predictor`, `DecisionMaker`, `Executor`, and `L0WorldLayer`. `src/l1` defines the abstraction/reflector/sandbox/store patch path. `src/l2` defines monitor, detector, fixed-point scorer, `L2Policy` intervention, and consequence handling. `src/memory` defines case, strategy, CAS, and facade state.
+
+The crate also exports standalone body-channel, goal, planning, reactor, LLM-proposal, entropy-watchdog, critic, and hybrid-world-model utilities. Most are independent integration surfaces rather than components of the default `Kernel` loop; see `src/lib.rs` re-exports.
 
 ## On-disk artifacts
 

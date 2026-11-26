@@ -144,8 +144,10 @@ impl L1CognitiveLayer {
         })
     }
     /// Generate and statically validate a patch without changing store, memory,
-    /// cooldown, rollback state, or any durable sidecar. This is not a reward
-    /// prediction: external efficacy requires a paired environment evaluation.
+    /// cooldown, rollback state, or any durable sidecar. This public helper is
+    /// available to integrators building their own dry-run diagnostics; the
+    /// built-in benchmark currently dry-runs L0/L2 decisions only. It is not a
+    /// reward prediction: external efficacy requires a paired environment evaluation.
     pub fn dry_run_patch(
         &self,
         trajectory: &Trajectory,

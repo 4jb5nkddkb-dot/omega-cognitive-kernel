@@ -165,8 +165,3 @@ fn reason(code: u16) -> &'static str {
         _ => "OK",
     }
 }
-
-#[allow(dead_code)]
-fn _path_exists(p: &Path) -> bool {
-    p.exists()
-}

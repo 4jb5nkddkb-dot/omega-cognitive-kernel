@@ -1,7 +1,7 @@
 # API notes — 0.6.x
 
 **Source baseline:** `0.6.0`
-**On-disk state schema:** `5`
+**On-disk state schema:** `6`
 **API status:** the 0.6 surface is implemented in the current source tree. L1/L2 heuristics and the exact trajectory payload remain experimental.
 
 This document describes the public Rust API, persisted state, audit/event stream, and compatibility expectations. It complements [`INTEGRATING.md`](INTEGRATING.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
@@ -44,15 +44,15 @@ The runtime has two intentionally independent mutation channels:
 | Channel | Public control | Default | Effect |
 |---|---|---:|---|
 | L1 discrete patch | `self_modify_enabled` / `KernelConfig.self_modify_enabled` | `false` | Allows a validated `CognitivePatch` to install a new `RuleEffect` and active-module version |
-| L2 continuous modulation | `set_l2_enabled(bool)` | `true` | Allows bounded bias/constraint/effect modulation while metric monitoring remains available |
+| L2 policy intervention | `set_l2_enabled(bool)` | `true` | Allows bounded expert/KL-prior snapshots for subsequent L0 decisions while metric monitoring remains available |
 
 `self_modify_enabled = false` does not disable L2. To freeze all policy mutation, disable both gates explicitly. Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
 
 L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed.
 
-## Schema v5 and migration
+## Schema v6 and migration
 
-`CURRENT_SCHEMA_VERSION` is `5`. `KernelSnapshot` persists the following groups of state:
+`CURRENT_SCHEMA_VERSION` is `6`. `KernelSnapshot` persists the following groups of state:
 
 - `total_steps`, `biases`, `constraints`, CAS totals/error/adaptation score.
 - The active `RuleEffect`.
@@ -61,17 +61,18 @@ L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandb
 - L1 `self_modify_enabled`, `steps_since_last_patch`, and pending rollback state.
 - Optional `l2_rollback_effect`, the pre-commit effect used for negative-feedback rollback.
 - UCB decision state/configuration, the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots.
+- The per-instance `case_sample_counter` used by deterministic prioritized case replay.
 
 Loading accepts older snapshots and calls `KernelSnapshot::migrate`:
 
 ```text
-v0 or missing version -> v1 -> v2 -> v3 -> v4 -> v5
-newer than v5 -> error
+v0 or missing version -> v1 -> v2 -> v3 -> v4 -> v5 -> v6
+newer than v6 -> error
 ```
 
 Missing legacy safety fields default to L1/L2 disabled, a warm patch cooldown, no saved rollback effect, and dormant `KEEP_L0` policies. When L2 is disabled, migration clears restored pending/applied interventions rather than granting permission from serialized controller state. A future schema bump must add an explicit migration path and regression tests before release.
 
-State saves create the parent directory, serialize version `5`, write a same-directory temporary file, call `sync_all`, and atomically rename it over the target. Failed replacement removes the temporary file and preserves the previous target where the operating system permits it.
+State saves create the parent directory, serialize version `6`, write a same-directory temporary file, call `sync_all`, and atomically rename it over the target. Failed replacement removes the temporary file and preserves the previous target where the operating system permits it.
 
 ## L2 API and consequence feedback
 
@@ -86,9 +87,10 @@ State saves create the parent directory, serialize version `5`, write a same-dir
 | `dwell_steps` | Consecutive steps in the fixed-point regime |
 | `candidate_score` / `score_breakdown` | Candidate modulation score and components |
 | `modulation_proposed` | A candidate was evaluated |
-| `modulation_committed` | The candidate passed commit checks and was applied |
-| `modulation_gain` | Bounded scale applied to the modulation |
-| `effect_nudge` | Optional bounded `RuleEffect` update |
+| `modulation_committed` | The candidate passed commit checks and queued an immutable `L2Policy` for a subsequent L0 decision; it does not by itself prove that L0 applied the policy |
+| `modulation_gain` | Bounded scale associated with the modulation result |
+| `effect_nudge` | Optional bounded `RuleEffect` update; the ordinary UCB intervention path uses `L2Policy` rather than requiring this field |
+| `l2_policy` / `applied_policy` | Newly queued policy and the policy attributed to the action actually taken, respectively |
 | `biases` / `constraints` | Updated L0 maps returned to the orchestrator |
 
 By default, L2 uses a commit threshold of `0.82` and a five-step commit cooldown. A commit is additionally blocked by defensive mode and consequence-stability conditions. On commit, the previous effect is stored in `rollback_effect` and the layer waits for feedback.
