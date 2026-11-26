@@ -372,8 +372,7 @@ mod tests {
           content: serde_json::json!({"x": 0.4}),
           confidence: 0.9,
          source: "sensor".into(),
-        modality: crate::types::Modality::Text,
-          
+            modality: crate::types::Modality::Text,
         }];
         let preds = predictor
             .predict(&obs, &HashMap::new())
