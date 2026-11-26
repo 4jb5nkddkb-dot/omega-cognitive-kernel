@@ -517,6 +517,7 @@ mod tests {
     fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
         let mut kernel = make_kernel();
         let initial_effect = kernel.l0.memory.cognitive_effect.clone();
+        kernel.l2.enabled = false;
         kernel.l1.self_modify_enabled = true;
         kernel.l1.steps_since_last_patch = 10;
         kernel.l1.reflector.error_threshold = 0.15;
@@ -524,9 +525,10 @@ mod tests {
         let step1 = kernel.run_once("test").expect("step 1");
         assert!(step1.l1.patched);
         assert!(kernel.l1.pending_rollback);
-        kernel.l0.memory.cas.avg_prediction_error = 0.0;
+        kernel.l0.memory.cas.avg_prediction_error = -1.0;
         kernel.run_once("test").expect("step 2");
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
+        assert!(kernel.l2.pending_l1_rollback);
     }
 }
