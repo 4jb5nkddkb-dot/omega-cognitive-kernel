@@ -40,6 +40,8 @@ L1 distills a trajectory and reflects a candidate `CognitivePatch`. When `self_m
 
 L1 is disabled by default. The patch metadata may contain descriptive code and expected-effect text, but the behavior-changing surface is the structured `RuleEffect`, not executable patch code.
 
+`CodeSandbox` performs only static rule checks, forbidden-keyword checks, and `RuleEffect` bound checks (it does not compile or execute arbitrary code). When `l1_shadow_mode` is enabled, L1 runs dry-run validation (validating and emitting `patch_id` without mutating `cognitive_effect`). When L2 is in active intervention, defensive mode, or rollback cooldown, L2 holds write arbitration priority (`blocks_l1_write`). In addition, `OmegaOrchestrator::run_once` integrates L1 consequence observation and automatic rollback.
+
 ### L2: bounded meta-modulation
 
 L2 evaluates meta-metrics and can detect a fixed-point regime. When its alignment score, cooldown, defensive-mode, and consequence-stability checks allow a commit, it queues an immutable `L2Policy` expert/KL prior for the next L0 decision. L0 dwell, margin, and safety checks still apply. L2 also retains rollback/consequence state and accepts reward/error/risk feedback through `observe_l2_consequence`.
@@ -114,7 +116,7 @@ cargo run --release --features gui --bin omega-dashboard
 
 The default kernel persists state, audit events, and trajectory data under the state path. `Kernel::open(None)` resumes an existing state file when present or creates a new kernel otherwise.
 
-```rust
+```rust,no_run
 use omega_cognitive_kernel::Kernel;
 
 fn main() -> omega_cognitive_kernel::Result<()> {
@@ -172,6 +174,7 @@ For custom world integration, implement the public `Observer`, `DecisionMaker`, 
 | `min_steps_between_patches` | `3` | L1 patch cooldown |
 | `max_risk` | `0.65` | L0 decision constraint |
 | `self_modify_enabled` | `false` | L1 discrete patch gate |
+| `l1_shadow_mode` | `false` | L1 dry-run validation without mutating RuleEffect |
 | `l2.enabled` | `true` | L2 bounded-modulation gate |
 
 Example configuration:
@@ -185,6 +188,7 @@ error_threshold = 0.30
 min_steps_between_patches = 3
 max_risk = 0.65
 self_modify_enabled = false
+l1_shadow_mode = false
 
 [privacy]
 redact_user_content = false
@@ -219,17 +223,17 @@ src/
 ├── api.rs             # public Kernel API, persistence, audit, replay, status
 ├── orchestrator.rs    # L0/L1/L2 composition and one-cycle execution
 ├── types.rs           # Observation, Action, Trajectory, RuleEffect, patches
-├── l0/                # observers, predictors, decisions, executors
+├── l0/                # observers, predictors, decisions, executors, hybrid predictor
 ├── l1/                # abstraction, reflection, sandbox, versioned store
 ├── l2/                # resident controller, fixed-point, L2Policy, spectral diagnostics
-├── memory/            # cases, strategies, CAS, MemoryFacade
+├── memory/            # cases, strategies, CAS, MemoryFacade, weights
 ├── body/ goals/       # independently exported body-channel and goal utilities
 ├── planning/ reactor/ # proposal/scheduling helpers outside the default Kernel loop
 ├── llm/ introspect/   # proposal validation and entropy observation helpers
 ├── critic.rs          # bounded reward/trial utilities
 ├── persist.rs         # KernelSnapshot, migration, atomic save
 ├── audit.rs           # append-only events and polling
-└── safety/            # default decision constraints
+└── safety/            # default decision constraints, crypto, token book, and vault primitives
 
 bindings/python/       # PyO3 bindings
 examples/              # integration and adapter examples
