@@ -352,13 +352,23 @@ where
             "HttpObserver total timeout during DNS lookup".into(),
         ));
     }
-    ACTIVE_HTTP_DNS_LOOKUPS
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-            (active < MAX_ACTIVE_HTTP_DNS_LOOKUPS).then_some(active + 1)
-        })
-        .map_err(|_| {
-            OmegaError::ExecutionBlocked("HttpObserver DNS lookup capacity exhausted".into())
-        })?;
+    let mut active = ACTIVE_HTTP_DNS_LOOKUPS.load(Ordering::Acquire);
+    loop {
+        if active >= MAX_ACTIVE_HTTP_DNS_LOOKUPS {
+            return Err(OmegaError::ExecutionBlocked(
+                "HttpObserver DNS lookup capacity exhausted".into(),
+            ));
+        }
+        match ACTIVE_HTTP_DNS_LOOKUPS.compare_exchange_weak(
+            active,
+            active + 1,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(observed) => active = observed,
+        }
+    }
 
     let slot = HttpDnsLookupSlot;
     let (sender, receiver) = mpsc::sync_channel(1);
