@@ -72,12 +72,12 @@ These capabilities are deliberately **not** in the public core so they can later
 1. **NOTICE** file present — distinguishes code license from trademark and commercial rights
 2. Core stays permissively licensed while adoption is the priority
 3. Before accepting non-trivial external contributions that touch the core, a CLA should be introduced so future dual-licensing or commercial exception remains possible
-4. From a future major line (e.g. 0.6+), core may move MIT → Apache 2.0 for explicit patent grant if copyright ownership is clean
+4. From a future major line, the core may move MIT → Apache 2.0 for explicit patent grant if copyright ownership is clean.
 
 ## Next product steps (prioritized)
 
 1. **Dashboard polish & demo readiness** — deepen operator UX, ensure examples are copy-paste friendly for integrators.
-2. **Adoption path** — keep 0.5.x additive; improve INTEGRATING.md and examples coverage.
+2. **Adoption path** — keep the current 0.6 source line documented and verify registry/tag availability before publishing installation commands; improve INTEGRATING.md and examples coverage.
 3. **omega-core-next decision** — either seed as commercial control-plane sketch or archive until needed.
 4. Real caller-driven service/auth only when a concrete deployment needs it.
 5. Keep the open-core boundary clear: new monetizable surface goes into the commercial layer, not the public core by default.

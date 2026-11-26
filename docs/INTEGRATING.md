@@ -10,17 +10,15 @@ Target source version: **v0.6.0**. See [crates.io](https://crates.io/crates/omeg
 
 ## 1. Add the dependency
 
+For the published package, use `cargo add omega-cognitive-kernel`. Its registry version may not match this source tree or expose its newest APIs. To integrate this checkout, use a path dependency:
+
 ```toml
 # Cargo.toml
 [dependencies]
-omega-cognitive-kernel = "0.6.0"
+omega-cognitive-kernel = { path = "/path/to/omega-cognitive-kernel" }
 ```
 
-```bash
-cargo add omega-cognitive-kernel
-```
-
-Git pin for the matching source release: `{ git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", tag = "v0.6.0" }`.
+For a remote source dependency, pin a verified full commit with `{ git = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel", rev = "<full-commit-sha>" }`. Do not assume a source version already has a matching Git tag or registry release.
 
 ---
 

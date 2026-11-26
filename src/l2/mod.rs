@@ -39,7 +39,8 @@ pub struct L2Result {
     pub modulation_committed: bool,
     pub modulation_gain: f64,
     pub score_breakdown: HashMap<String, f64>,
-    /// Soft-updated RuleEffect after L2 modulation (if any).
+    /// Optional bounded `RuleEffect` update for compatibility paths. The
+    /// ordinary UCB intervention path uses `L2Policy` instead.
     pub effect_nudge: Option<RuleEffect>,
     /// The local UCB selection that caused this step's L1/L2 consequences.
     pub decision: Option<crate::types::L2DecisionRecord>,

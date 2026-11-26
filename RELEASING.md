@@ -3,7 +3,7 @@
 ## Project identity
 
 - Repository: `omega-cognitive-kernel`
-- Current development branch: `fix/audit-tests`
+- Releases are prepared from a clean, up-to-date `main` unless a maintainer explicitly chooses another reviewed revision.
 
 ## Distribution channels
 
@@ -29,7 +29,7 @@ The version check compares the optional tag, `Cargo.toml`, `bindings/python/Carg
 
 Confirm before tagging:
 
-- [ ] `Cargo.toml` version matches the tag (e.g. `0.5.4` ↔ `v0.5.4`)
+- [ ] `Cargo.toml` version matches the tag (e.g. `X.Y.Z` ↔ `vX.Y.Z`)
 - [ ] `bindings/python/Cargo.toml` has the same package version as `Cargo.toml`
 - [ ] The source-checkout `Cargo.lock` is up to date (`cargo metadata --locked --no-deps`)
 - [ ] `CHANGELOG.md` has a section for this version
@@ -42,14 +42,14 @@ Confirm before tagging:
 
 Preferred: trigger **Release** workflow (`workflow_dispatch`) on `main` after version bump + docs.
 
-Manual tag path:
+Manual tag path (replace `X.Y.Z` with the version already verified by `scripts/check-release-version.py`):
 
 ```bash
 git checkout main
-git pull
-git tag -a v0.5.4 -m "v0.5.4: CLI strategy-weight/audit-poll, dashboard audit follow"
+git pull --ff-only
+git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main
-git push origin v0.5.4
+git push origin vX.Y.Z
 ```
 
 Pushing a `v*` tag / dispatching release runs `.github/workflows/release.yml`:
@@ -62,9 +62,11 @@ Paste long notes from `RELEASE_NOTES_vX.Y.Z.md` into the GitHub Release body if 
 
 ## Install a release
 
+After the chosen `vX.Y.Z` tag exists and its release checks are green:
+
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.4 --locked
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.5.4 --locked --features gui --bin omega-dashboard
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag vX.Y.Z --locked
+cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag vX.Y.Z --locked --features gui --bin omega-dashboard
 omega-kernel demo
 omega-kernel status
 ```

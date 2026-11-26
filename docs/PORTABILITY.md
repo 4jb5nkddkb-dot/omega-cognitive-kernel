@@ -1,7 +1,9 @@
-# Portability Status
+# 可移植性摘要
 
-**Last updated:** 2026-11-22
+**Last updated:** 2026-11-26
 **Target source version:** 0.6.0
+
+本文档是中文概览；权威构建命令和验证矩阵见 [HOST_PORTABILITY.md](./HOST_PORTABILITY.md)。
 
 ## 目标
 
@@ -25,7 +27,7 @@
 ## 已知限制
 
 - 完整 Dashboard 与 CLI 仍依赖 `std`。
-- 文件持久化在 `no_std` 下需要宿主实现 `Storage` trait。
+- 文件持久化在 `no_std` 下需要宿主存储适配层；当前 crate 尚未导出该 trait。
 - HTTP adapter、tracing-subscriber 等仅在 `std` 下可用。
 - GUI（egui/eframe）不支持 no_std / WASM 桌面。
 
@@ -55,5 +57,5 @@ pub trait HostStorage {
 
 ## 下一步
 
-- [ ] 补一份完整的宿主 Storage trait 文档与示例
-- [ ] 增加嵌入式目标的编译检查（可选）
+- [ ] 补一份完整的宿主 `HostStorage` trait 文档与示例
+- [x] 增加 `thumbv7em-none-eabihf` 嵌入式目标的编译检查（`scripts/test-no-std.sh`）

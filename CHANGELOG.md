@@ -4,7 +4,7 @@
 
 ### Correctness / verification
 - Make prioritized case replay deterministic across kernels, threads, and repeated runs. Schema v6 persists each memory's replay cursor; legacy snapshots migrate without granting L2 permissions.
-- Add opt-in spectral-control experiments, non-mutating L0/patch dry-runs, per-step signal and execution diagnostics, paired bootstrap intervals, and documented acceptance criteria. Spectral intervention remains disabled by default; the preregistered discovery and independent validation runs did not demonstrate improvement, so this route is stopped without further parameter tuning.
+- Add opt-in spectral-control experiments, non-mutating L0 dry-runs, per-step signal and execution diagnostics, paired bootstrap intervals, and documented acceptance criteria. Spectral intervention remains disabled by default; the preregistered discovery and independent validation runs did not demonstrate improvement, so this route is stopped without further parameter tuning.
 - Make benchmark reports byte-replayable with key-sorted aggregation/serialization and local replay cursors. Keep wall-clock patch metadata out of fixed-point control scoring.
 - Enable bounded L2 interventions by default for new kernels and missing `[l2]` configuration while keeping L1 self-modification disabled. Legacy snapshots without an explicit L2 permission still migrate with L2 disabled.
 - Document the schema v6 replay-cursor state, retain v5 migration coverage, and keep Python snapshot checks without changing the historical 0.6.0 schema-v2 release notes.
@@ -12,6 +12,10 @@
 - Add per-seed paired L2 benchmark reports with descriptive 95% intervals so non-intervention differences cannot be mistaken for demonstrated L0 influence. Isolate task/tool-gate/audit-panel test state and benchmark sidecars in per-run directories.
 - Attribute L2 feedback and benchmark rewards to the policy that actually changed the executed L0 decision, retain KEEP_L0 selection propensities, consume each committed snapshot once, and preserve queued policy state across restart without injecting it during snapshot restoration. Add per-expert applied/not-applied evidence; spectral cognitive-realm output remains observational and does not grant execution permission.
 - Fix the Rust 1.74 Clippy gate, cover the active development branch in CI, and stop recursively deriving auto-commit subjects from previous commits.
+
+### Documentation
+- Align schema-v6 migration, executable source-installation guidance, and independent L1/L2 defaults with the current runtime. Document L2 `L2Policy` execution attribution separately from commits and no-op proposals.
+- Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
 
 ## [0.6.0] — 2026-11-22
 

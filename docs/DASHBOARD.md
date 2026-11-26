@@ -8,10 +8,10 @@ Desktop control panel for the cognitive kernel (egui).
 cargo run --release --features gui --bin omega-dashboard
 ```
 
-Or install the binary:
+Or install from this checkout (run from the repository root):
 
 ```bash
-cargo install --git https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel --tag v0.6.0 --locked --features gui --bin omega-dashboard
+cargo install --path . --locked --features gui --bin omega-dashboard
 ```
 
 Windows: produces a pure GUI window (no console) via `windows_subsystem`.

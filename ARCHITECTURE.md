@@ -1,7 +1,7 @@
 # Architecture — Omega Cognitive Kernel
 
 **Source baseline:** `0.6.0`
-**State schema:** `5`
+**State schema:** `6`
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
 ```text
@@ -114,11 +114,11 @@ The default state path is `.omega/state.json`. Sidecars are placed beside it:
 └── checkpoints/        # complete rollback snapshots
 ```
 
-`KernelSnapshot` persists total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L1 self-modification/cooldown state, UCB decision state, and the resident L2 controller, bounded cache, Dayan residual, and pending/applied policy snapshots.
+`KernelSnapshot` persists total steps, biases, constraints, CAS metrics, `RuleEffect`, cases, strategies, active modules, patch history, L1 self-modification/cooldown state, UCB decision state, the resident L2 controller, bounded cache, Dayan residual, pending/applied policy snapshots, and a per-instance case-replay cursor.
 
-Loading migrates v0 or missing-version snapshots through v1, v2, v3, and v4 to v5. Missing legacy safety fields default to L1/L2 disabled, a warm patch cooldown, no rollback effect, and `KEEP_L0` policy snapshots. Migrating with L2 disabled clears any restored pending/applied intervention and forces the controller dormant. A snapshot with a version newer than the supported schema is rejected. A schema bump requires a migration function, compatibility tests, and release documentation.
+Loading migrates v0 or missing-version snapshots through v1, v2, v3, v4, and v5 to v6. Missing legacy safety fields default to L1/L2 disabled, a warm patch cooldown, no rollback effect, and `KEEP_L0` policy snapshots. Migrating with L2 disabled clears any restored pending/applied intervention and forces the controller dormant. A snapshot with a version newer than the supported schema is rejected. A schema bump requires a migration function, compatibility tests, and release documentation.
 
-Saving serializes schema v5 to a same-directory temporary file, calls `sync_all`, and atomically renames it over the state path. Temporary files are removed on failure. Audit append, trajectory write, and autosave errors propagate through `Kernel::step`; a step must not report success after dropping a durable transition. External execution happens before these writes, so a returned error cannot imply that an executor's side effect was rolled back.
+Saving serializes schema v6 to a same-directory temporary file, calls `sync_all`, and atomically renames it over the state path. Temporary files are removed on failure. Audit append, trajectory write, and autosave errors propagate through `Kernel::step`; a step must not report success after dropping a durable transition. External execution happens before these writes, so a returned error cannot imply that an executor's side effect was rolled back.
 
 ## Audit and replay ordering
 

@@ -25,7 +25,7 @@ Kernel::step(goal)
 
 L1 is the discrete patch channel and is disabled by default through `self_modify_enabled = false`. L1 must distill a trajectory, reflect a candidate patch, sanitize its `RuleEffect`, validate it through `CodeSandbox`, and only then update the active effect and versioned store. A cooldown counter limits immediate repatching.
 
-L2 is independent and enabled by default for new kernels. It monitors metrics even when disabled, and may change biases, constraints, and the current `RuleEffect` only while enabled and fixed-point/alignment scoring clears the commit threshold and cooldown/defensive checks. Negative consequence feedback can restore the saved pre-commit effect. Legacy snapshots without an explicit L2 permission remain disabled after migration.
+L2 is independent and enabled by default for new kernels. It monitors metrics even when disabled. A validated commit queues an `L2Policy` expert/KL prior for a subsequent L0 decision; it does not bypass L0 dwell/margin/safety checks. Negative consequence feedback can restore the saved pre-commit effect. Legacy snapshots without an explicit L2 permission remain disabled after migration.
 
 ## Repository structure
 
