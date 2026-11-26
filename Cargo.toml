@@ -39,6 +39,8 @@ std = [
   "tracing/std",
   "dep:clap",
   "dep:tracing-subscriber",
+  "dep:chacha20poly1305",
+  "dep:getrandom",
 ]
 # Optional toml support (requires indexmap 2.x / Rust 2024).
 toml = ["dep:toml"]
@@ -80,6 +82,7 @@ tokio = { version = "1", optional = true, features = ["fs", "io-util", "time", "
 async-std = { version = "1", optional = true, features = ["attributes"] }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.12", optional = true, features = ["json", "rustls-tls", "stream"] }
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5", optional = true }
 getrandom = { version = "0.2", optional = true }
 

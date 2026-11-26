@@ -14,6 +14,8 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
+#[cfg(all(feature = "std", feature = "async"))]
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "std")]
 use std::time::Duration;
 #[cfg(all(
@@ -50,7 +52,7 @@ pub trait AsyncObserver {
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub struct AsyncObserverAdapter<O> {
-    inner: Option<O>,
+    inner: Arc<Mutex<Option<O>>>,
 }
 
 #[cfg(feature = "async")]
@@ -58,14 +60,16 @@ pub struct AsyncObserverAdapter<O> {
 impl<O> AsyncObserverAdapter<O> {
     pub fn new(observer: O) -> Self {
         Self {
-            inner: Some(observer),
+            inner: Arc::new(Mutex::new(Some(observer))),
         }
     }
 
-    pub fn into_inner(mut self) -> O {
-        self.inner
-            .take()
-            .expect("AsyncObserverAdapter already consumed")
+    pub fn into_inner(self) -> O {
+        Arc::try_unwrap(self.inner)
+            .ok()
+            .and_then(|mutex| mutex.into_inner().ok())
+            .and_then(Option::from)
+            .expect("AsyncObserverAdapter is still in use")
     }
 }
 
@@ -73,16 +77,19 @@ impl<O> AsyncObserverAdapter<O> {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl<O: Observer + Send + 'static> AsyncObserver for AsyncObserverAdapter<O> {
     fn observe_async(&mut self) -> impl Future<Output = Result<Vec<Observation>>> + Send {
-        let mut observer = self
-            .inner
-            .take()
-            .expect("AsyncObserverAdapter already consumed");
+        let inner = Arc::clone(&self.inner);
         async move {
-            let result = tokio::task::spawn_blocking(move || observer.observe()).await;
-            match result {
-                Ok(r) => r,
-                Err(e) => Err(crate::error::OmegaError::Other(anyhow::anyhow!(e))),
-            }
+            tokio::task::spawn_blocking(move || {
+                let mut guard = inner.lock().map_err(|_| {
+                    OmegaError::ExecutionBlocked("observer adapter lock poisoned".into())
+                })?;
+                let observer = guard.as_mut().ok_or_else(|| {
+                    OmegaError::ExecutionBlocked("AsyncObserverAdapter already consumed".into())
+                })?;
+                observer.observe()
+            })
+            .await
+            .map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))?
         }
     }
 }
@@ -609,7 +616,9 @@ impl Observer for HttpObserver {
             self.connect_timeout,
             self.max_response_bytes,
         )?;
-        let body = String::from_utf8_lossy(&body).into_owned();
+        let body = String::from_utf8(body).map_err(|e| {
+            OmegaError::ExecutionBlocked(format!("HttpObserver body is not UTF-8: {e}"))
+        })?;
 
         let content = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
             serde_json::json!({
@@ -938,7 +947,9 @@ impl AsyncObserver for AsyncHttpObserver {
             let parsed_url = parse_http_url(&url)?;
             let (status, body) =
                 fetch_http_async(parsed_url, timeout, connect_timeout, max_response_bytes).await?;
-            let body = String::from_utf8_lossy(&body).into_owned();
+            let body = String::from_utf8(body).map_err(|e| {
+                OmegaError::ExecutionBlocked(format!("AsyncHttpObserver body is not UTF-8: {e}"))
+            })?;
             let content = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| {
                 serde_json::json!({
                     "raw": body,
@@ -1252,5 +1263,19 @@ mod tests {
         let count = v[0].content["entry_count"].as_u64().unwrap();
         assert!(count >= 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", feature = "async"))]
+    fn async_adapter_can_observe_repeatedly() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let mut observer = AsyncObserverAdapter::new(MultiModalObserver::new());
+            for expected_step in 1..=2 {
+                let observations = observer.observe_async().await.unwrap();
+                assert_eq!(observations[0].content["step"], expected_step);
+            }
+            assert_eq!(observer.into_inner().step_counter, 2);
+        });
     }
 }

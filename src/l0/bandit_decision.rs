@@ -80,6 +80,12 @@ impl BanditUcbDecisionMaker {
     }
 
     pub fn restore(&mut self, snapshot: BanditUcbSnapshot) {
+        let mut snapshot = snapshot;
+        if snapshot.current_arm.is_some_and(|arm| arm >= 2) {
+            snapshot.current_arm = None;
+            snapshot.dwell_steps = 0;
+            snapshot.safety_override = true;
+        }
         self.state = snapshot;
         self.last_kl_policy = self.kl_policy();
     }
@@ -518,6 +524,30 @@ mod tests {
             switch_cost: 0.0,
         });
         dm
+    }
+
+    #[test]
+    fn invalid_restored_arm_fails_closed() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            current_arm: Some(usize::MAX),
+            ..BanditUcbSnapshot::default()
+        });
+        let restored = decision(&mut dm);
+        assert!(restored.selected_arm < 2);
+        dm.restore(BanditUcbSnapshot {
+            means: [0.1, 0.9],
+            counts: [32, 32],
+            total: 64,
+            current_arm: Some(1),
+            ..BanditUcbSnapshot::default()
+        });
+        dm.request_safety_override();
+        dm.restore(BanditUcbSnapshot {
+            current_arm: Some(2),
+            ..dm.snapshot()
+        });
+        assert_eq!(decision(&mut dm).selected_arm, 0);
     }
 
     #[test]

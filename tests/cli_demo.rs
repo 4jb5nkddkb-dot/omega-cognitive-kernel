@@ -52,6 +52,67 @@ fn demo_honors_explicit_state_for_status_and_audit() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
+fn config_selects_and_loads_the_configured_state_before_override() {
+    let dir = std::env::temp_dir().join(format!(
+        "omega-cli-config-test-{}-{}",
+        std::process::id(),
+        omega_cognitive_kernel::new_uuid()
+    ));
+    std::fs::create_dir_all(&dir).expect("create test directory");
+    let state = dir.join("configured.json");
+    let override_state = dir.join("override.json");
+    let config = dir.join("omega.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "state_path = {:?}\nautosave = false\ndump_trajectory = false\n",
+            state.to_string_lossy()
+        ),
+    )
+    .expect("write config");
+
+    let binary = env!("CARGO_BIN_EXE_omega-kernel");
+    let status = Command::new(binary)
+        .args(["--config", config.to_str().unwrap(), "run", "--steps", "2"])
+        .output()
+        .expect("run with configured state");
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+    assert_eq!(snapshot["total_steps"], 2);
+
+    let status = Command::new(binary)
+        .args([
+            "--config",
+            config.to_str().unwrap(),
+            "--state",
+            override_state.to_str().unwrap(),
+            "run",
+            "--steps",
+            "3",
+        ])
+        .output()
+        .expect("run with state override");
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&override_state).unwrap()).unwrap();
+    assert_eq!(snapshot["total_steps"], 3);
+    let original: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+    assert_eq!(original["total_steps"], 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn benchmark_spectral_intervention_is_explicitly_opt_in() {
     let binary = env!("CARGO_BIN_EXE_omega-kernel");
     let run = |extra: &[&str]| {
