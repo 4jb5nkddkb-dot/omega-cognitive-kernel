@@ -158,21 +158,19 @@ fn load_intervention(cli: &Cli) -> InterventionPolicy {
 }
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
-    #[allow(unused_mut)]
-    let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     #[cfg(feature = "toml")]
-    {
-        if let Some(ref cfg_path) = cli.config {
-            let cfg = config_toml::KernelConfig::load(cfg_path)?;
-            kernel.apply_config(&cfg);
-            if let Some(ref p) = cli.state {
-                kernel.state_path = p.clone();
-            } else if cfg.state_path.is_some() && kernel.state_path.exists() {
-                let _ = kernel.load();
-            }
-        }
+    if let Some(ref cfg_path) = cli.config {
+        let cfg = config_toml::KernelConfig::load(cfg_path)?;
+        let state_path = cli
+            .state
+            .clone()
+            .unwrap_or_else(|| cfg.resolved_state_path());
+        let mut kernel = Kernel::open(Some(&state_path.to_string_lossy()))?;
+        kernel.apply_config(&cfg);
+        kernel.state_path = state_path;
+        return Ok(kernel);
     }
-    Ok(kernel)
+    Kernel::open(state_path(cli).as_deref()).map_err(Into::into)
 }
 
 fn print_intervention_block(p: &InterventionPolicy) {

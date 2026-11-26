@@ -25,7 +25,9 @@ use crate::persist::{
 };
 use crate::safety;
 use hashbrown::HashMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -136,6 +138,161 @@ pub struct TrajectoryReplayRow {
     pub l2_dayan_residual: f64,
     pub l2_applied_policy: crate::types::L2Policy,
     pub l2_pending_policy: crate::types::L2Policy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StepJournalStatus {
+    Started,
+    Dispatching,
+    Executed,
+    NotExecuted,
+    Committed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StepJournalRecord {
+    step_id: Uuid,
+    goal: String,
+    attempt: u64,
+    status: StepJournalStatus,
+}
+
+fn step_journal_path(state_path: &Path, step_id: Uuid) -> PathBuf {
+    let parent = state_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = state_path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "state".into());
+    parent
+        .join(format!("{file_name}.step-journal"))
+        .join(format!("{step_id}.jsonl"))
+}
+
+fn read_step_journal(state_path: &Path, step_id: Uuid) -> Result<Option<StepJournalRecord>> {
+    let path = step_journal_path(state_path, step_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read_to_string(&path).map_err(|error| {
+        OmegaError::Persist(format!("step journal read {}: {error}", path.display()))
+    })?;
+    if data.is_empty() || !data.ends_with('\n') {
+        return Err(OmegaError::Persist(format!(
+            "step journal {} has an incomplete trailing record",
+            path.display()
+        )));
+    }
+
+    let mut latest: Option<StepJournalRecord> = None;
+    for (index, line) in data.lines().enumerate() {
+        let record: StepJournalRecord = serde_json::from_str(line).map_err(|error| {
+            OmegaError::Persist(format!(
+                "malformed step journal {} at line {}: {error}",
+                path.display(),
+                index + 1
+            ))
+        })?;
+        if let Some(previous) = latest.as_ref() {
+            if record.goal != previous.goal {
+                return Err(OmegaError::Persist(format!(
+                    "step journal {} changes the goal for an existing ID",
+                    path.display()
+                )));
+            }
+        }
+        if record.step_id != step_id {
+            return Err(OmegaError::Persist(format!(
+                "step journal {} contains a mismatched step ID",
+                path.display()
+            )));
+        }
+        let valid_transition = match latest.as_ref() {
+            None => record.attempt == 1 && record.status == StepJournalStatus::Started,
+            Some(previous) if record.attempt == previous.attempt => matches!(
+                (previous.status, record.status),
+                (StepJournalStatus::Started, StepJournalStatus::Dispatching)
+                    | (StepJournalStatus::Started, StepJournalStatus::NotExecuted)
+                    | (StepJournalStatus::Dispatching, StepJournalStatus::Executed)
+                    | (
+                        StepJournalStatus::Dispatching,
+                        StepJournalStatus::NotExecuted
+                    )
+                    | (StepJournalStatus::Executed, StepJournalStatus::Committed)
+            ),
+            Some(previous) => {
+                record.attempt == previous.attempt.saturating_add(1)
+                    && record.status == StepJournalStatus::Started
+                    && matches!(
+                        previous.status,
+                        StepJournalStatus::Started | StepJournalStatus::NotExecuted
+                    )
+            }
+        };
+        if !valid_transition {
+            return Err(OmegaError::Persist(format!(
+                "invalid step journal transition in {} at line {}",
+                path.display(),
+                index + 1
+            )));
+        }
+        latest = Some(record);
+    }
+    latest
+        .map(Some)
+        .ok_or_else(|| OmegaError::Persist(format!("step journal {} is empty", path.display())))
+}
+
+fn append_step_journal(
+    state_path: &Path,
+    record: &StepJournalRecord,
+    create_new: bool,
+) -> Result<()> {
+    let path = step_journal_path(state_path, record.step_id);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|error| {
+        OmegaError::Persist(format!(
+            "step journal directory {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let mut options = OpenOptions::new();
+    options.write(true);
+    if create_new {
+        options.create_new(true);
+    } else {
+        options.create(true).append(true);
+    }
+    let mut file = options.open(&path).map_err(|error| {
+        OmegaError::Persist(format!("step journal open {}: {error}", path.display()))
+    })?;
+    let line = serde_json::to_string(record).map_err(|error| {
+        OmegaError::Persist(format!("step journal encode {}: {error}", path.display()))
+    })?;
+    writeln!(file, "{line}").map_err(|error| {
+        OmegaError::Persist(format!("step journal write {}: {error}", path.display()))
+    })?;
+    file.sync_data().map_err(|error| {
+        OmegaError::Persist(format!("step journal sync {}: {error}", path.display()))
+    })
+}
+
+fn fresh_step_id() -> Uuid {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(1);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    // Process IDs are unavailable on some std targets, including WASI.
+    // Combine wall-clock nanoseconds with a process-local sequence instead.
+    let suffix = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
+    Uuid::from_u128(((timestamp as u128) << 64) | suffix as u128)
 }
 
 fn default_allowed_actions() -> Vec<String> {
@@ -596,7 +753,6 @@ where
         if !self.dump_trajectory {
             return Ok(());
         }
-        use std::io::Write;
         let path = self.trajectory_path();
         let rec = serde_json::json!({
             "ts": crate::now_utc_string(),
@@ -642,13 +798,181 @@ where
             .map_err(|e| OmegaError::Persist(format!("trajectory write {}: {e}", path.display())))
     }
 
+    /// Run a step with a generated ID. Call [`Self::step_with_id`] with a
+    /// caller-stable ID when a request may be retried after an error or timeout.
     pub fn step(&mut self, goal: &str) -> Result<StepResult> {
-        let pre_snap = if self.auto_checkpoint_on_patch {
-            Some(self.snapshot())
+        self.step_with_id(fresh_step_id(), goal)
+    }
+
+    /// Run one step under a caller-supplied stable ID.
+    ///
+    /// The ID and goal are written to a durable sidecar journal before any
+    /// executor call. Reusing the same ID and goal never replays a committed or
+    /// possibly-dispatched action. A duplicate committed ID returns
+    /// [`OmegaError::StepAlreadyCommitted`]; an incomplete or uncertain attempt
+    /// returns a distinct error so callers can reconcile external effects.
+    pub fn step_with_id(&mut self, step_id: Uuid, goal: &str) -> Result<StepResult> {
+        self.step_with_id_inner(step_id, goal, || Ok(()))
+    }
+
+    fn step_with_id_inner(
+        &mut self,
+        step_id: Uuid,
+        goal: &str,
+        mut before_dispatch: impl FnMut() -> Result<()>,
+    ) -> Result<StepResult> {
+        let previous = read_step_journal(&self.state_path, step_id).map_err(|error| {
+            OmegaError::StepExecutionOutcomeUnknown {
+                step_id,
+                reason: format!("the step journal cannot be read: {error}"),
+            }
+        })?;
+        let attempt = if let Some(record) = previous.as_ref() {
+            if record.goal != goal {
+                return Err(OmegaError::StepIdConflict { step_id });
+            }
+            match record.status {
+                StepJournalStatus::Committed => {
+                    return Err(OmegaError::StepAlreadyCommitted { step_id });
+                }
+                StepJournalStatus::Executed => {
+                    return Err(OmegaError::StepCommitIncomplete {
+                        step_id,
+                        stage:
+                            "executor completed, but the prior attempt has no durable commit marker"
+                                .into(),
+                    });
+                }
+                StepJournalStatus::Dispatching => {
+                    return Err(OmegaError::StepExecutionOutcomeUnknown {
+                        step_id,
+                        reason: "a durable executor-dispatch marker exists without a successful return marker"
+                            .into(),
+                    });
+                }
+                StepJournalStatus::Started | StepJournalStatus::NotExecuted => {
+                    record.attempt.saturating_add(1)
+                }
+            }
         } else {
-            None
+            1
         };
-        let result = self.inner.run_once(goal)?;
+
+        let rollback_snapshot = self.snapshot();
+        let checkpoint_snapshot = self
+            .auto_checkpoint_on_patch
+            .then(|| rollback_snapshot.clone());
+        let state_path = self.state_path.clone();
+        let started = StepJournalRecord {
+            step_id,
+            goal: goal.into(),
+            attempt,
+            status: StepJournalStatus::Started,
+        };
+        if let Err(error) = append_step_journal(&state_path, &started, previous.is_none()) {
+            return Err(OmegaError::StepNotExecuted {
+                step_id,
+                reason: error.to_string(),
+            });
+        }
+
+        let mut executor_dispatched = false;
+        let mut executor_returned_ok = false;
+        let run_result = self.inner.run_once_with_executor_hooks(
+            goal,
+            || {
+                before_dispatch()?;
+                let record = StepJournalRecord {
+                    step_id,
+                    goal: goal.into(),
+                    attempt,
+                    status: StepJournalStatus::Dispatching,
+                };
+                append_step_journal(&state_path, &record, false)?;
+                executor_dispatched = true;
+                Ok(())
+            },
+            || {
+                // Set this before writing the marker: even a journal-sync error
+                // happens after the executor has returned success.
+                executor_returned_ok = true;
+                let record = StepJournalRecord {
+                    step_id,
+                    goal: goal.into(),
+                    attempt,
+                    status: StepJournalStatus::Executed,
+                };
+                append_step_journal(&state_path, &record, false)
+            },
+        );
+
+        let result = match run_result {
+            Ok(result) => result,
+            Err(error) if executor_returned_ok => {
+                return Err(OmegaError::StepCommitIncomplete {
+                    step_id,
+                    stage: format!(
+                        "executor returned successfully but later step processing failed: {error}"
+                    ),
+                });
+            }
+            Err(error) if executor_dispatched => {
+                return Err(OmegaError::StepExecutionOutcomeUnknown {
+                    step_id,
+                    reason: format!("executor was invoked but did not confirm success: {error}"),
+                });
+            }
+            Err(error) => {
+                self.apply_snapshot(rollback_snapshot);
+                let not_executed = StepJournalRecord {
+                    step_id,
+                    goal: goal.into(),
+                    attempt,
+                    status: StepJournalStatus::NotExecuted,
+                };
+                let reason = match append_step_journal(&state_path, &not_executed, false) {
+                    Ok(()) => error.to_string(),
+                    Err(journal_error) => format!(
+                        "{error}; could not persist the safe-to-retry marker: {journal_error}"
+                    ),
+                };
+                return Err(OmegaError::StepNotExecuted { step_id, reason });
+            }
+        };
+
+        if !executor_returned_ok {
+            return Err(OmegaError::StepExecutionOutcomeUnknown {
+                step_id,
+                reason: "the step pipeline completed without an executor success marker".into(),
+            });
+        }
+        if let Err(error) = self.commit_step_records(goal, &result, checkpoint_snapshot) {
+            return Err(OmegaError::StepCommitIncomplete {
+                step_id,
+                stage: error.to_string(),
+            });
+        }
+        let committed = StepJournalRecord {
+            step_id,
+            goal: goal.into(),
+            attempt,
+            status: StepJournalStatus::Committed,
+        };
+        if let Err(error) = append_step_journal(&state_path, &committed, false) {
+            return Err(OmegaError::StepCommitIncomplete {
+                step_id,
+                stage: format!("final journal commit marker: {error}"),
+            });
+        }
+        Ok(result)
+    }
+
+    fn commit_step_records(
+        &mut self,
+        goal: &str,
+        result: &StepResult,
+        pre_snap: Option<KernelSnapshot>,
+    ) -> Result<()> {
         let action = result
             .trajectory
             .actions
@@ -693,26 +1017,28 @@ where
             })?;
         }
 
-        self.append_trajectory(goal, &result)?;
+        self.append_trajectory(goal, result)?;
         if result.l1.patched {
-            if let (Some(snap), Some(d)) = (pre_snap, result.l1.effect_damping) {
+            if let Some(d) = result.l1.effect_damping {
                 // Best-effort pre-patch checkpoint. A failure to save the optional
                 // rollback snapshot must NOT suppress the primary PatchAccepted
                 // event: the patch was really accepted and that fact is what the
                 // audit trail must record. Checkpoint failure is propagated only
                 // if its own audit event also fails.
-                if let Ok(meta) = self.checkpoints().save(
-                    "pre-patch",
-                    self.inner.total_steps.saturating_sub(1),
-                    snap.cas_avg_prediction_error,
-                    snap.cognitive_effect.error_damping,
-                    &snap,
-                ) {
-                    self.append_event(AuditEvent::Checkpoint {
-                        checkpoint_id: meta.id,
-                        step: meta.step,
-                        label: meta.label,
-                    })?;
+                if let Some(snap) = pre_snap {
+                    if let Ok(meta) = self.checkpoints().save(
+                        "pre-patch",
+                        self.inner.total_steps.saturating_sub(1),
+                        snap.cas_avg_prediction_error,
+                        snap.cognitive_effect.error_damping,
+                        &snap,
+                    ) {
+                        self.append_event(AuditEvent::Checkpoint {
+                            checkpoint_id: meta.id,
+                            step: meta.step,
+                            label: meta.label,
+                        })?;
+                    }
                 }
                 self.append_event(AuditEvent::PatchAccepted {
                     step: self.inner.total_steps,
@@ -721,16 +1047,20 @@ where
                     description: "cognitive_rules".into(),
                 })?;
             }
-        } else if let Some(reason) = &result.l1.reason {
+        } else if result.l1.safety_degraded {
             self.append_event(AuditEvent::PatchRejected {
                 step: self.inner.total_steps,
-                reason: reason.clone(),
+                reason: result
+                    .l1
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "patch rejected".into()),
             })?;
         }
         if self.autosave {
             self.save()?;
         }
-        Ok(result)
+        Ok(())
     }
 
     pub fn run(&mut self, goal: &str, steps: u32) -> Result<RunReport> {
@@ -1041,6 +1371,41 @@ mod tests {
     use std::env::temp_dir;
     use std::io::Write;
 
+    struct FailingExecutor(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl crate::l0::executor::Executor for FailingExecutor {
+        fn execute(&mut self, _actions: &[crate::types::Action]) -> Result<Vec<serde_json::Value>> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(OmegaError::Persist("injected executor uncertainty".into()))
+        }
+    }
+
+    #[test]
+    fn disabled_l1_is_not_a_patch_rejection_and_disabled_checkpoint_keeps_acceptance() {
+        let dir = temp_dir().join(format!("omega-audit-patch-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut kernel = Kernel::with_state_path(path);
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        kernel.step("disabled means no candidate").unwrap();
+        assert_eq!(kernel.audit_summary().unwrap().patches_rejected, 0);
+
+        kernel.auto_checkpoint_on_patch = false;
+        kernel.set_l2_enabled(false);
+        kernel.inner.l1.self_modify_enabled = true;
+        kernel.inner.l1.steps_since_last_patch = 10;
+        kernel.inner.l1.reflector.error_threshold = 0.15;
+        kernel.inner.l0.memory.cas.avg_prediction_error = 0.6;
+        let result = kernel.step("force a validated patch").unwrap();
+        assert!(result.l1.patched);
+        let summary = kernel.audit_summary().unwrap();
+        assert_eq!(summary.patches_accepted, 1);
+        assert_eq!(summary.patches_rejected, 0);
+        assert_eq!(summary.checkpoints, 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn event_hook_fires() {
         let path = temp_dir().join(format!("omega-hook-{}.json", crate::new_uuid()));
@@ -1215,37 +1580,180 @@ mod tests {
 
     #[test]
     fn step_propagates_audit_append_failure() {
-        // Point the kernel at a state path whose parent directory does not exist
-        // and cannot be created (a path under an existing *file*), so the audit
-        // append fails. step() must return Err rather than reporting success.
-        let blocker = temp_dir().join(format!("omega-blocker-{}.file", crate::new_uuid()));
-        std::fs::write(&blocker, b"not a dir").unwrap();
-        // state path nested *under* a regular file -> parent mkdir/open fails.
-        let bad_state = blocker.join("nested").join("state.json");
-        let mut k = Kernel::with_state_path(bad_state.clone());
+        // A directory at audit.jsonl makes only the audit append fail; the
+        // executor and the step journal remain writable.
+        let dir = temp_dir().join(format!("omega-audit-failure-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        std::fs::create_dir(dir.join("audit.jsonl")).unwrap();
+        let mut k = Kernel::with_state_path(state_path.clone());
         k.autosave = false;
         k.dump_trajectory = false;
-        let res = k.step("should fail");
-        assert!(res.is_err(), "step must fail when audit append fails");
-        let _ = std::fs::remove_file(&blocker);
+        let step_id = crate::new_uuid();
+        let before_steps = k.inner.total_steps;
+
+        let first = k.step_with_id(step_id, "audit failure after executor success");
+        assert!(matches!(
+            first,
+            Err(OmegaError::StepCommitIncomplete { .. })
+        ));
+        assert_eq!(k.inner.total_steps, before_steps + 1);
+        let record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(record.status, StepJournalStatus::Executed);
+
+        let retry = k.step_with_id(step_id, "audit failure after executor success");
+        assert!(matches!(
+            retry,
+            Err(OmegaError::StepCommitIncomplete { .. })
+        ));
+        assert_eq!(
+            k.inner.total_steps,
+            before_steps + 1,
+            "retry must not re-execute"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn step_propagates_autosave_failure() {
-        // Same nested-under-a-file trick, but disable the audit path by making
-        // dump_trajectory/autosave the failing component. Here autosave is on and
-        // audit append is what we allow to succeed first is impossible to isolate,
-        // so we simply assert that a step with autosave on an unwritable path
-        // errors out (fail-closed).
-        let blocker = temp_dir().join(format!("omega-blocker2-{}.file", crate::new_uuid()));
-        std::fs::write(&blocker, b"not a dir").unwrap();
-        let bad_state = blocker.join("nested").join("state.json");
-        let mut k = Kernel::with_state_path(bad_state.clone());
+        // A directory at state.json blocks only the final atomic state replace;
+        // audit and journal writes are still available.
+        let dir = temp_dir().join(format!("omega-autosave-failure-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        std::fs::create_dir(&state_path).unwrap();
+        let mut k = Kernel::with_state_path(state_path.clone());
         k.autosave = true;
         k.dump_trajectory = false;
-        let res = k.step("autosave should fail");
-        assert!(res.is_err(), "step must fail when autosave fails");
-        let _ = std::fs::remove_file(&blocker);
+        let step_id = crate::new_uuid();
+        let before_steps = k.inner.total_steps;
+
+        let first = k.step_with_id(step_id, "autosave failure after executor success");
+        assert!(matches!(
+            first,
+            Err(OmegaError::StepCommitIncomplete { .. })
+        ));
+        assert_eq!(k.inner.total_steps, before_steps + 1);
+        let record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(record.status, StepJournalStatus::Executed);
+
+        let retry = k.step_with_id(step_id, "autosave failure after executor success");
+        assert!(matches!(
+            retry,
+            Err(OmegaError::StepCommitIncomplete { .. })
+        ));
+        assert_eq!(
+            k.inner.total_steps,
+            before_steps + 1,
+            "retry must not re-execute"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn step_pre_dispatch_failure_can_safely_retry_with_the_same_id() {
+        let dir = temp_dir().join(format!("omega-safe-retry-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let mut kernel = Kernel::with_state_path(state_path.clone());
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let step_id = crate::new_uuid();
+        let before_steps = kernel.inner.total_steps;
+
+        let first = kernel.step_with_id_inner(step_id, "retry after pre-dispatch failure", || {
+            Err(OmegaError::Persist("injected pre-dispatch failure".into()))
+        });
+        assert!(matches!(first, Err(OmegaError::StepNotExecuted { .. })));
+        assert_eq!(
+            kernel.inner.total_steps, before_steps,
+            "failed attempt rolls back"
+        );
+        let first_record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(first_record.status, StepJournalStatus::NotExecuted);
+        assert_eq!(first_record.attempt, 1);
+
+        kernel
+            .step_with_id(step_id, "retry after pre-dispatch failure")
+            .unwrap();
+        assert_eq!(kernel.inner.total_steps, before_steps + 1);
+        let final_record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(final_record.status, StepJournalStatus::Committed);
+        assert_eq!(final_record.attempt, 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn executor_error_is_unknown_and_same_id_does_not_dispatch_again() {
+        let dir = temp_dir().join(format!("omega-unknown-outcome-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut kernel = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            FailingExecutor(calls.clone()),
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let step_id = crate::new_uuid();
+        let goal = "executor may have produced an external effect";
+
+        assert!(matches!(
+            kernel.step_with_id(step_id, goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(record.status, StepJournalStatus::Dispatching);
+
+        assert!(matches!(
+            kernel.step_with_id(step_id, goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn committed_step_id_is_not_replayed_and_rejects_a_different_goal() {
+        let dir = temp_dir().join(format!("omega-committed-id-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let mut kernel = Kernel::with_state_path(state_path.clone());
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let step_id = crate::new_uuid();
+        let goal = "commit this request exactly once";
+
+        kernel.step_with_id(step_id, goal).unwrap();
+        let committed_steps = kernel.inner.total_steps;
+        let record = read_step_journal(&state_path, step_id).unwrap().unwrap();
+        assert_eq!(record.status, StepJournalStatus::Committed);
+
+        assert!(matches!(
+            kernel.step_with_id(step_id, goal),
+            Err(OmegaError::StepAlreadyCommitted { .. })
+        ));
+        assert!(matches!(
+            kernel.step_with_id(step_id, "a different request"),
+            Err(OmegaError::StepIdConflict { .. })
+        ));
+        assert_eq!(kernel.inner.total_steps, committed_steps);
+
+        let mut restarted = Kernel::with_state_path(state_path.clone());
+        restarted.autosave = false;
+        restarted.dump_trajectory = false;
+        assert!(matches!(
+            restarted.step_with_id(step_id, goal),
+            Err(OmegaError::StepAlreadyCommitted { .. })
+        ));
+        assert_eq!(
+            restarted.inner.total_steps, 0,
+            "restart must not replay the step"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

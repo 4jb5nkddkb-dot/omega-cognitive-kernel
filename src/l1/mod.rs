@@ -80,7 +80,7 @@ impl L1CognitiveLayer {
             return Ok(L1Result {
                 patched: false,
                 patch_id: None,
-                reason: Some("self_modify_enabled=false".into()),
+                reason: None,
                 effect_damping: None,
                 rollback_effect: None,
                 safety_degraded: false,

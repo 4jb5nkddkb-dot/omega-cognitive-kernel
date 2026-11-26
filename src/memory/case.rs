@@ -55,7 +55,7 @@ impl CaseMemory {
     pub fn new(capacity: usize) -> Self {
         Self {
             cases: VecDeque::with_capacity(capacity),
-            capacity,
+            capacity: capacity.max(1),
             priority_sum: 0.0,
             sample_counter: core::cell::Cell::new(0),
         }

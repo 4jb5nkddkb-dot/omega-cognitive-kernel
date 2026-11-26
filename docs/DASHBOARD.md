@@ -23,7 +23,7 @@ Windows: produces a pure GUI window (no console) via `windows_subsystem`.
 3. Switch to **Run** tab, set a goal (e.g. "stabilize under load"), choose step count, and run.
 4. Watch **Dashboard** tab for live error / damping / strategy weights.
 5. Check **Audit** for events and **Replay** for trajectory summary.
-6. Optionally open a saved `state.json` from a previous CLI or example run.
+6. To inspect state from another process or an example, choose **Settings → Open state** and select its `state.json`.
 
 ## Tabs
 
@@ -41,7 +41,8 @@ Windows: produces a pure GUI window (no console) via `windows_subsystem`.
 
 - `self_modify_enabled = false`
 - `dump_trajectory = true`
-- Local state under temp dir until you open/save another path
+- The dashboard starts with state under the system temp directory (`omega-dashboard-state.json`); it does not automatically discover example or CLI state files.
+- Use **Settings → Open state** to load another state file. Audit and trajectory views read their sibling files beside that state.
 
 ## Relation to CLI & examples
 
@@ -51,7 +52,12 @@ Pair with the drop-inbox demo:
 
 ```bash
 cargo run --example drop_inbox_loop
-# then open the generated state.json in the dashboard if desired
+# In the dashboard, choose Settings > Open state and select:
+# .omega/drop-inbox-demo/state.json
 ```
+
+The example keeps its data in `.omega/drop-inbox-demo/` and resumes the saved
+snapshot on subsequent runs. Set `OMEGA_DEMO_DIR` to relocate that directory;
+use the resulting `<OMEGA_DEMO_DIR>/state.json` path in **Open state**.
 
 See also [PRODUCT.md](./PRODUCT.md) for the overall narrative.

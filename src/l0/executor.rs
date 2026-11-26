@@ -14,6 +14,8 @@ use std::future::Future;
 use std::io::Write;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
+#[cfg(all(feature = "std", feature = "async"))]
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "ureq")]
 use std::time::Duration;
 
@@ -50,7 +52,7 @@ pub trait AsyncExecutor {
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
 pub struct AsyncExecutorAdapter<E> {
-    inner: Option<E>,
+    inner: Arc<Mutex<Option<E>>>,
 }
 
 #[cfg(feature = "async")]
@@ -58,14 +60,16 @@ pub struct AsyncExecutorAdapter<E> {
 impl<E> AsyncExecutorAdapter<E> {
     pub fn new(executor: E) -> Self {
         Self {
-            inner: Some(executor),
+            inner: Arc::new(Mutex::new(Some(executor))),
         }
     }
 
-    pub fn into_inner(mut self) -> E {
-        self.inner
-            .take()
-            .expect("AsyncExecutorAdapter already consumed")
+    pub fn into_inner(self) -> E {
+        Arc::try_unwrap(self.inner)
+            .ok()
+            .and_then(|mutex| mutex.into_inner().ok())
+            .and_then(Option::from)
+            .expect("AsyncExecutorAdapter is still in use")
     }
 }
 
@@ -76,21 +80,25 @@ impl<E: Executor + Send + 'static> AsyncExecutor for AsyncExecutorAdapter<E> {
         &mut self,
         actions: &[Action],
     ) -> impl Future<Output = Result<Vec<serde_json::Value>>> + Send {
+        let inner = Arc::clone(&self.inner);
         let actions = actions.to_vec();
         async move {
-            let mut executor = self.inner.take().ok_or_else(|| {
-                OmegaError::ExecutionBlocked(
-                    "AsyncExecutorAdapter executor is unavailable after a failed invocation".into(),
-                )
-            })?;
-            let (executor, result) = tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || {
+                let mut guard = inner.lock().map_err(|_| {
+                    OmegaError::ExecutionBlocked("executor adapter lock poisoned".into())
+                })?;
+                let mut executor = guard.take().ok_or_else(|| {
+                    OmegaError::ExecutionBlocked(
+                        "AsyncExecutorAdapter executor is unavailable after a failed invocation"
+                            .into(),
+                    )
+                })?;
                 let result = executor.execute(&actions);
-                (executor, result)
+                *guard = Some(executor);
+                result
             })
             .await
-            .map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))?;
-            self.inner = Some(executor);
-            result
+            .map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))?
         }
     }
 }
@@ -355,9 +363,9 @@ impl Executor for ToolGateExecutor {
             }
 
             if let Some(log) = &self.audit {
-                let _ = log.append(AuditEvent::ToolAllowed {
+                log.append(AuditEvent::ToolAllowed {
                     tool: act.name.clone(),
-                });
+                })?;
             }
             if self.echo {
                 println!("[tool-gate] ALLOW {}", act.name);
@@ -456,15 +464,16 @@ impl AsyncExecutor for AsyncLoggingExecutor {
                 }
 
                 if let Some(path) = &log_path {
-                    if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                    let mut file = tokio::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
                         .open(path)
                         .await
-                    {
-                        let line = format!("{}\n", entry);
-                        let _ = file.write_all(line.as_bytes()).await;
-                    }
+                        .map_err(|e| OmegaError::ExecutionBlocked(format!("log open: {e}")))?;
+                    let line = format!("{}\n", entry);
+                    file.write_all(line.as_bytes())
+                        .await
+                        .map_err(|e| OmegaError::ExecutionBlocked(format!("log write: {e}")))?;
                 }
 
                 results.push(entry);
@@ -543,6 +552,41 @@ mod tests {
         let res = ex.execute(&[action("observe", true)]).unwrap();
         assert_eq!(res[0]["status"], "logged");
         assert_eq!(res[0]["action"], "observe");
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", feature = "async"))]
+    fn async_adapter_can_execute_repeatedly() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let mut executor =
+                AsyncExecutorAdapter::new(SandboxedExecutor::new(vec!["observe".into()]));
+            for _ in 0..2 {
+                let results = executor
+                    .execute_async(&[action("observe", true)])
+                    .await
+                    .unwrap();
+                assert_eq!(results.len(), 1);
+            }
+            let _ = executor.into_inner();
+        });
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", feature = "async"))]
+    fn async_logging_propagates_open_failure() {
+        let blocker =
+            std::env::temp_dir().join(format!("omega-async-log-blocker-{}", crate::new_uuid()));
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let mut executor = AsyncLoggingExecutor::new(vec!["observe".into()])
+            .with_log_file(blocker.join("actions.jsonl"))
+            .echo_stdout(false);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let error = runtime
+            .block_on(executor.execute_async(&[action("observe", true)]))
+            .unwrap_err();
+        assert!(error.to_string().contains("log open"), "{error}");
+        let _ = std::fs::remove_file(blocker);
     }
 
     #[test]
