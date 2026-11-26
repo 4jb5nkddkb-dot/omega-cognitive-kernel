@@ -51,9 +51,26 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-fn omega_kernel_binary() -> String {
-    std::env::var("CARGO_BIN_EXE_omega-kernel")
-        .expect("Cargo should provide the omega-kernel path when running this integration test")
+fn omega_kernel_binary() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_omega-kernel") {
+        return path.into();
+    }
+
+    // Older Cargo versions may not expose this variable to integration tests.
+    // The harness lives under <target-profile>/deps; the CLI is under <target-profile>.
+    let test_executable =
+        std::env::current_exe().expect("integration test executable should have a path");
+    let profile_dir = test_executable
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("integration test executable should live in <target-profile>/deps");
+    let binary = profile_dir.join(format!("omega-kernel{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        binary.is_file(),
+        "Cargo did not set CARGO_BIN_EXE_omega-kernel and the CLI binary was not found at {}",
+        binary.display()
+    );
+    binary
 }
 
 #[test]
