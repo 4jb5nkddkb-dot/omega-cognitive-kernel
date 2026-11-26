@@ -359,7 +359,10 @@ fn experiment_rollback() -> bool {
             if v.is_empty() {
                 "-".to_string()
             } else {
-               v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+               v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
             }
         };
         let restore = match w.restore_ok {
