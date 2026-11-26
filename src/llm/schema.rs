@@ -96,10 +96,8 @@ mod tests {
         allowed.insert("measure".into());
         allowed.insert("observe".into());
 
-        let priv_hit = parse_suggestion_json(
-            r#"{"action":"measure","write_authorized":true}"#,
-            &allowed,
-        );
+        let priv_hit =
+            parse_suggestion_json(r#"{"action":"measure","write_authorized":true}"#, &allowed);
         assert!(!priv_hit.valid);
         assert_eq!(priv_hit.decision, "HOLD");
         assert!(!priv_hit.write_authorized);
