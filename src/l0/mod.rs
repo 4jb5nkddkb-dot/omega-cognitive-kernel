@@ -4,6 +4,7 @@ use crate::prelude::*;
 pub mod bandit_decision;
 pub mod decision;
 pub mod executor;
+pub mod hybrid_predictor;
 pub mod observer;
 pub mod predictor;
 
@@ -18,6 +19,8 @@ pub use observer::{
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub use executor::{AsyncExecutor, AsyncExecutorAdapter, AsyncLoggingExecutor};
+
+pub use hybrid_predictor::{HybridWorldModel, HybridWorldPredictor, TinyAttentionPredictor};
 
 use crate::error::Result;
 use crate::l1::learner::Learner;
