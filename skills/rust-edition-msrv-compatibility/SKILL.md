@@ -1,6 +1,6 @@
 ---
 name: rust-edition-msrv-compatibility
-description: Diagnose and fix Rust Edition, MSRV, Cargo.lock, and Clippy compatibility failures across Rust toolchains. Use when cargo clippy/test fails because a dependency requires a newer rustc/Cargo or an Edition 2024 manifest cannot be parsed.
+description: Diagnose Rust Edition, MSRV, Cargo.lock, Clippy, and Cargo integration-test executable path compatibility across toolchains. Use when a Rust project's tests or dependencies fail under its declared minimum Rust/Cargo version, or when a newer edition manifest is unsupported.
 ---
 
 # Rust Edition/MSRV Compatibility
@@ -65,6 +65,7 @@ Use this workflow for Rust projects that declare an MSRV, support multiple Rust 
 
 - Never solve an Edition 2024 parsing error by changing the project’s Edition unless the project intentionally migrates.
 - Do not silently raise the MSRV just to make one machine pass; first check whether a compatible dependency release exists.
+- For CLI binary paths in integration tests, do not assume `CARGO_BIN_EXE_<name>` exists at compile time or is populated at runtime by every Cargo version. Prefer `std::env::var_os` at runtime; if absent on the declared MSRV, verify the target layout with that exact Cargo, then derive the profile directory from `current_exe()` under `<target-profile>/deps` and append `<binary><EXE_SUFFIX>`. Test both the variable-present and MSRV fallback paths; avoid hardcoding `target/debug`.
 - Do not edit `Cargo.lock` manually when `cargo update -p ... --precise ...` can produce a valid lockfile.
 - Treat optional GUI and OS backends as a separate compatibility surface.
 - If a broad `cargo update` reintroduces incompatible packages, restore the previous lockfile and reapply targeted precise updates.
