@@ -25,6 +25,7 @@
 - Align schema-v6 migration, executable source-installation guidance, and independent L1/L2 defaults with the current runtime. Document L2 `L2Policy` execution attribution separately from commits and no-op proposals.
 - Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
 - Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
+- Sync `README.md` (adding `l1_shadow_mode`, L1/L2 write mutual-exclusion arbitration, L1 automatic rollback, `CodeSandbox` static validation boundaries, and updated repository layout), the `RELEASING.md` release checklist, and `.github/pull_request_template.md` against the `main` branch source code.
 
 ## [0.6.0] — 2026-11-22
 
