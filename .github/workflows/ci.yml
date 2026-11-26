@@ -44,6 +44,21 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --bin omega-kernel
 
+  async:
+    name: Async feature
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build with async feature
+        run: cargo build --locked --features async
+
+      - name: Test with async feature
+        run: cargo test --locked --lib --features async --verbose
+
   python:
     name: Python bindings (${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -73,6 +88,8 @@ jobs:
             -w /io/bindings/python \
             ghcr.io/pyo3/maturin:latest \
             build --release --locked --interpreter python${{ matrix.python-version }} --compatibility manylinux2014 --out /wheelhouse
+      - name: Verify wheel Python and ABI tags
+        run: python scripts/check-python-wheel-tags.py --python-version "${{ matrix.python-version }}" /tmp/omega-wheelhouse
       - run: python -m pip install /tmp/omega-wheelhouse/omega_cognitive_kernel-*.whl
       - name: Test the installed extension
         run: python -m pytest
