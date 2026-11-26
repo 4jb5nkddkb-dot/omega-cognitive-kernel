@@ -444,7 +444,11 @@ impl L2MetaLayer {
             lyapunov_potential: self.controller.residual * self.controller.residual,
             lyapunov_veto: self.controller.certificate.lyapunov_veto,
             meta_cache_hit: self.controller.meta_cache_hit,
-            selected_expert: control::EXPERT_NAMES[self.controller.last_selected_expert].into(),
+            selected_expert: control::EXPERT_NAMES
+                .get(self.controller.last_selected_expert)
+                .copied()
+                .unwrap_or(control::EXPERT_NAMES[KEEP_L0])
+                .into(),
             l2_policy: self.pending_policy,
             applied_policy: crate::types::L2Policy::default(),
             veto_reason: self
