@@ -26,7 +26,6 @@ use crate::persist::{
 use crate::safety;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -156,8 +155,33 @@ enum StepJournalStatus {
 struct StepJournalRecord {
     step_id: Uuid,
     goal: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    goal_digest: Option<String>,
     attempt: u64,
     status: StepJournalStatus,
+}
+
+fn step_goal_digest(goal: &str) -> String {
+    crate::safety::crypto::hex_encode(&crate::safety::crypto::sha256(goal.as_bytes()))
+}
+
+fn step_journal_goal_matches_record(record: &StepJournalRecord, goal: &str) -> bool {
+    match record.goal_digest.as_deref() {
+        Some(digest) => digest == step_goal_digest(goal),
+        None => record.goal == goal,
+    }
+}
+
+fn step_journal_records_have_same_goal(
+    left: &StepJournalRecord,
+    right: &StepJournalRecord,
+) -> bool {
+    match (left.goal_digest.as_deref(), right.goal_digest.as_deref()) {
+        (Some(left_digest), Some(right_digest)) => left_digest == right_digest,
+        (Some(left_digest), None) => left_digest == step_goal_digest(&right.goal),
+        (None, Some(right_digest)) => step_goal_digest(&left.goal) == right_digest,
+        (None, None) => left.goal == right.goal,
+    }
 }
 
 fn step_journal_path(state_path: &Path, step_id: Uuid) -> PathBuf {
@@ -199,7 +223,7 @@ fn read_step_journal(state_path: &Path, step_id: Uuid) -> Result<Option<StepJour
             ))
         })?;
         if let Some(previous) = latest.as_ref() {
-            if record.goal != previous.goal {
+            if !step_journal_records_have_same_goal(&record, previous) {
                 return Err(OmegaError::Persist(format!(
                     "step journal {} changes the goal for an existing ID",
                     path.display()
@@ -255,13 +279,13 @@ fn append_step_journal(
 ) -> Result<()> {
     let path = step_journal_path(state_path, record.step_id);
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(parent).map_err(|error| {
+    crate::private_fs::create_dir_all(parent).map_err(|error| {
         OmegaError::Persist(format!(
             "step journal directory {}: {error}",
             parent.display()
         ))
     })?;
-    let mut options = OpenOptions::new();
+    let mut options = crate::private_fs::open_options();
     options.write(true);
     if create_new {
         options.create_new(true);
@@ -845,8 +869,21 @@ where
                 reason: format!("the step journal cannot be read: {error}"),
             }
         })?;
+        let journal_goal = if self.redact_user_content {
+            "[REDACTED]".to_owned()
+        } else {
+            goal.to_owned()
+        };
+        let journal_goal_digest = self.redact_user_content.then(|| step_goal_digest(goal));
+        let record_for_status = |attempt, status| StepJournalRecord {
+            step_id,
+            goal: journal_goal.clone(),
+            goal_digest: journal_goal_digest.clone(),
+            attempt,
+            status,
+        };
         let attempt = if let Some(record) = previous.as_ref() {
-            if record.goal != goal {
+            if !step_journal_goal_matches_record(record, goal) {
                 return Err(OmegaError::StepIdConflict { step_id });
             }
             match record.status {
@@ -881,12 +918,7 @@ where
             .auto_checkpoint_on_patch
             .then(|| rollback_snapshot.clone());
         let state_path = self.state_path.clone();
-        let started = StepJournalRecord {
-            step_id,
-            goal: goal.into(),
-            attempt,
-            status: StepJournalStatus::Started,
-        };
+        let started = record_for_status(attempt, StepJournalStatus::Started);
         if let Err(error) = append_step_journal(&state_path, &started, previous.is_none()) {
             return Err(OmegaError::StepNotExecuted {
                 step_id,
@@ -900,12 +932,7 @@ where
             goal,
             || {
                 before_dispatch()?;
-                let record = StepJournalRecord {
-                    step_id,
-                    goal: goal.into(),
-                    attempt,
-                    status: StepJournalStatus::Dispatching,
-                };
+                let record = record_for_status(attempt, StepJournalStatus::Dispatching);
                 append_step_journal(&state_path, &record, false)?;
                 executor_dispatched = true;
                 Ok(())
@@ -914,12 +941,7 @@ where
                 // Set this before writing the marker: even a journal-sync error
                 // happens after the executor has returned success.
                 executor_returned_ok = true;
-                let record = StepJournalRecord {
-                    step_id,
-                    goal: goal.into(),
-                    attempt,
-                    status: StepJournalStatus::Executed,
-                };
+                let record = record_for_status(attempt, StepJournalStatus::Executed);
                 append_step_journal(&state_path, &record, false)
             },
         );
@@ -942,12 +964,7 @@ where
             }
             Err(error) => {
                 self.apply_snapshot(rollback_snapshot);
-                let not_executed = StepJournalRecord {
-                    step_id,
-                    goal: goal.into(),
-                    attempt,
-                    status: StepJournalStatus::NotExecuted,
-                };
+                let not_executed = record_for_status(attempt, StepJournalStatus::NotExecuted);
                 let reason = match append_step_journal(&state_path, &not_executed, false) {
                     Ok(()) => error.to_string(),
                     Err(journal_error) => format!(
@@ -970,12 +987,7 @@ where
                 stage: error.to_string(),
             });
         }
-        let committed = StepJournalRecord {
-            step_id,
-            goal: goal.into(),
-            attempt,
-            status: StepJournalStatus::Committed,
-        };
+        let committed = record_for_status(attempt, StepJournalStatus::Committed);
         if let Err(error) = append_step_journal(&state_path, &committed, false) {
             return Err(OmegaError::StepCommitIncomplete {
                 step_id,
@@ -1452,6 +1464,7 @@ mod tests {
     #[test]
     fn privacy_redacts_user_text_from_all_kernel_persistence_paths() {
         let dir = temp_dir().join(format!("omega-privacy-{}", crate::new_uuid()));
+        let _ = std::fs::remove_dir_all(&dir);
         let state_path = dir.join("state.json");
         let mut kernel = Kernel::with_state_path(&state_path);
         kernel.autosave = false;
@@ -1467,8 +1480,31 @@ mod tests {
                 hook_flag.store(goal == goal_secret, std::sync::atomic::Ordering::SeqCst);
             }
         });
-        kernel.step(goal_secret).unwrap();
+        let step_id = crate::new_uuid();
+        kernel.step_with_id(step_id, goal_secret).unwrap();
         assert!(hook_saw_original_goal.load(std::sync::atomic::Ordering::SeqCst));
+        let journal_dir = dir.join("state.json.step-journal");
+        let journal_path = journal_dir.join(format!("{step_id}.jsonl"));
+        let journal_contents = std::fs::read_to_string(&journal_path).unwrap();
+        assert!(!journal_contents.contains(goal_secret));
+        assert!(journal_contents.contains("\"goal\":\"[REDACTED]\""));
+        let expected_digest = step_goal_digest(goal_secret);
+        assert!(journal_contents.contains(&format!("\"goal_digest\":\"{expected_digest}\"")));
+        assert!(matches!(
+            kernel.step_with_id(step_id, goal_secret),
+            Err(OmegaError::StepAlreadyCommitted { .. })
+        ));
+        assert!(matches!(
+            kernel.step_with_id(step_id, "a different goal"),
+            Err(OmegaError::StepIdConflict { .. })
+        ));
+        let mut restarted = Kernel::with_state_path(state_path.clone());
+        restarted.autosave = false;
+        restarted.redact_user_content = true;
+        assert!(matches!(
+            restarted.step_with_id(step_id, goal_secret),
+            Err(OmegaError::StepAlreadyCommitted { .. })
+        ));
         kernel.audit_task(task_secret, 0.8, 1).unwrap();
         let checkpoint = kernel.checkpoint(label_secret).unwrap();
         kernel.save().unwrap();
@@ -1486,6 +1522,7 @@ mod tests {
             std::fs::read_to_string(&checkpoint_meta).unwrap(),
             std::fs::read_to_string(&checkpoint_state).unwrap(),
             snapshot_json,
+            journal_contents,
         ];
         for contents in &files {
             assert!(!contents.contains(goal_secret), "{contents}");
@@ -1500,6 +1537,22 @@ mod tests {
             assert_eq!(
                 std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
                 0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&journal_dir)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&journal_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
             );
             assert_eq!(
                 std::fs::metadata(&state_path).unwrap().permissions().mode() & 0o777,
@@ -1798,6 +1851,7 @@ mod tests {
         assert_eq!(first_record.status, StepJournalStatus::NotExecuted);
         assert_eq!(first_record.attempt, 1);
 
+        kernel.redact_user_content = true;
         kernel
             .step_with_id(step_id, "retry after pre-dispatch failure")
             .unwrap();
@@ -1805,6 +1859,12 @@ mod tests {
         let final_record = read_step_journal(&state_path, step_id).unwrap().unwrap();
         assert_eq!(final_record.status, StepJournalStatus::Committed);
         assert_eq!(final_record.attempt, 2);
+        assert_eq!(final_record.goal, "[REDACTED]");
+        let expected_digest = step_goal_digest("retry after pre-dispatch failure");
+        assert_eq!(
+            final_record.goal_digest.as_deref(),
+            Some(expected_digest.as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

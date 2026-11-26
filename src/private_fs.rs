@@ -28,13 +28,17 @@ pub(crate) fn create_dir_all(path: &Path) -> io::Result<()> {
 /// The mode is only applied by the OS when the file is newly created; opening an
 /// existing file does not chmod it.
 pub(crate) fn open_options() -> OpenOptions {
-    let mut options = OpenOptions::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
+        let mut options = OpenOptions::new();
         options.mode(0o600);
+        options
     }
-    options
+    #[cfg(not(unix))]
+    {
+        OpenOptions::new()
+    }
 }
 
 #[cfg(test)]
