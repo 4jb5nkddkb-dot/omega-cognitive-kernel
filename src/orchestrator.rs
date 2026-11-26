@@ -512,6 +512,7 @@ mod tests {
             assert!(spec.bias.is_finite());
             assert!(spec.convergence_residual.is_finite());
         }
+    }
     #[test]
    fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
        let mut kernel = make_kernel();
