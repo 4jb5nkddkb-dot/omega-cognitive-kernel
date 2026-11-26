@@ -436,6 +436,7 @@ fn main() -> anyhow::Result<()> {
             let id = Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("invalid uuid: {e}"))?;
             let mut kernel = open_kernel(&cli)?;
             kernel.rollback(id)?;
+            kernel.save()?;
             println!("rolled back to {id}");
             println!("now at step {}", kernel.inner.total_steps);
         }
