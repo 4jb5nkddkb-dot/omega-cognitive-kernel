@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Kernel status information
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelStatus {
     pub schema_version: u32,
@@ -43,7 +43,7 @@ impl KernelStatus {
 }
 
 /// Run report after executing multiple steps
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunReport {
     pub steps: u64,
@@ -70,7 +70,7 @@ impl RunReport {
 }
 
 /// Strategy information
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyInfo {
     pub name: String,
@@ -91,7 +91,7 @@ impl StrategyInfo {
 }
 
 /// Checkpoint metadata
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMeta {
     pub id: String,
@@ -116,7 +116,7 @@ impl CheckpointMeta {
 }
 
 /// Audit event kinds
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AuditEvent {
@@ -179,7 +179,7 @@ pub enum AuditEvent {
 }
 
 /// Audit record with timestamp
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditRecord {
     pub ts: String,
@@ -201,7 +201,7 @@ impl From<omega_cognitive_kernel::AuditRecord> for AuditRecord {
 }
 
 /// Audit summary
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuditSummary {
     pub total_events: usize,
@@ -236,7 +236,7 @@ impl AuditSummary {
 }
 
 /// Trajectory replay row
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrajectoryReplayRow {
     pub step: u64,
@@ -247,7 +247,7 @@ pub struct TrajectoryReplayRow {
 }
 
 /// Trajectory replay summary
-#[pyclass(get_all)]
+#[pyclass(from_py_object, get_all)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrajectoryReplaySummary {
     pub path: String,

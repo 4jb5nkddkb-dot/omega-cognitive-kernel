@@ -96,6 +96,20 @@ jobs:
       - name: Test the installed extension
         run: python -m pytest
 
+  python-binding-msrv:
+    name: Python binding MSRV (Rust 1.83)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.83.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test Python binding at its declared MSRV
+        run: cargo test --manifest-path bindings/python/Cargo.toml --locked
+
   gui:
     name: Dashboard GUI
     runs-on: ubuntu-latest
