@@ -42,6 +42,7 @@ mod tests {
         assert_eq!(c2.intervention.friction_threshold, 2);
         assert!(!c2.self_modify_enabled);
         assert!(c2.dump_trajectory);
+        assert!(!c2.privacy.redact_user_content);
         assert!(c2.l2.enabled);
         assert_eq!(c2.l2.commit_cooldown_steps, 5);
         assert_eq!(c2.l2.dayan_relaxation, 0.35);
@@ -67,6 +68,19 @@ self_modify_enabled = true
             crate::config::InterventionMode::Exploration
         );
         assert!(c.self_modify_enabled);
+        assert!(!c.privacy.redact_user_content);
+    }
+
+    #[test]
+    fn parse_privacy_redaction_table() {
+        let config = KernelConfig::from_toml(
+            r#"
+[privacy]
+redact_user_content = true
+"#,
+        )
+        .unwrap();
+        assert!(config.privacy.redact_user_content);
     }
 
     #[test]
