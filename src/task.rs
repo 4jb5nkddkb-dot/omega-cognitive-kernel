@@ -38,8 +38,12 @@ pub struct L2PipelineDiagnostics {
     pub spectral_active: u64,
     pub proposals: u64,
     pub dry_runs: u64,
+    /// Candidate arm changed relative to KEEP_L0 on the same pre-action snapshot.
     pub candidate_changes: u64,
+    /// Selected arm changed relative to KEEP_L0 on that same snapshot.
     pub selected_changes: u64,
+    /// Counterfactual changed candidate but L0 safety/hysteresis held the arm.
+    pub candidate_changes_not_selected: u64,
     pub history_discounts: u64,
     pub spectral_rejections: u64,
     pub lyapunov_rejections: u64,
@@ -63,6 +67,10 @@ pub struct L2DiagnosticSample {
     pub confidence: f64,
     pub proposed_expert: Option<usize>,
     pub applied: bool,
+    pub dry_run_baseline_arm: Option<usize>,
+    pub dry_run_treatment_arm: Option<usize>,
+    pub dry_run_baseline_candidate: Option<usize>,
+    pub dry_run_treatment_candidate: Option<usize>,
     pub rejection_reason: Option<String>,
 }
 
@@ -390,6 +398,33 @@ where
                     if global_step == shift_step { 0.9 } else { 0.65 };
                 before_err = kernel.inner.l0.memory.cas.avg_prediction_error;
             }
+            // Capture the state before L0 consumes the one-shot policy. Both
+            // dry-runs must use this exact snapshot: a post-action snapshot has
+            // already changed the incumbent/dwell state and cannot attribute
+            // this action to L2.
+            let dry_run = if collect_diagnostics {
+                let applied = kernel.inner.l2.pending_policy.effective();
+                kernel
+                    .inner
+                    .l0
+                    .decision
+                    .bandit_snapshot()
+                    .map(|mut snapshot| {
+                        // The snapshot's policy was consumed by the previous action.
+                        // run_once replaces it with pending_policy before deciding.
+                        snapshot.l2_policy = crate::types::L2Policy::default();
+                        let mut baseline = BanditUcbDecisionMaker::default();
+                        baseline.restore(snapshot.clone());
+                        let (baseline, _) =
+                            baseline.dry_run_policy(crate::types::L2Policy::default());
+                        let mut treatment = BanditUcbDecisionMaker::default();
+                        treatment.restore(snapshot);
+                        let (treatment, _) = treatment.dry_run_policy(applied);
+                        (baseline, treatment)
+                    })
+            } else {
+                None
+            };
             let r = kernel
                 .step("maintain coherent self-model omega dayan while maximizing bandit reward")?;
             let after_err = kernel.inner.l0.memory.cas.avg_prediction_error;
@@ -469,19 +504,15 @@ where
                     .unwrap_or(applied.committed);
             if collect_diagnostics {
                 pipeline.dry_runs += 1;
-                if let Some(snapshot) = kernel.inner.l0.decision.bandit_snapshot() {
-                    let mut baseline = BanditUcbDecisionMaker::default();
-                    baseline.restore(snapshot.clone());
-                    let (baseline, _) = baseline.dry_run_policy(crate::types::L2Policy::default());
-                    let mut treatment = BanditUcbDecisionMaker::default();
-                    treatment.restore(snapshot);
-                    let (treatment, _) = treatment.dry_run_policy(applied);
-                    pipeline.candidate_changes +=
-                        u64::from(baseline.candidate_arm != treatment.candidate_arm);
-                    pipeline.selected_changes +=
-                        u64::from(baseline.selected_arm != treatment.selected_arm);
+                if let Some((baseline, treatment)) = &dry_run {
+                    let candidate_changed = baseline.candidate_arm != treatment.candidate_arm;
+                    let selected_changed = baseline.selected_arm != treatment.selected_arm;
+                    pipeline.candidate_changes += u64::from(candidate_changed);
+                    pipeline.selected_changes += u64::from(selected_changed);
+                    pipeline.candidate_changes_not_selected +=
+                        u64::from(candidate_changed && !selected_changed);
                 }
-                pipeline.proposals += u64::from(applied.committed);
+                pipeline.proposals += u64::from(r.l2.modulation_committed);
                 let spec = r.l2.spectral_output;
                 diagnostic_samples.push(L2DiagnosticSample {
                     step: kernel.inner.total_steps,
@@ -496,8 +527,20 @@ where
                     alpha: r.l2.alpha,
                     beta: r.l2.beta,
                     confidence: kernel.inner.l2.controller.model_confidence,
-                    proposed_expert: applied.committed.then_some(applied.expert),
+                    proposed_expert: r.l2.modulation_committed.then_some(r.l2.l2_policy.expert),
                     applied: l2_policy_applied,
+                    dry_run_baseline_arm: dry_run
+                        .as_ref()
+                        .map(|(baseline, _)| baseline.selected_arm),
+                    dry_run_treatment_arm: dry_run
+                        .as_ref()
+                        .map(|(_, treatment)| treatment.selected_arm),
+                    dry_run_baseline_candidate: dry_run
+                        .as_ref()
+                        .map(|(baseline, _)| baseline.candidate_arm),
+                    dry_run_treatment_candidate: dry_run
+                        .as_ref()
+                        .map(|(_, treatment)| treatment.candidate_arm),
                     rejection_reason: r.l2.rejection_reason.clone(),
                 });
             }
@@ -1522,10 +1565,59 @@ mod tests {
                 assert_eq!(a.diagnostics, b.diagnostics);
             }
         }
+        for run in first.paired_runs.iter().map(|run| &run.treatment) {
+            let pipeline = run.pipeline.as_ref().unwrap();
+            assert_eq!(pipeline.proposals, run.l2_commits as u64);
+            for sample in run.diagnostics.as_ref().unwrap() {
+                assert_eq!(sample.dry_run_treatment_arm, Some(sample.selected_arm));
+            }
+        }
         let run = &first.paired_runs[0].treatment;
         assert_eq!(run.pipeline.as_ref().unwrap().observations, 64);
         assert_eq!(run.diagnostics.as_ref().unwrap().len(), 64);
         assert!(run.signals.as_ref().unwrap().bias_to_next_reward.samples > 0);
+    }
+
+    #[test]
+    fn diagnostics_do_not_change_the_paired_run() {
+        let settings = L2ExperimentSettings::default();
+        let plain = run_l2_benchmark_scenario_with_gate(
+            "nonstationary",
+            3,
+            8,
+            8,
+            20261115,
+            0.35,
+            3,
+            3,
+            None,
+        )
+        .unwrap();
+        let observed = run_l2_benchmark_scenario_with_gate(
+            "nonstationary",
+            3,
+            8,
+            8,
+            20261115,
+            0.35,
+            3,
+            3,
+            Some(settings),
+        )
+        .unwrap();
+        let without_diagnostics = |report: &L2BenchmarkReport| {
+            let mut value = serde_json::to_value(report).unwrap();
+            for pair in value["paired_runs"].as_array_mut().unwrap() {
+                for branch in ["baseline", "treatment"] {
+                    let branch = &mut pair[branch];
+                    for field in ["pipeline", "diagnostics", "signals", "experiment"] {
+                        branch.as_object_mut().unwrap().remove(field);
+                    }
+                }
+            }
+            value
+        };
+        assert_eq!(without_diagnostics(&plain), without_diagnostics(&observed));
     }
 
     #[test]
