@@ -1052,7 +1052,7 @@ mod tests {
         let dir = temp_dir().join(format!("omega-audit-patch-{}", crate::new_uuid()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
-        let mut kernel = Kernel::with_state_path(&path);
+        let mut kernel = Kernel::with_state_path(path);
         kernel.autosave = false;
         kernel.dump_trajectory = false;
         kernel.step("disabled means no candidate").unwrap();

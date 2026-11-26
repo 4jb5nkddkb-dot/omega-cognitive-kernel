@@ -52,6 +52,7 @@ fn demo_honors_explicit_state_for_status_and_audit() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn config_selects_and_loads_the_configured_state_before_override() {
     let dir = std::env::temp_dir().join(format!(
         "omega-cli-config-test-{}-{}",
