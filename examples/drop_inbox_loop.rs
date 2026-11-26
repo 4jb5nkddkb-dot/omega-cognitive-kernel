@@ -6,33 +6,38 @@
 //! 3. RuleEffect patches adjust explore/stabilize under rising "load"
 //! 4. Actions are written to `actions.log` (audit-friendly side channel)
 //!
+//! By default, the demo keeps its files under `.omega/drop-inbox-demo/` so a
+//! later run can resume the same state and the dashboard can open it. Set
+//! `OMEGA_DEMO_DIR` to use another data directory.
+//!
 //! ```bash
 //! cargo run --example drop_inbox_loop
+//! cargo run --release --features gui --bin omega-dashboard
+//! # In the dashboard, choose Settings > Open state and select
+//! # .omega/drop-inbox-demo/state.json (or the OMEGA_DEMO_DIR equivalent).
 //! ```
-
 use omega_cognitive_kernel::{
     l0::decision::ConstrainedDecisionMaker, DirSnapshotObserver, Kernel, KernelConfig,
     LoggingExecutor, Result,
 };
-use std::env::temp_dir;
 use std::fs;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 fn main() -> Result<()> {
-    let root = temp_dir().join(format!(
-        "omega-inbox-{}",
-        omega_cognitive_kernel::new_uuid()
-    ));
+    let root = std::env::var_os("OMEGA_DEMO_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(".omega/drop-inbox-demo"));
     let inbox = root.join("inbox");
     let cfg_path = root.join("omega.toml");
-    let state_path = root.join("state.json");
+    let configured_state_path = root.join("state.json");
     let action_log = root.join("actions.log");
 
     fs::create_dir_all(&inbox).expect("mkdir inbox");
 
     let cfg = KernelConfig {
-        state_path: Some(state_path.display().to_string()),
+        state_path: Some(configured_state_path.display().to_string()),
         autosave: true,
         auto_checkpoint_on_patch: true,
         error_threshold: 0.28,
@@ -42,11 +47,17 @@ fn main() -> Result<()> {
         ..KernelConfig::default()
     };
     cfg.save(&cfg_path)?;
+    // Read back the same config the example writes. Its resolved state path is
+    // the path used to construct the kernel, restore state, and open the demo.
+    let cfg = KernelConfig::load(&cfg_path)?;
+    let state_path = cfg.resolved_state_path();
+    let resuming = state_path.exists();
 
     println!("=== Omega drop-inbox loop ===");
     println!("root   : {}", root.display());
     println!("inbox  : {}", inbox.display());
     println!("config : {}", cfg_path.display());
+    println!("state  : {}", state_path.display());
     println!("actions: {}", action_log.display());
     println!();
 
@@ -66,7 +77,16 @@ fn main() -> Result<()> {
 
     let mut kernel =
         Kernel::with_adapters_and_path(observer, executor, ConstrainedDecisionMaker, &state_path);
-    kernel.apply_config(&KernelConfig::load(&cfg_path)?);
+    kernel.apply_config(&cfg);
+    if resuming {
+        kernel.load()?;
+        println!(
+            "Resumed existing state ({} steps).",
+            kernel.status().total_steps
+        );
+    } else {
+        println!("Starting a new state.");
+    }
 
     let goal = cfg
         .default_goal
@@ -80,7 +100,7 @@ fn main() -> Result<()> {
             let name = format!("job-{:03}.txt", step + 10);
             let body = format!("priority=high step={step}");
             let _ = fs::write(inbox.join(name), body);
-            println!("[world] dropped file into inbox (step {step})");
+            println!("[world] dropped file into inbox (run step {step})");
         }
 
         let r = kernel.step(&goal)?;
@@ -92,8 +112,8 @@ fn main() -> Result<()> {
             .unwrap_or("-");
         let st = kernel.status();
         println!(
-            "[kernel] step={step} act={act:<9} patched={} avg_err={:.3} damp={:.2} max_risk={:.2}",
-            r.l1.patched, st.avg_prediction_error, st.error_damping, st.max_risk
+            "[kernel] total_step={} act={act:<9} patched={} avg_err={:.3} damp={:.2} max_risk={:.2}",
+            st.total_steps, r.l1.patched, st.avg_prediction_error, st.error_damping, st.max_risk
         );
 
         thread::sleep(Duration::from_millis(30));
@@ -112,7 +132,9 @@ fn main() -> Result<()> {
         let lines = log.lines().count();
         println!("action log lines: {lines}  ({})", action_log.display());
     }
-    println!("\nCleanup: remove {}", root.display());
-    let _ = fs::remove_dir_all(&root);
+    println!(
+        "Demo data is kept in {}. Set OMEGA_DEMO_DIR to relocate it, or remove this directory to reset.",
+        root.display()
+    );
     Ok(())
 }
