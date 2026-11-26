@@ -4,6 +4,9 @@ use crate::prelude::*;
 use alloc::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
+pub mod schema;
+pub use schema::{parse_suggestion_json, SchemaResult};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmProposal {
     pub action: String,
@@ -40,6 +43,10 @@ impl LlmBridge {
             rationale: rationale.to_string(),
             write_authorized: false,
         }
+    }
+
+    pub fn validate_json_proposal(&self, raw_json: &str) -> SchemaResult {
+        parse_suggestion_json(raw_json, &self.allowed_actions)
     }
 }
 
