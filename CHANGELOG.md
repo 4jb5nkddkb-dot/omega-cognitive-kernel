@@ -16,6 +16,7 @@
 ### Documentation
 - Align schema-v6 migration, executable source-installation guidance, and independent L1/L2 defaults with the current runtime. Document L2 `L2Policy` execution attribution separately from commits and no-op proposals.
 - Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
+- Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
 
 ## [0.6.0] — 2026-11-22
 
