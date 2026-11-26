@@ -514,7 +514,7 @@ mod tests {
         }
     }
     #[test]
-   fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
+    fn l1_auto_rollback_restores_previous_effect_on_worsening_error() {
         let mut kernel = make_kernel();
         let initial_effect = kernel.l0.memory.cognitive_effect.clone();
         kernel.l1.self_modify_enabled = true;
@@ -528,5 +528,4 @@ mod tests {
         kernel.run_once("test").expect("step 2");
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
-   }
-}
+    }
