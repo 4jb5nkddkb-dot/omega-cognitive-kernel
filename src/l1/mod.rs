@@ -241,7 +241,7 @@ mod tests {
             outcomes: vec![],
             prediction_errors: vec![0.8],
             meta: HashMap::new(),
-            };
+        };
         let mut memory = MemoryFacade::default();
         let res = l1
             .process(&trajectory, &mut memory)
