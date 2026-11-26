@@ -40,7 +40,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --verbose
-
+      - name: Run doc tests
+        run: cargo test --doc --locked
+        
       - name: Build release binary
         run: cargo build --locked --release --bin omega-kernel
 
