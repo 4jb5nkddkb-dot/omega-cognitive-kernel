@@ -53,7 +53,12 @@ error_threshold = 0.30
 min_steps_between_patches = 3
 max_risk = 0.65
 default_goal = "stabilize under load"
+
+[privacy]
+redact_user_content = true
 ```
+
+The privacy table is optional; old configuration files keep the legacy `false` default. Redaction affects known goal/task/checkpoint-label text written by the configured kernel. See [persistence privacy and file permissions](./persistence-privacy.md) for the full recording scope, paths, Unix modes, Windows ACL behavior, and limitations.
 
 ```rust
 use omega_cognitive_kernel::{Kernel, KernelConfig};
