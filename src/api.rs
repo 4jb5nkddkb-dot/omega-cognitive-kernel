@@ -425,6 +425,7 @@ where
         self.inner.l1.reflector.error_threshold = cfg.error_threshold;
         self.inner.l1.reflector.min_steps_between_patches = cfg.min_steps_between_patches;
         self.inner.l1.self_modify_enabled = cfg.self_modify_enabled;
+        self.inner.l1.shadow_mode = cfg.l1_shadow_mode;
         cfg.l2.apply_to(&mut self.inner.l2);
         self.inner
             .l0
