@@ -71,7 +71,7 @@ where
         }
         let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
         self.l1.self_modify_enabled = saved_self_modify;
-        
+
         let avg_err = self.l0.memory.cas.avg_prediction_error;
         let state = SystemState {
             active_code: self.l1.store.active.clone(),
@@ -550,4 +550,4 @@ mod tests {
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(kernel.l1.self_modify_enabled);
     }
-    }
+}
