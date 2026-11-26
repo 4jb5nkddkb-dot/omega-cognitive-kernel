@@ -345,6 +345,14 @@ fn run_window(delay: usize) -> WindowResult {
     }
 }
 
+fn fmt_steps(v: &[usize]) -> String {
+    if v.is_empty() {
+        "-".to_string()
+        } else {
+        v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+    }
+}
+
 fn experiment_rollback() -> bool {
     println!("\n== E3 L1 自动回滚：恶化信号滞后 k 步出现时是否回滚（预期：仅 k=1）==");
     println!(
@@ -355,16 +363,6 @@ fn experiment_rollback() -> bool {
     let mut later_rollback = false;
     for delay in [1usize, 2, 3, 5, 8] {
         let w = run_window(delay);
-        let fmt_list = |v: &[usize]| {
-            if v.is_empty() {
-                "-".to_string()
-            } else {
-               v.iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            }
-        };
         let restore = match w.restore_ok {
             Some(true) => "是",
             Some(false) => "否",
@@ -373,8 +371,8 @@ fn experiment_rollback() -> bool {
         println!(
             "  {:<6} {:<18} {:<18} {:<10} {:<12.3}",
             delay,
-            fmt_list(&w.patches[..]),
-            fmt_list(&w.rollbacks[..]),
+           fmt_steps(&w.patches),
+           fmt_steps(&w.rollbacks),
             restore,
             w.window_ms
         );
