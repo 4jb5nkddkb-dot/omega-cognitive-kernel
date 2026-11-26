@@ -107,12 +107,10 @@ fn drift_inject(i: usize, drift: bool) -> Option<f64> {
     if !drift {
         return None;
     }
-    if i == DRIFT_AT {
-        Some(0.9)
-    } else if i > DRIFT_AT {
-        Some(0.65)
-    } else {
-        None
+    match i.cmp(&DRIFT_AT) {
+        std::cmp::Ordering::Equal => Some(0.9),
+        std::cmp::Ordering::Greater => Some(0.65),
+        std::cmp::Ordering::Less => None,
     }
 }
 
