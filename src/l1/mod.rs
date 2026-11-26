@@ -47,6 +47,7 @@ pub struct L1CognitiveLayer {
     pub self_modify_enabled: bool,
     pub previous_effect: Option<crate::types::RuleEffect>,
     pub pending_rollback: bool,
+    pub shadow_mode: bool,
 }
 
 impl L1CognitiveLayer {
@@ -61,6 +62,7 @@ impl L1CognitiveLayer {
             self_modify_enabled: false,
             previous_effect: None,
             pending_rollback: false,
+            shadow_mode: false,
         }
     }
 
@@ -74,7 +76,7 @@ impl L1CognitiveLayer {
         let abstraction = self.abstractor.distill(trajectory)?;
 
         // Hard gate: no self-modification unless explicitly enabled.
-        if !self.self_modify_enabled {
+        if !self.self_modify_enabled && !self.shadow_mode {
             return Ok(L1Result {
                 patched: false,
                 patch_id: None,
@@ -108,6 +110,17 @@ impl L1CognitiveLayer {
             patch.effect = patch.effect.sanitize();
             let report = self.sandbox.validate(&patch)?;
             if report.accepted {
+                if self.shadow_mode {
+                    self.steps_since_last_patch = 0;
+                    return Ok(L1Result {
+                        patched: false,
+                        patch_id: Some(patch.patch_id),
+                        reason: Some("shadow_mode: validated without applying".into()),
+                        effect_damping: Some(patch.effect.error_damping),
+                        rollback_effect: None,
+                        safety_degraded: false,
+                    });
+                }
                 let damping = patch.effect.error_damping;
                 self.previous_effect = Some(memory.cognitive_effect.clone());
                 self.pending_rollback = true;
@@ -215,5 +228,27 @@ mod tests {
         assert!(layer.store.history.is_empty());
         assert_eq!(layer.steps_since_last_patch, 100);
         assert!(!layer.pending_rollback);
+    }
+    #[test]
+    fn shadow_mode_validates_without_mutating_effect() {
+        let mut l1 = L1CognitiveLayer::new();
+        l1.shadow_mode = true;
+        l1.reflector.error_threshold = 0.1;
+        let trajectory = Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![],
+            outcomes: vec![],
+            prediction_errors: vec![0.8],
+            meta: HashMap::new(),
+        };
+        let mut memory = MemoryFacade::default();
+        let res = l1
+            .process(&trajectory, &mut memory)
+            .expect("shadow process");
+        assert!(!res.patched);
+        assert!(res.patch_id.is_some());
+        assert!(memory.cognitive_effect == crate::types::RuleEffect::default());
+        assert!(!l1.pending_rollback);
     }
 }
