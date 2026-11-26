@@ -2,7 +2,7 @@ name: Security Audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/security-audit-dependencies]
   pull_request:
     branches: [main]
   schedule:
@@ -26,3 +26,21 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+  update-cargo-lock:
+    name: Update Python Cargo.lock
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/security-audit-dependencies'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo update --manifest-path bindings/python/Cargo.toml
+      - run: |
+          if [ -n "$(git status --porcelain bindings/python/Cargo.lock)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add bindings/python/Cargo.lock
+            git commit -m "chore(python): update bindings/python/Cargo.lock"
+            git push origin HEAD:fix/security-audit-dependencies
+          fi
