@@ -318,8 +318,16 @@ fn run_window(delay: usize) -> WindowResult {
         recs.push(step(&mut k, i, inject));
     }
 
-    let patches: Vec<usize> = recs.iter().filter(|r| r.l1_patched).map(|r| r.step).collect();
-    let rollbacks: Vec<usize> = recs.iter().filter(|r| r.rolled_back).map(|r| r.step).collect();
+    let patches: Vec<usize> = recs
+        .iter()
+        .filter(|r| r.l1_patched)
+        .map(|r| r.step)
+        .collect();
+    let rollbacks: Vec<usize> = recs
+        .iter()
+        .filter(|r| r.rolled_back)
+        .map(|r| r.step)
+        .collect();
 
     let mut restore_ok = None;
     let mut window_ms = 0.0;
@@ -351,7 +359,10 @@ fn experiment_rollback() -> bool {
             if v.is_empty() {
                 "-".to_string()
             } else {
-                v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+                v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
             }
         };
         let restore = match w.restore_ok {
