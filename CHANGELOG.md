@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Privacy / persistence
+- Add opt-in `[privacy].redact_user_content` for known user goals, task names, and checkpoint labels written by the kernel; retain legacy defaults and schema compatibility.
+- Create new Unix persistence directories with owner-only `0700` and files with owner-only `0600`; document existing-file behavior and Windows ACL inheritance.
+- Document persistence paths, default recording scope, redaction limits, and cleanup of historical append-only logs.
+
 ### Correctness / verification
 - Make prioritized case replay deterministic across kernels, threads, and repeated runs. Schema v6 persists each memory's replay cursor; legacy snapshots migrate without granting L2 permissions.
 - Add opt-in spectral-control experiments, non-mutating L0 dry-runs, per-step signal and execution diagnostics, paired bootstrap intervals, and documented acceptance criteria. Spectral intervention remains disabled by default; the preregistered discovery and independent validation runs did not demonstrate improvement, so this route is stopped without further parameter tuning.
