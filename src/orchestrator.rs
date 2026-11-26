@@ -529,3 +529,4 @@ mod tests {
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
     }
+}
