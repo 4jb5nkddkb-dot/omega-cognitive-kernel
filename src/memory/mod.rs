@@ -5,6 +5,7 @@ pub mod cas;
 pub mod case;
 pub mod consolidation;
 pub mod strategy;
+pub mod weights;
 
 use crate::error::Result;
 use crate::types::{RuleEffect, Trajectory};
@@ -12,6 +13,11 @@ use cas::CasState;
 use case::CaseMemory;
 use hashbrown::HashMap;
 use strategy::StrategyMemory;
+
+pub use weights::{
+    export_weights, migrate_payload, squash_delta_history, verify_weights, WeightsPayload,
+    WEIGHTS_MAGIC, WEIGHTS_VERSION,
+};
 
 #[derive(Debug, Default)]
 pub struct MemoryFacade {
