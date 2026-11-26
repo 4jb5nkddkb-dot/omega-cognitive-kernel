@@ -92,6 +92,67 @@ impl BanditUcbDecisionMaker {
         &self.state.config
     }
 
+    /// Dry-run a candidate policy without mutating this decision maker, L0
+    /// memory, persistence, or the environment. The returned policy is the one
+    /// consumed by this exact decision, not a post-consumption default.
+    pub fn dry_run_policy(&self, policy: crate::types::L2Policy) -> (L2DecisionRecord, [f64; 2]) {
+        self.dry_run_policy_pair(policy)
+    }
+
+    fn dry_run_policy_pair(&self, policy: crate::types::L2Policy) -> (L2DecisionRecord, [f64; 2]) {
+        let mut probe = self.clone();
+        probe.set_l2_policy(policy);
+        let record = probe.decide_arm();
+        (record, probe.last_kl_policy)
+    }
+
+    /// Return both sides of the counterfactual comparison. Neither branch
+    /// mutates this decision maker or the environment.
+    pub fn dry_run_counterfactual(
+        &self,
+        policy: crate::types::L2Policy,
+    ) -> ((L2DecisionRecord, [f64; 2]), (L2DecisionRecord, [f64; 2])) {
+        (
+            self.dry_run_policy(crate::types::L2Policy::default()),
+            self.dry_run_policy(policy),
+        )
+    }
+
+    /// Reduce all sampling statistics together. Exponentially discounted means
+    /// retain their semantics; classic sample means are reweighted as if the
+    /// discarded fractional observations had the historical mean.
+    pub fn discount_history(&mut self, factor: f64) {
+        let factor = if factor.is_finite() {
+            factor.clamp(0.01, 1.0)
+        } else {
+            1.0
+        };
+        if factor >= 1.0 {
+            return;
+        }
+        let scaled: Vec<f64> = self
+            .state
+            .counts
+            .iter()
+            .map(|&n| n as f64 * factor)
+            .collect();
+        let total = scaled.iter().sum::<f64>();
+        let mut integer_total = 0_u64;
+        for (arm, value) in scaled.iter().enumerate() {
+            let mut count = libm::floor(*value) as u64;
+            integer_total += count;
+            if total - integer_total as f64 >= 1.0 {
+                count += 1;
+                integer_total += 1;
+            }
+            if self.state.discount_factor >= 1.0 && self.state.counts[arm] > 0 && count == 0 {
+                self.state.means[arm] = 0.5;
+            }
+            self.state.counts[arm] = count;
+        }
+        self.state.total = integer_total;
+    }
+
     fn sanitized_config(config: BanditConfig) -> BanditConfig {
         BanditConfig {
             switch_margin: config.switch_margin.max(0.0),
@@ -233,7 +294,25 @@ impl BanditUcbDecisionMaker {
                 [0.75, 0.25]
             };
         }
-        crate::l2::control::kl_regularized_policy(rewards, prior, policy.beta)
+        if !policy.spectral_weighting {
+            return crate::l2::control::kl_regularized_policy(rewards, prior, policy.beta);
+        }
+        let alpha = if policy.alpha.is_finite() {
+            policy.alpha.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let prior = [
+            (1.0 - alpha) * 0.5 + alpha * prior[0],
+            (1.0 - alpha) * 0.5 + alpha * prior[1],
+        ];
+        let confidence = if policy.confidence.is_finite() {
+            policy.confidence.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let beta_eff = policy.beta * alpha / 0.35 * confidence;
+        crate::l2::control::kl_regularized_policy(rewards, prior, beta_eff)
     }
 
     fn decide_arm(&mut self) -> L2DecisionRecord {
@@ -397,6 +476,10 @@ impl DecisionMaker for BanditUcbDecisionMaker {
         self.state.l2_policy = policy.effective();
     }
 
+    fn discount_bandit_history(&mut self, factor: f64) {
+        self.discount_history(factor);
+    }
+
     fn l2_decision(&self) -> Option<L2DecisionRecord> {
         self.state.last_decision.clone()
     }
@@ -495,6 +578,7 @@ mod tests {
             expert: 2,
             gate_state: crate::l2::control::L2GateState::Active,
             confidence: 0.9,
+            spectral_weighting: false,
             expert_probabilities: [0.05, 0.05, 0.85, 0.05],
         });
         dm.set_bandit_config(BanditConfig {
@@ -647,6 +731,7 @@ mod tests {
             expert: 2,
             gate_state: crate::l2::control::L2GateState::Active,
             confidence: 0.9,
+            spectral_weighting: false,
             expert_probabilities: [0.05, 0.05, 0.85, 0.05],
         });
         assert!(decision(&mut dm).l2_policy_applied);
@@ -675,6 +760,7 @@ mod tests {
             expert: 1,
             gate_state: crate::l2::control::L2GateState::Active,
             confidence: 0.9,
+            spectral_weighting: false,
             expert_probabilities: [0.05, 0.85, 0.05, 0.05],
         });
         let record = decision(&mut dm);
@@ -685,6 +771,65 @@ mod tests {
         // STABILIZE changes the incumbent prior, but this is not an action
         // intervention: its maximizer is identical to the original UCB arm.
         assert!(!record.l2_policy_applied);
+    }
+
+    #[test]
+    fn history_discount_preserves_counts_and_dry_run_is_immutable() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            means: [0.8, 0.2],
+            counts: [32, 128],
+            total: 160,
+            current_arm: Some(0),
+            dwell_steps: 5,
+            ..dm.snapshot()
+        });
+        let before = dm.snapshot();
+        let _ = dm.dry_run_policy(crate::types::L2Policy::default());
+        assert_eq!(dm.snapshot().counts, before.counts);
+        dm.discount_history(0.85);
+        assert_eq!(dm.snapshot().counts, [28, 108]);
+        assert_eq!(dm.snapshot().total, 136);
+        dm.observe(0, 1.0);
+        assert_eq!(dm.snapshot().total, 137);
+    }
+
+    #[test]
+    fn spectral_alpha_and_confidence_weight_kl_once() {
+        let mut dm = configured();
+        dm.restore(BanditUcbSnapshot {
+            means: [0.8, 0.2],
+            counts: [32, 32],
+            total: 64,
+            current_arm: Some(0),
+            dwell_steps: 5,
+            ..dm.snapshot()
+        });
+        let policy = |alpha, confidence, beta| crate::types::L2Policy {
+            prior: [0.01, 0.99],
+            beta,
+            alpha,
+            committed: true,
+            expert: 2,
+            gate_state: crate::l2::control::L2GateState::Active,
+            confidence,
+            spectral_weighting: true,
+            expert_probabilities: [0.05, 0.05, 0.85, 0.05],
+        };
+        dm.set_l2_policy(policy(0.35, 1.0, 2.0));
+        let strong = dm.kl_policy();
+        dm.set_l2_policy(policy(0.08, 1.0, 2.0));
+        let weak = dm.kl_policy();
+        assert!(strong[1] > weak[1]);
+        // Reducing confidence in this already subcritical-beta regime weakens
+        // the explore preference without forcing an argmax flip.
+        dm.set_l2_policy(policy(0.35, 0.5, 2.0));
+        let lower_confidence = dm.kl_policy();
+        assert!(lower_confidence[1] > 0.5);
+        assert!(lower_confidence[1] < strong[1]);
+        // With a dominant reward, weak confidence must return to UCB's better arm.
+        dm.set_l2_policy(policy(0.35, 0.01, 20.0));
+        assert!(dm.kl_policy()[0] > 0.5);
     }
 
     #[test]

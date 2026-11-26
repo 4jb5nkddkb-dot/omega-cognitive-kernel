@@ -120,6 +120,9 @@ pub struct L2Policy {
     pub expert_probabilities: [f64; 4],
     pub gate_state: crate::l2::control::L2GateState,
     pub confidence: f64,
+    /// Experimental spectral KL weighting. Disabled for legacy controllers.
+    #[serde(default)]
+    pub spectral_weighting: bool,
 }
 impl Default for L2Policy {
     fn default() -> Self {
@@ -132,6 +135,7 @@ impl Default for L2Policy {
             expert_probabilities: [0.25; 4],
             gate_state: crate::l2::control::L2GateState::Dormant,
             confidence: 0.0,
+            spectral_weighting: false,
         }
     }
 }
@@ -196,7 +200,7 @@ pub struct Trajectory {
 
 /// Structured, safely-applied effect of a cognitive patch.
 /// This is what actually changes L0 behavior — not the `code` string.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuleEffect {
     /// Multiplies prediction error / uncertainty (1.0 = no change, lower = better).
     pub error_damping: f64,

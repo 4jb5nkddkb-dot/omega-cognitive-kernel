@@ -102,13 +102,13 @@ consequence_score =
 
 A score below `-0.05` marks a negative consequence, extends cooldown, leaves fixed-point mode, and can activate defensive mode after repeated negatives. The saved `rollback_effect` is returned when the negative consequence qualifies. Positive consequences increase stable consequence steps, clear negative streaks, and can recover defensive mode after a strong enough result.
 
-## Persistence model and schema v5
+## Persistence model and schema v6
 
 The default state path is `.omega/state.json`. Sidecars are placed beside it:
 
 ```text
 .omega/
-├── state.json          # KernelSnapshot, CURRENT_SCHEMA_VERSION = 5
+├── state.json          # KernelSnapshot, CURRENT_SCHEMA_VERSION = 6
 ├── audit.jsonl         # append-only AuditRecord stream
 ├── trajectory.jsonl    # optional per-step replay source
 └── checkpoints/        # complete rollback snapshots

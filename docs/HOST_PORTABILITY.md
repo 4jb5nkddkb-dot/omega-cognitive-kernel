@@ -29,7 +29,8 @@ The `uuid/js` feature supplies randomness for `wasm32-unknown-unknown`; `ureq` i
 - commit threshold and cooldown state;
 - consequence, defensive-mode, recovery, and negative-reward counters;
 - emergence detector history, thresholds, and cooldown;
-- resident trust/expert/IPS state, online Dayan residual, bounded Meta-Cache, and validated pending/applied policy snapshots (schema v5).
+- resident trust/expert/IPS state, online Dayan residual, bounded Meta-Cache, and validated pending/applied policy snapshots (schema v5);
+- per-instance case-replay cursor (schema v6), restored independently of other kernels.
 
 Restoring starts a fresh feedback cycle. It does not reapply an already executed policy to L0, and malformed or noncommitted snapshots collapse to `KEEP_L0`. Missing legacy `l2_enabled` fields default to `false`.
 

@@ -35,4 +35,4 @@ The repository also includes Python bindings under `bindings/python`, examples u
 
 ## Baseline captured from source
 
-The working tree was clean before Memory Bank generation. The source package declares version `0.6.0`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `5`; the default state path is `.omega/state.json`.
+The working tree was clean before Memory Bank generation. The source package declares version `0.6.0`, Rust 2021, and MSRV `1.74`. `CURRENT_SCHEMA_VERSION` is `6`; the default state path is `.omega/state.json`.

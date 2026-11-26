@@ -868,6 +868,7 @@ where
             l2_applied_policy: self.inner.l2.applied_policy.effective(),
             l2_pending_l1_rollback: self.inner.l2.pending_l1_rollback,
             l2_last_reward: self.inner.l2.last_reward,
+            case_sample_counter: self.inner.l0.memory.case.sample_counter(),
         }
     }
 
@@ -887,8 +888,11 @@ where
         self.inner.l0.memory.cas.avg_prediction_error = snap.cas_avg_prediction_error;
         self.inner.l0.memory.cas.adaptation_score = snap.cas_adaptation_score;
         self.inner.l0.memory.cognitive_effect = snap.cognitive_effect;
-        self.inner.l0.memory.case =
-            crate::memory::case::CaseMemory::restore(snap.cases, snap.case_capacity);
+        self.inner.l0.memory.case = crate::memory::case::CaseMemory::restore_with_sample_counter(
+            snap.cases,
+            snap.case_capacity,
+            snap.case_sample_counter,
+        );
         self.inner.l0.memory.strategy =
             crate::memory::strategy::StrategyMemory::restore(snap.strategies);
         self.inner.l1.store =
@@ -1276,6 +1280,7 @@ mod tests {
             expert_probabilities: [0.05, 0.85, 0.05, 0.05],
             gate_state: crate::l2::control::L2GateState::Active,
             confidence: 0.9,
+            spectral_weighting: false,
         };
         kernel.set_l2_enabled(true);
         kernel.inner.l2.controller.gate_state = crate::l2::control::L2GateState::Active;

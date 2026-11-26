@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_STATE_PATH: &str = ".omega/state.json";
 
 /// Current on-disk schema. Bump only with a migration path.
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 fn default_schema_version() -> u32 {
     0
@@ -68,7 +68,7 @@ fn default_l2_detector_cooldown() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
     /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
-    /// [`CURRENT_SCHEMA_VERSION`] (currently 5) on load.
+    /// [`CURRENT_SCHEMA_VERSION`] (currently 6) on load.
     #[serde(default = "default_schema_version")]
     pub version: u32,
     pub total_steps: u64,
@@ -163,6 +163,9 @@ pub struct KernelSnapshot {
     pub l2_pending_l1_rollback: bool,
     #[serde(default)]
     pub l2_last_reward: f64,
+    /// Per-instance prioritized-replay cursor (v6+), independent of other kernels.
+    #[serde(default)]
+    pub case_sample_counter: u32,
 }
 
 impl Default for KernelSnapshot {
@@ -216,6 +219,7 @@ impl Default for KernelSnapshot {
             l2_applied_policy: crate::types::L2Policy::default(),
             l2_pending_l1_rollback: false,
             l2_last_reward: 0.5,
+            case_sample_counter: 0,
         }
     }
 }
@@ -271,6 +275,12 @@ impl KernelSnapshot {
                 self.l2_controller.trust.alpha = 0.0;
             }
             self.version = 5;
+        }
+        if self.version < 6 {
+            // v6 makes replay sampling local to the case-memory instance. Legacy
+            // snapshots have no meaningful global cursor, so start at zero.
+            self.case_sample_counter = 0;
+            self.version = 6;
         }
         Ok(self)
     }
@@ -560,6 +570,18 @@ mod tests {
         value.as_object_mut().unwrap().remove("l2_policy_applied");
         let record: crate::types::L2DecisionRecord = serde_json::from_value(value).unwrap();
         assert!(!record.l2_policy_applied);
+    }
+
+    #[test]
+    fn legacy_policy_does_not_enable_spectral_weighting() {
+        let mut value = serde_json::to_value(crate::types::L2Policy::default()).unwrap();
+        value.as_object_mut().unwrap().remove("spectral_weighting");
+        let policy: crate::types::L2Policy = serde_json::from_value(value).unwrap();
+        assert!(!policy.spectral_weighting);
+        let snapshot = KernelSnapshot::default();
+        assert!(!snapshot.l2_pending_policy.spectral_weighting);
+        assert!(!snapshot.l2_applied_policy.spectral_weighting);
+        assert!(!crate::l2::L2MetaLayer::new().spectral_control_enabled);
     }
 
     #[test]

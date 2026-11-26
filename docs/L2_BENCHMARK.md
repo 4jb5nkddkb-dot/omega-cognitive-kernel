@@ -65,6 +65,58 @@ For `regime_shift`, recovery is the first post-shift step that completes a strea
 
 Each run uses a fresh temporary state path. Persistent benchmark artifacts are removed after the run.
 
+## Spectral research experiment (default off)
+
+The ordinary benchmark and new kernels keep the resident L2 behavior described above,
+but **spectral intervention is disabled by default**. `L2Policy::spectral_weighting`
+and legacy snapshot fields also default to false. Spectral control, its gate/history,
+and its experiment settings are not persisted as an enabled production permission;
+restart therefore does not enable this research intervention. A valid persisted
+`spectral_weighting` flag is retained as policy data, not as a new experiment opt-in.
+
+Enable it only for a paired research run:
+
+```bash
+cargo run --locked --release --bin omega-kernel -- benchmark-l2 \
+  --scenario regime_shift --runs 30 --episodes 12 --steps 12 \
+  --seed 20261115 --spectral-control --diagnostics --json \
+  > discovery-regime_shift.json
+```
+
+Run the same command for `stable`, `nonstationary`, and `cyclic_shift`. For the
+independent validation set, change `--seed` to `20270001`. `--diagnostics` includes
+per-step treatment records without enabling spectral control. The ablation flags
+`--no-purity-prior`, `--no-reverse-brake`, and `--no-history-discount` require
+`--spectral-control`; without that master flag, all experimental components are off.
+JSON reports sort score-breakdown keys, use deterministic aggregation, and support
+byte-for-byte replay comparisons without float tolerances.
+
+The preregistered 2026-11-25 discovery run produced a `regime_shift` paired reward
+difference of **-0.003935185185185179**, Student-t 95% interval
+**[-0.007031866098688526, -0.000838504271681832]**, and bootstrap 95% interval
+**[-0.007175925925925919, -0.001388888888888884]**. The independent validation
+run had zero reward difference and zero-width intervals. Stable-scenario differences
+were zero in both sets. Only 9 of 4320 discovery `regime_shift` dry-runs changed the
+candidate arm; none changed the dry-run selected arm, and no history discount fired.
+This **negative result stopped the spectral-control route**. It is not evidence of a
+validated control improvement or a reason to enable the feature by default. See
+`docs/EXPERIMENTS.md` for the complete result table and evidence boundaries.
+
+The compact raw-report checksums below belong to the final release run. The original
+JSON files are reproducible using the commands above and are retained outside the
+source tree to avoid committing large per-step artifacts.
+
+| Report | SHA-256 |
+|---|---|
+| discovery `cyclic_shift` | `2de3cd077ed95fb50dd15334182ebfb26c5ad9d363c1c692cf69322ff92611fa` |
+| discovery `nonstationary` | `a7a65128eee80c47ebbd0169798bddfe86578271140270e623a68dac3c2d72d5` |
+| discovery `regime_shift` | `097170c336215a17520b1b4a9b4d845621d38e2135c43ca3a86f1983a9af55b6` |
+| discovery `stable` | `7bba1b6a62ce5a3ea3613ac7fcc4ad73b673cc25e2c5ebdf2ed69814b0273a50` |
+| validation `cyclic_shift` | `ad18b1ffdcf0b4313fdaa3a8f1eef1b175d0eacf36ae157981afc3c08384af9a` |
+| validation `nonstationary` | `c6d660cb13f6cdb6f9f99e89663d65fe9e589f4482294b197f6b42b5fbbdf1d1` |
+| validation `regime_shift` | `6b058233f83c3435fd6a0414de4f3c0838b10fffd5096ea5262bf78bac88cafe` |
+| validation `stable` | `54ddeffa5ab258b5c846a56ac68169930844c738658c8a0debc6189e135972c2` |
+
 ## Metrics
 
 - `mean_reward`: mean reward per bandit decision;
@@ -134,7 +186,7 @@ Do not use `mean_l2_nudges > 0` or `mean_fixed_point_enters > 0` as a success cr
 
 Every bandit step records `l2_decision` in `trajectory.jsonl`: selected arm/bias, mean reward, exploration bonus, candidate/current UCB scores, reason (`switched`, `dwell_hold`, `margin_hold`, `safety_override`, `explore`, or `exploit`), dwell state, and feedback costs. `replay` displays these fields. `status --json` exposes the latest summary as `last_l2_decision`; it is `null` for a fresh kernel or non-UCB decision maker.
 
-State schema v5 stores the resident controller, online Dayan state, bounded cache, validated pending/applied policy snapshots, UCB statistics, and decision explanations. Missing legacy L2 permissions default to `false`; malformed or noncommitted snapshots collapse to `KEEP_L0`. Older trajectory lines without the newer fields replay with safe defaults.
+State schema v6 stores the resident controller, online Dayan state, bounded cache, validated pending/applied policy snapshots, UCB statistics, decision explanations, and a per-instance case-replay cursor. Missing legacy L2 permissions default to `false`; malformed or noncommitted snapshots collapse to `KEEP_L0`. Older trajectory lines without the newer fields replay with safe defaults.
 
 ## Historical results
 

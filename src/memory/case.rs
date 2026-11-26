@@ -11,7 +11,6 @@ use crate::prelude::*;
 use crate::types::Trajectory;
 use alloc::collections::VecDeque;
 use chrono::Utc;
-use core::sync::atomic::{AtomicU32, Ordering};
 use serde::{Deserialize, Serialize};
 
 /// Floor so zero-error cases still get tiny sample chance.
@@ -49,6 +48,7 @@ pub struct CaseMemory {
     capacity: usize,
     /// Running sum of priorities for O(1) normalization hints (recomputed on structural change).
     priority_sum: f64,
+    sample_counter: core::cell::Cell<u32>,
 }
 
 impl CaseMemory {
@@ -57,6 +57,7 @@ impl CaseMemory {
             cases: VecDeque::with_capacity(capacity),
             capacity,
             priority_sum: 0.0,
+            sample_counter: core::cell::Cell::new(0),
         }
     }
 
@@ -120,7 +121,8 @@ impl CaseMemory {
                 .unwrap_or("unknown")
                 .to_string(),
             error_mean,
-            timestamp: crate::now_utc(),
+            // Identical simulation inputs should not depend on wall-clock timing.
+            timestamp: chrono::DateTime::<Utc>::UNIX_EPOCH,
             priority,
         };
 
@@ -159,9 +161,10 @@ impl CaseMemory {
             .collect();
 
         let mut out = Vec::with_capacity(n);
-        // Lightweight LCG for reproducible-enough sampling without new deps.
-        static SAMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
-        let counter = SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        // Replay state is local to this memory, so runs are independent and
+        // reproducible even when other kernels or threads are active.
+        let counter = self.sample_counter.get();
+        self.sample_counter.set(counter.wrapping_add(1));
         let mut seed = (self.cases.len() as u64)
             .wrapping_mul(0x9E37_79B9)
             .wrapping_add((counter as u64).wrapping_mul(0x85EB_CA6B))
@@ -261,6 +264,20 @@ impl CaseMemory {
         mem.recompute_sum();
         mem
     }
+
+    pub fn sample_counter(&self) -> u32 {
+        self.sample_counter.get()
+    }
+
+    pub fn restore_with_sample_counter(
+        cases: Vec<Case>,
+        capacity: usize,
+        sample_counter: u32,
+    ) -> Self {
+        let mut memory = Self::restore(cases, capacity);
+        memory.sample_counter = core::cell::Cell::new(sample_counter);
+        memory
+    }
 }
 
 impl Default for CaseMemory {
@@ -351,5 +368,33 @@ mod tests {
         };
         let mem = CaseMemory::restore(vec![c], 8);
         assert!(mem.cases[0].priority > 0.0);
+    }
+
+    #[test]
+    fn sampling_is_local_and_snapshot_restores_cursor() {
+        let mut first = CaseMemory::new(10);
+        let mut second = CaseMemory::new(10);
+        for memory in [&mut first, &mut second] {
+            for index in 0..5 {
+                memory.add(&sample_traj(
+                    &format!("case-{index}"),
+                    0.1 + index as f64 * 0.1,
+                ));
+            }
+        }
+        let first_sample: Vec<String> = first.retrieve("", 3).into_iter().map(|c| c.goal).collect();
+        let second_sample: Vec<String> =
+            second.retrieve("", 3).into_iter().map(|c| c.goal).collect();
+        assert_eq!(first_sample, second_sample);
+        let (cases, capacity) = first.snapshot();
+        let restored =
+            CaseMemory::restore_with_sample_counter(cases, capacity, first.sample_counter());
+        let expected: Vec<String> = first.retrieve("", 3).into_iter().map(|c| c.goal).collect();
+        let actual: Vec<String> = restored
+            .retrieve("", 3)
+            .into_iter()
+            .map(|c| c.goal)
+            .collect();
+        assert_eq!(expected, actual);
     }
 }

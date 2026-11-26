@@ -3,8 +3,12 @@ use std::process::Command;
 #[test]
 fn demo_honors_explicit_state_for_status_and_audit() {
     let dir = std::env::temp_dir().join(format!(
-        "omega-cli-demo-test-{}",
-        omega_cognitive_kernel::new_uuid()
+        "omega-cli-demo-test-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
     ));
     std::fs::create_dir_all(&dir).expect("create test directory");
     let state = dir.join("state.json");
@@ -29,7 +33,10 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     assert!(status.status.success());
     let status: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
     assert_eq!(status["total_steps"], 3);
-    assert_eq!(status["schema_version"], 5);
+    assert_eq!(
+        status["schema_version"],
+        omega_cognitive_kernel::persist::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(status["l2_gate_state"], "DORMANT");
     assert!(status["last_l2_decision"].is_null());
 
@@ -42,4 +49,54 @@ fn demo_honors_explicit_state_for_status_and_audit() {
     assert!(audit.contains("steps              : 3"), "{audit}");
 
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn benchmark_spectral_intervention_is_explicitly_opt_in() {
+    let binary = env!("CARGO_BIN_EXE_omega-kernel");
+    let run = |extra: &[&str]| {
+        let output = Command::new(binary)
+            .args([
+                "benchmark-l2",
+                "--scenario",
+                "regime_shift",
+                "--runs",
+                "1",
+                "--episodes",
+                "2",
+                "--steps",
+                "4",
+                "--seed",
+                "20261115",
+                "--json",
+            ])
+            .args(extra)
+            .output()
+            .expect("run benchmark");
+        assert!(
+            output.status.success(),
+            "benchmark failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("benchmark JSON")
+    };
+
+    let default = run(&[]);
+    assert!(default["paired_runs"][0]["treatment"]["experiment"].is_null());
+    let diagnostics = run(&["--diagnostics"]);
+    assert_eq!(
+        diagnostics["paired_runs"][0]["treatment"]["experiment"]["spectral_control"],
+        false
+    );
+    let treatment = run(&["--spectral-control"]);
+    assert_eq!(
+        treatment["paired_runs"][0]["treatment"]["experiment"]["spectral_control"],
+        true
+    );
+
+    let rejected = Command::new(binary)
+        .args(["benchmark-l2", "--no-purity-prior", "--json"])
+        .output()
+        .expect("reject orphan ablation");
+    assert!(!rejected.status.success());
 }

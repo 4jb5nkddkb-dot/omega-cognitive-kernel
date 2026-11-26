@@ -105,6 +105,7 @@ pub struct L2MetaLayer {
     pub spectral_reflector: crate::l1::spectral::L1SpectralReflector,
     pub spectral_gate: L2CognitiveGate,
     pub spectral_history: Vec<f64>,
+    pub spectral_control_enabled: bool,
 }
 
 impl L2MetaLayer {
@@ -144,6 +145,7 @@ impl L2MetaLayer {
             spectral_reflector: crate::l1::spectral::L1SpectralReflector::default(),
             spectral_gate: L2CognitiveGate::new(SpectralGateConfig::with_window(16)),
             spectral_history: Vec::new(),
+            spectral_control_enabled: false,
         }
     }
 
@@ -234,6 +236,10 @@ impl L2MetaLayer {
         self.external_attention = false;
 
         self.pending_policy = crate::types::L2Policy::default();
+        let spectral_out = self.advance_spectral_output(state);
+        let spectral_permits = !self.spectral_control_enabled
+            || self.spectral_gate.permits_intervention(&spectral_out);
+        let spectral_rejection = self.spectral_control_enabled && !spectral_permits;
         if self.controller.gate_state == L2GateState::Active && self.controller.surprise_started {
             // Recording a recovery context is independent of proposal trust.
             // A cooldown suppresses intervention, not the episode's cache key.
@@ -251,7 +257,8 @@ impl L2MetaLayer {
         }
         let can_propose = self.controller.gate_state == L2GateState::Active
             && self.controller.trust.cooldown_remaining == 0
-            && !self.controller.retire_requested;
+            && !self.controller.retire_requested
+            && spectral_permits;
         if can_propose {
             let probabilities = self.controller.experts.probabilities();
             let selected = if self.controller.meta_cache_hit {
@@ -280,7 +287,7 @@ impl L2MetaLayer {
                 if self.controller.certificate.lyapunov_veto {
                     self.controller.veto_count = self.controller.veto_count.saturating_add(1);
                 }
-                let beta = self.controller.beta();
+                let beta = self.controller.beta_for(self.spectral_control_enabled);
                 // A high anomaly score is evidence for waking up, not evidence
                 // that an intervention will help. Commit confidence comes from
                 // the residual model; the Lyapunov certificate is the final
@@ -294,7 +301,11 @@ impl L2MetaLayer {
                     && self.controller.model_confidence >= self.commit_threshold.clamp(0.0, 1.0);
                 if allowed {
                     self.pending_policy = crate::types::L2Policy {
-                        prior: self.controller.prior(),
+                        prior: if selected == 2 && self.spectral_control_enabled {
+                            self.spectral_gate.explore_prior(&spectral_out)
+                        } else {
+                            self.controller.prior()
+                        },
                         beta,
                         alpha: self.controller.trust.alpha,
                         committed: true,
@@ -302,6 +313,7 @@ impl L2MetaLayer {
                         expert_probabilities: probabilities,
                         gate_state: self.controller.gate_state,
                         confidence: self.controller.model_confidence,
+                        spectral_weighting: self.spectral_control_enabled,
                     };
                     modulation_committed = true;
                     modulation_gain = self.controller.trust.alpha;
@@ -323,14 +335,9 @@ impl L2MetaLayer {
             self.controller.last_selected_expert = KEEP_L0;
             self.controller.certificate.lyapunov_veto = false;
         }
-        self.spectral_history
-            .push(1.0 - state.avg_prediction_error.clamp(0.0, 1.0));
-        if self.spectral_history.len() > 32 {
-            self.spectral_history.remove(0);
+        if spectral_rejection {
+            rejection_reason = Some("spectral_gate".into());
         }
-        let spectral_out = self
-            .spectral_gate
-            .step(&self.spectral_reflector, &self.spectral_history);
         let mut score_breakdown = score_breakdown;
         score_breakdown.insert("spectral_bias".to_string(), spectral_out.bias);
         score_breakdown.insert(
@@ -357,6 +364,21 @@ impl L2MetaLayer {
         self.last_rejection_reason = rejection_reason;
         result.spectral_output = Some(spectral_out);
         Ok(result)
+    }
+
+    pub fn configure_spectral_control(&mut self, enabled: bool) {
+        self.spectral_control_enabled = enabled;
+        self.spectral_gate.configure_control(enabled);
+    }
+
+    fn advance_spectral_output(&mut self, state: &SystemState) -> KernelStepOutput {
+        self.spectral_history
+            .push(1.0 - state.avg_prediction_error.clamp(0.0, 1.0));
+        if self.spectral_history.len() > 32 {
+            self.spectral_history.remove(0);
+        }
+        self.spectral_gate
+            .step(&self.spectral_reflector, &self.spectral_history)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -483,6 +505,51 @@ mod tests {
     use super::{control, L2MetaLayer};
     use crate::types::{L2Policy, RuleEffect, SystemState};
     use hashbrown::HashMap;
+
+    #[test]
+    fn spectral_permission_is_required_only_for_new_proposals() {
+        let mut layer = L2MetaLayer::new();
+        layer.configure_spectral_control(true);
+        layer.controller.gate_state = control::L2GateState::Active;
+        layer.controller.trust.alpha = 0.08;
+        layer.controller.model_confidence = 1.0;
+        layer.controller.residual = 0.0;
+        layer.controller.dayan_state = 0.0;
+        layer.commit_threshold = 0.0;
+        layer.controller.experts.weights = [1e-12, 1.0, 1.0, 1.0];
+        let mut state = SystemState {
+            highest_attractor: "maintain coherent self-model omega dayan".into(),
+            generative_base: Some("auxiliary_base".into()),
+            avg_prediction_error: 0.5,
+            ..SystemState::default()
+        };
+        state
+            .active_code
+            .insert("cognitive_rules".into(), "self bias damp".into());
+        for _ in 0..16 {
+            let result = layer
+                .step(
+                    &state,
+                    HashMap::new(),
+                    HashMap::new(),
+                    &RuleEffect::default(),
+                )
+                .unwrap();
+            assert_eq!(result.rejection_reason.as_deref(), Some("spectral_gate"));
+            assert!(!result.modulation_committed);
+        }
+        let steady = layer
+            .step(
+                &state,
+                HashMap::new(),
+                HashMap::new(),
+                &RuleEffect::default(),
+            )
+            .unwrap();
+        assert_eq!(steady.rejection_reason.as_deref(), Some("spectral_gate"));
+        assert!(!steady.modulation_committed);
+        assert!(!layer.pending_policy.effective().committed);
+    }
 
     #[test]
     fn repeated_surprise_warm_starts_recovered_expert() {

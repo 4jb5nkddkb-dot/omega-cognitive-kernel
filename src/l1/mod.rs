@@ -12,12 +12,13 @@ pub use spectral::{L1SpectralReflector, SpectralBin, SpectralPatch};
 
 use crate::error::Result;
 use crate::memory::MemoryFacade;
-use crate::types::Trajectory;
-use abstractor::Abstractor;
+use crate::types::{CognitivePatch, Trajectory};
+use abstractor::{Abstraction, Abstractor};
 use hashbrown::HashMap;
 use learner::Learner;
+use patch::PatchContext;
 use reflector::{build_patch_context, Reflector};
-use sandbox::CodeSandbox;
+use sandbox::{CodeSandbox, ValidationReport};
 use store::VersionedStore;
 
 #[derive(Debug)]
@@ -142,6 +143,25 @@ impl L1CognitiveLayer {
             safety_degraded: false,
         })
     }
+    /// Generate and statically validate a patch without changing store, memory,
+    /// cooldown, rollback state, or any durable sidecar. This is not a reward
+    /// prediction: external efficacy requires a paired environment evaluation.
+    pub fn dry_run_patch(
+        &self,
+        trajectory: &Trajectory,
+        abstraction: &Abstraction,
+        ctx: &PatchContext,
+    ) -> Result<Option<(CognitivePatch, ValidationReport)>> {
+        let Some(patch) =
+            self.reflector
+                .reflect(trajectory, abstraction, ctx, self.steps_since_last_patch)?
+        else {
+            return Ok(None);
+        };
+        let report = self.sandbox.validate(&patch)?;
+        Ok(Some((patch, report)))
+    }
+
     /// A worsening error after an accepted patch makes its previous RuleEffect
     /// eligible for a real rollback. Rejected patches never enter this path.
     pub fn observe_consequence(&mut self, error_delta: f64) -> bool {
@@ -161,5 +181,39 @@ impl L1CognitiveLayer {
 impl Default for L1CognitiveLayer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_patch_does_not_commit_or_advance_cooldown() {
+        let layer = L1CognitiveLayer::new();
+        let trajectory = Trajectory {
+            observations: vec![],
+            predictions: vec![],
+            actions: vec![],
+            outcomes: vec![],
+            prediction_errors: vec![0.8],
+            meta: HashMap::new(),
+        };
+        let abstraction = Abstraction {
+            summary: "test".into(),
+            mean_error: 0.8,
+            error_variance: 0.2,
+            action_count: 0,
+            success_rate: 0.1,
+            action_dist: HashMap::new(),
+        };
+        let (_, report) = layer
+            .dry_run_patch(&trajectory, &abstraction, &PatchContext::default())
+            .unwrap()
+            .expect("safe candidate");
+        assert!(report.accepted);
+        assert!(layer.store.history.is_empty());
+        assert_eq!(layer.steps_since_last_patch, 100);
+        assert!(!layer.pending_rollback);
     }
 }

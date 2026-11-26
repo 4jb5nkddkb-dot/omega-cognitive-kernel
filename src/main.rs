@@ -7,7 +7,9 @@ use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::InterventionPolicy;
 #[cfg(feature = "toml")]
 use omega_cognitive_kernel::config_toml;
-use omega_cognitive_kernel::task::{run_bandit_task, run_l2_benchmark_scenario_with_gate};
+use omega_cognitive_kernel::task::{
+    run_bandit_task, run_l2_benchmark_scenario_with_gate, L2ExperimentSettings,
+};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -106,6 +108,18 @@ enum Commands {
         /// Consecutive negative rewards required for reward_change signal.
         #[arg(long)]
         negative_reward_required: Option<u32>,
+        /// Opt-in spectral experiment; default benchmark remains the baseline.
+        #[arg(long)]
+        spectral_control: bool,
+        #[arg(long, requires = "spectral_control")]
+        no_purity_prior: bool,
+        #[arg(long, requires = "spectral_control")]
+        no_reverse_brake: bool,
+        #[arg(long, requires = "spectral_control")]
+        no_history_discount: bool,
+        /// Include per-step diagnostics in each treatment run.
+        #[arg(long)]
+        diagnostics: bool,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -457,6 +471,11 @@ fn main() -> anyhow::Result<()> {
             commit_threshold,
             commit_cooldown,
             negative_reward_required,
+            spectral_control,
+            no_purity_prior,
+            no_reverse_brake,
+            no_history_discount,
+            diagnostics,
             json,
         } => {
             let commit_threshold =
@@ -473,6 +492,12 @@ fn main() -> anyhow::Result<()> {
                 commit_threshold,
                 commit_cooldown,
                 negative_reward_required,
+                (*spectral_control || *diagnostics).then_some(L2ExperimentSettings {
+                    spectral_control: *spectral_control,
+                    purity_prior: !*no_purity_prior,
+                    reverse_brake: !*no_reverse_brake,
+                    history_discount: !*no_history_discount,
+                }),
             )?;
             if *json {
                 println!("{}", serde_json::to_string_pretty(&report)?);

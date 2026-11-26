@@ -68,12 +68,13 @@ impl PatchGenerator {
             }
         };
 
-        // If a strategy already has high weight, reinforce it slightly.
-        if let Some((name, w)) = ctx
-            .strategy_weights
-            .iter()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(core::cmp::Ordering::Equal))
-        {
+        // Match max_by's last-maximum behavior with a lexical name tie-break;
+        // iteration over a randomized HashMap must not choose a different arm.
+        if let Some((name, w)) = ctx.strategy_weights.iter().max_by(|a, b| {
+            a.1.partial_cmp(b.1)
+                .unwrap_or(core::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(b.0))
+        }) {
             if *w > 2.0 {
                 let boost = action_preference.entry(name.clone()).or_insert(0.0);
                 *boost += 0.35;

@@ -60,12 +60,17 @@ where
         let state = SystemState {
             active_code: self.l1.store.active.clone(),
             highest_attractor: high_level_goal.to_string(),
+            // Audit code contains timestamps and generated identifiers. Use
+            // the patch's semantic description for control scoring instead of
+            // allowing wall-clock metadata to change the next decision.
             generative_base: self
                 .l1
                 .store
-                .active
-                .get("cognitive_rules")
-                .cloned()
+                .history
+                .iter()
+                .rev()
+                .find(|(patch, _)| patch.target_module == "cognitive_rules")
+                .map(|(patch, _)| patch.description.clone())
                 .or(Some("dayan_generative_base".into())),
             last_trajectory_summary: Some(format!(
                 "step={} actions={}",
@@ -85,6 +90,15 @@ where
         )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
+        if self.l2.spectral_control_enabled
+            && l2_result
+                .spectral_output
+                .is_some_and(|output| output.regime_detected)
+        {
+            self.l0
+                .decision
+                .discount_bandit_history(self.l2.spectral_gate.history_discount_factor());
+        }
         // `pending_policy` remains queued until the beginning of the next
         // cycle. Overwriting L0 here would attribute the next proposal to the
         // action that has already executed.
@@ -182,6 +196,40 @@ mod tests {
     }
 
     #[test]
+    fn audit_timestamps_do_not_change_control_alignment() {
+        let mut first = make_kernel();
+        let mut second = make_kernel();
+        for (kernel, generated_at) in [
+            (&mut first, "2026-01-01T00:00:00+00:00"),
+            (&mut second, "2030-12-31T23:59:59+00:00"),
+        ] {
+            let patch = crate::types::CognitivePatch {
+                patch_id: crate::new_uuid(),
+                description: "obs=1 mean_err=0.675 var=0.000 actions=1 success=1.00".into(),
+                code: format!("// self-model bias damp rule\\n// generated_at: {generated_at}\\n"),
+                target_module: "cognitive_rules".into(),
+                expected_effect: "test".into(),
+                risk_level: 0.1,
+                created_at: crate::now_utc(),
+                effect: crate::types::RuleEffect::default(),
+            };
+            let report = kernel.l1.sandbox.validate(&patch).unwrap();
+            kernel.l1.store.commit(patch, &report).unwrap();
+        }
+        let first = first
+            .run_once("maintain coherent self-model omega dayan")
+            .unwrap();
+        let second = second
+            .run_once("maintain coherent self-model omega dayan")
+            .unwrap();
+        assert_eq!(
+            first.l2.candidate_alignment_score,
+            second.l2.candidate_alignment_score
+        );
+        assert_eq!(first.l2.dayan_residual, second.l2.dayan_residual);
+    }
+
+    #[test]
     fn no_op_policy_is_logged_but_not_credited_to_its_expert() {
         let l0 = L0WorldLayer {
             observer: MultiModalObserver::new(),
@@ -214,6 +262,7 @@ mod tests {
             expert: 1,
             gate_state: crate::l2::control::L2GateState::Active,
             confidence: 0.9,
+            spectral_weighting: false,
             expert_probabilities: [0.05, 0.85, 0.05, 0.05],
         };
         kernel.l2.pending_policy = policy;
