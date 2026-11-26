@@ -38,6 +38,19 @@ where
     E: crate::l0::executor::Executor,
 {
     pub fn run_once(&mut self, high_level_goal: &str) -> Result<StepResult> {
+        self.run_once_with_executor_hooks(high_level_goal, || Ok(()), || Ok(()))
+    }
+
+    pub(crate) fn run_once_with_executor_hooks<Before, After>(
+        &mut self,
+        high_level_goal: &str,
+        mut before_executor: Before,
+        mut after_executor_success: After,
+    ) -> Result<StepResult>
+    where
+        Before: FnMut() -> Result<()>,
+        After: FnMut() -> Result<()>,
+    {
         self.total_steps += 1;
 
         let intent = Intent {
@@ -54,7 +67,12 @@ where
         self.l2.pending_policy = crate::types::L2Policy::default();
         self.l0.decision.set_l2_policy(self.l2.applied_policy);
         let pre_step_avg_err = self.l0.memory.cas.avg_prediction_error;
-        let mut trajectory = self.l0.step(&intent, &self.constraints)?;
+        let mut trajectory = self.l0.step_with_executor_hooks(
+            &intent,
+            &self.constraints,
+            &mut before_executor,
+            &mut after_executor_success,
+        )?;
         if self.l1.pending_rollback {
             let error_delta = self.l0.memory.cas.avg_prediction_error - pre_step_avg_err;
             if self.l1.observe_consequence(error_delta) {
