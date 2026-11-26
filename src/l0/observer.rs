@@ -781,14 +781,15 @@ async fn fetch_http_async_with_resolver<F>(
     timeout: Duration,
     connect_timeout: Duration,
     max_response_bytes: usize,
-    mut resolve: F,
+    resolve: F,
 ) -> Result<(u16, Vec<u8>)>
 where
-    F: FnMut(&Url, Duration) -> Result<Vec<SocketAddr>> + Send,
+    F: Fn(&Url, Duration) -> Result<Vec<SocketAddr>> + Send + Sync + 'static,
 {
     use futures::StreamExt;
 
     let started = Instant::now();
+    let resolve = Arc::new(resolve);
     for redirect_count in 0..=MAX_HTTP_REDIRECTS {
         let remaining = timeout
             .checked_sub(started.elapsed())
@@ -796,7 +797,13 @@ where
             .ok_or_else(|| {
                 OmegaError::ExecutionBlocked("AsyncHttpObserver total timeout".into())
             })?;
-        let addresses = resolve(&current, remaining)?;
+        let resolver = Arc::clone(&resolve);
+        let url = current.clone();
+        let addresses = tokio::task::spawn_blocking(move || resolver(&url, remaining))
+            .await
+            .map_err(|_| {
+                OmegaError::ExecutionBlocked("AsyncHttpObserver DNS worker failed".into())
+            })??;
         if addresses.is_empty() {
             return Err(OmegaError::ExecutionBlocked(
                 "AsyncHttpObserver has no vetted target addresses".into(),
@@ -1097,6 +1104,44 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(ACTIVE_HTTP_DNS_LOOKUPS.load(Ordering::Acquire), baseline);
+    }
+
+    #[cfg(all(feature = "std", feature = "async", feature = "reqwest"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_http_dns_lookup_does_not_block_runtime_timers() {
+        let (address, server) =
+            start_test_http_server(vec![test_response("200 OK", "", "ok", Duration::ZERO)]);
+        let dns_delay = Duration::from_millis(400);
+        let dns_started = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let started = std::sync::Arc::clone(&dns_started);
+        let request = tokio::spawn(fetch_http_async_with_resolver(
+            Url::parse("http://safe.example/slow-dns").unwrap(),
+            Duration::from_secs(2),
+            Duration::from_millis(300),
+            1024,
+            move |_url, _remaining| {
+                *started.lock().unwrap() = Some(Instant::now());
+                std::thread::sleep(dns_delay);
+                Ok(vec![address])
+            },
+        ));
+
+        let dns_started_at = loop {
+            if let Some(started_at) = *dns_started.lock().unwrap() {
+                break started_at;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            Instant::now().duration_since(dns_started_at) < dns_delay / 2,
+            "runtime timer should progress while the DNS resolver is blocked"
+        );
+
+        let (status, body) = request.await.unwrap().unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(body, b"ok");
+        server.join().unwrap();
     }
 
     #[cfg(any(feature = "ureq", all(feature = "async", feature = "reqwest")))]
