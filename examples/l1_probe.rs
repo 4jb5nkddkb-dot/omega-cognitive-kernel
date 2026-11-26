@@ -348,7 +348,7 @@ fn run_window(delay: usize) -> WindowResult {
 fn fmt_steps(v: &[usize]) -> String {
     if v.is_empty() {
         "-".to_string()
-        } else {
+    } else {
         v.iter()
             .map(|x| x.to_string())
             .collect::<Vec<_>>()
@@ -374,8 +374,8 @@ fn experiment_rollback() -> bool {
         println!(
             "  {:<6} {:<18} {:<18} {:<10} {:<12.3}",
             delay,
-               fmt_steps(&w.patches),
-               fmt_steps(&w.rollbacks),
+            fmt_steps(&w.patches),
+            fmt_steps(&w.rollbacks),
             restore,
             w.window_ms
         );
