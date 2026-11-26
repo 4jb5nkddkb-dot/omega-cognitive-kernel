@@ -109,6 +109,18 @@ pub struct L2MetaLayer {
 }
 
 impl L2MetaLayer {
+    /// Returns `true` when L2 holds exclusive write priority over `RuleEffect`
+    /// (active gate intervention, defensive mode, committed policy, or cooldown).
+    pub fn blocks_l1_write(&self) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        self.defensive_mode
+            || self.controller.gate_state == control::L2GateState::Active
+            || self.controller.trust.cooldown_remaining > 0
+            || self.commit_cooldown_remaining > 0
+            || self.applied_policy.committed
+    }
     pub fn new() -> Self {
         Self {
             monitor: MetaMonitor,
