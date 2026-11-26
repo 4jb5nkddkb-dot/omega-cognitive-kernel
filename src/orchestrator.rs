@@ -30,6 +30,29 @@ pub struct StepResult {
     pub l2: L2Result,
 }
 
+struct RestoreSelfModifyGuard<'a> {
+    l1: &'a mut L1CognitiveLayer,
+    original: bool,
+}
+
+impl RestoreSelfModifyGuard<'_> {
+    fn with_disabled<T>(
+        l1: &mut L1CognitiveLayer,
+        process: impl FnOnce(&mut L1CognitiveLayer) -> Result<T>,
+    ) -> Result<T> {
+        let original = l1.self_modify_enabled;
+        let guard = RestoreSelfModifyGuard { l1, original };
+        guard.l1.self_modify_enabled = false;
+        process(&mut *guard.l1)
+    }
+}
+
+impl Drop for RestoreSelfModifyGuard<'_> {
+    fn drop(&mut self) {
+        self.l1.self_modify_enabled = self.original;
+    }
+}
+
 impl<O, P, D, E> OmegaOrchestrator<O, P, D, E>
 where
     O: crate::l0::observer::Observer,
@@ -83,12 +106,12 @@ where
             }
         }
         let l1_write_blocked = self.l2.blocks_l1_write();
-        let saved_self_modify = self.l1.self_modify_enabled;
-        if l1_write_blocked {
-            self.l1.self_modify_enabled = false;
-        }
-        let l1_result = self.l1.process(&trajectory, &mut self.l0.memory)?;
-        self.l1.self_modify_enabled = saved_self_modify;
+        let (l0, l1) = (&mut self.l0, &mut self.l1);
+        let l1_result = if l1_write_blocked {
+            RestoreSelfModifyGuard::with_disabled(l1, |l1| l1.process(&trajectory, &mut l0.memory))?
+        } else {
+            l1.process(&trajectory, &mut l0.memory)?
+        };
 
         let avg_err = self.l0.memory.cas.avg_prediction_error;
         let state = SystemState {
@@ -554,6 +577,24 @@ mod tests {
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(!kernel.l1.pending_rollback);
     }
+
+    #[test]
+    fn self_modify_is_restored_when_l1_processing_returns_error() {
+        let mut l1 = L1CognitiveLayer::new();
+        l1.self_modify_enabled = true;
+
+        let result: crate::error::Result<()> =
+            RestoreSelfModifyGuard::with_disabled(&mut l1, |l1| {
+                assert!(!l1.self_modify_enabled);
+                Err(crate::error::OmegaError::Persist(
+                    "injected L1 processing failure".into(),
+                ))
+            });
+
+        assert!(result.is_err());
+        assert!(l1.self_modify_enabled);
+    }
+
     #[test]
     fn l2_defensive_mode_blocks_l1_write_arbitration() {
         let mut kernel = make_kernel();
