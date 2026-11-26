@@ -46,6 +46,9 @@ pub trait AsyncExecutor {
 
 /// Adapter to use a synchronous [`Executor`] as an [`AsyncExecutor`] by running
 /// the blocking call on a thread pool (tokio).
+/// Completed calls return the wrapped executor so this adapter can be called
+/// again. If a blocking task fails before returning it, later calls return an
+/// error instead of panicking.
 #[cfg(all(feature = "std", feature = "async"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "std", feature = "async"))))]
 pub struct AsyncExecutorAdapter<E> {
@@ -84,10 +87,15 @@ impl<E: Executor + Send + 'static> AsyncExecutor for AsyncExecutorAdapter<E> {
                 let mut guard = inner.lock().map_err(|_| {
                     OmegaError::ExecutionBlocked("executor adapter lock poisoned".into())
                 })?;
-                let executor = guard.as_mut().ok_or_else(|| {
-                    OmegaError::ExecutionBlocked("AsyncExecutorAdapter already consumed".into())
+                let mut executor = guard.take().ok_or_else(|| {
+                    OmegaError::ExecutionBlocked(
+                        "AsyncExecutorAdapter executor is unavailable after a failed invocation"
+                            .into(),
+                    )
                 })?;
-                executor.execute(&actions)
+                let result = executor.execute(&actions);
+                *guard = Some(executor);
+                result
             })
             .await
             .map_err(|e| OmegaError::Other(anyhow::anyhow!(e)))?
@@ -509,6 +517,33 @@ mod tests {
         let mut ex = SandboxedExecutor::new(vec!["observe".into()]);
         let res = ex.execute(&[action("delete_everything", true)]);
         assert!(res.is_err());
+    }
+
+    #[cfg(feature = "async")]
+    struct CountingExecutor {
+        calls: usize,
+    }
+
+    #[cfg(feature = "async")]
+    impl Executor for CountingExecutor {
+        fn execute(&mut self, _actions: &[Action]) -> Result<Vec<serde_json::Value>> {
+            self.calls += 1;
+            Ok(vec![serde_json::json!({"call": self.calls})])
+        }
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn async_executor_adapter_supports_consecutive_calls() {
+        let mut adapter = AsyncExecutorAdapter::new(CountingExecutor { calls: 0 });
+        let actions = [action("observe", true)];
+
+        let first = adapter.execute_async(&actions).await.unwrap();
+        let second = adapter.execute_async(&actions).await.unwrap();
+
+        assert_eq!(first[0]["call"], 1);
+        assert_eq!(second[0]["call"], 2);
+        assert_eq!(adapter.into_inner().calls, 2);
     }
 
     #[test]
