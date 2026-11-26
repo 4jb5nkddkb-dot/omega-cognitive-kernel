@@ -301,7 +301,7 @@ impl BodyBus {
         }
     }
 
-   fn packet(&self, name: &str, status: BodyPacketStatus, error: Option<&str>) -> BodyPacket {
+    fn packet(&self, name: &str, status: BodyPacketStatus, error: Option<&str>) -> BodyPacket {
         let ch = self.channels.get(name);
         BodyPacket {
             status,
