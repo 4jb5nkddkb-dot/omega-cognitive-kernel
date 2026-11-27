@@ -59,7 +59,7 @@ jobs:
         run: >-
           maturin build --release --locked
           --interpreter "$(python -c 'import sys; print(sys.executable)')"
-          --universal2 --out wheelhouse
+          --target universal2-apple-darwin --out wheelhouse
 
       - name: Verify wheel Python and ABI tags
         run: >-
