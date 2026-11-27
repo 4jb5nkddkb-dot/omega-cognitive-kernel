@@ -324,6 +324,178 @@ pub struct FactorialBenchmarkReport {
     pub paired_runs: Vec<FactorialRun>,
 }
 
+pub const L2_GAIN_SCENARIOS: [&str; 4] =
+    ["stable", "nonstationary", "regime_shift", "cyclic_shift"];
+pub const L2_GAIN_DISCOVERY_SEED: u64 = 20261115;
+pub const L2_GAIN_VALIDATION_SEED: u64 = 20270001;
+pub const L2_GAIN_DEFAULT_RUNS: u32 = 30;
+pub const L2_GAIN_DEFAULT_EPISODES: u32 = 12;
+pub const L2_GAIN_DEFAULT_STEPS: u32 = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum L2GainSeedSet {
+    Discovery,
+    Validation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2GainScenarioAssessment {
+    pub reward_ci95_lower_positive: bool,
+    pub stable_loss_within_tolerance: bool,
+    pub executed_interventions: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2GainAssessment {
+    pub primary_scenario: String,
+    pub safety_scenario: String,
+    pub stable_loss_tolerance: f64,
+    pub mechanism_precondition_met: bool,
+    pub discovery_primary_passed: bool,
+    pub validation_reproduced: bool,
+    pub discovery_safety_passed: bool,
+    pub validation_safety_passed: bool,
+    pub reproducible_gain: bool,
+    pub conclusion: String,
+    pub discovery: L2GainScenarioAssessment,
+    pub validation: L2GainScenarioAssessment,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct L2GainMatrixReport {
+    pub schema_version: u32,
+    pub design: String,
+    pub runs_per_scenario: u32,
+    pub episodes: u32,
+    pub steps_per_episode: u32,
+    pub scenarios: [&'static str; 4],
+    pub discovery_seed: u64,
+    pub validation_seed: u64,
+    pub kernel_runs: u64,
+    pub decision_steps: u64,
+    pub reports: Vec<FactorialBenchmarkReport>,
+    pub assessment: L2GainAssessment,
+}
+
+fn assess_gain_scenario(report: &FactorialBenchmarkReport) -> L2GainScenarioAssessment {
+    let executed_interventions = report
+        .paired_runs
+        .iter()
+        .map(|run| run.arms[FactorialArm::L2.index()].committed_policies_applied)
+        .sum();
+    L2GainScenarioAssessment {
+        reward_ci95_lower_positive: report
+            .l2_effect
+            .reward
+            .ci95_low
+            .is_some_and(|low| low > 0.0),
+        stable_loss_within_tolerance: report
+            .l2_effect
+            .reward
+            .ci95_low
+            .is_some_and(|low| low >= -0.01),
+        executed_interventions,
+    }
+}
+
+fn gain_conclusion(assessment: &L2GainAssessment) -> String {
+    if assessment.reproducible_gain {
+        "L2-only reward gain reproduced within this fixture and seed matrix".into()
+    } else if !assessment.mechanism_precondition_met {
+        "No executed L2 intervention; reward differences cannot demonstrate an L2 gain".into()
+    } else if assessment.discovery_primary_passed && !assessment.validation_reproduced {
+        "Discovery gain did not reproduce on the independent validation seeds".into()
+    } else {
+        "The preregistered reward criterion did not demonstrate a reproducible L2 gain".into()
+    }
+}
+
+fn assess_l2_gain_matrix(reports: &[FactorialBenchmarkReport]) -> Result<L2GainAssessment> {
+    if reports.len() != L2_GAIN_SCENARIOS.len() * 2 {
+        return Err(crate::error::OmegaError::Memory(format!(
+            "gain assessment requires {} reports, got {}",
+            L2_GAIN_SCENARIOS.len() * 2,
+            reports.len()
+        )));
+    }
+    for seed_set in [L2GainSeedSet::Discovery, L2GainSeedSet::Validation] {
+        for scenario in L2_GAIN_SCENARIOS {
+            let expected_seed = match seed_set {
+                L2GainSeedSet::Discovery => L2_GAIN_DISCOVERY_SEED,
+                L2GainSeedSet::Validation => L2_GAIN_VALIDATION_SEED,
+            };
+            let matching: Vec<_> = reports
+                .iter()
+                .filter(|report| report.scenario == scenario && report.seed == expected_seed)
+                .collect();
+            if matching.len() != 1 {
+                return Err(crate::error::OmegaError::Memory(format!(
+                    "gain assessment requires one {seed_set:?} report for {scenario}"
+                )));
+            }
+            let report = matching[0];
+            if report.runs < 2 || report.paired_runs.len() != report.runs as usize {
+                return Err(crate::error::OmegaError::Memory(
+                    "gain report has incomplete paired seeds".into(),
+                ));
+            }
+            for (index, pair) in report.paired_runs.iter().enumerate() {
+                if pair.seed != expected_seed.wrapping_add(index as u64) {
+                    return Err(crate::error::OmegaError::Memory(
+                        "gain report has missing, duplicate, or reordered seeds".into(),
+                    ));
+                }
+            }
+        }
+    }
+    let find = |seed_set: L2GainSeedSet, scenario: &str| {
+        let expected_seed = match seed_set {
+            L2GainSeedSet::Discovery => L2_GAIN_DISCOVERY_SEED,
+            L2GainSeedSet::Validation => L2_GAIN_VALIDATION_SEED,
+        };
+        reports
+            .iter()
+            .find(|report| report.scenario == scenario && report.seed == expected_seed)
+            .ok_or_else(|| {
+                crate::error::OmegaError::Memory(format!(
+                    "missing {seed_set:?} gain report for {scenario}"
+                ))
+            })
+    };
+    let discovery = find(L2GainSeedSet::Discovery, "regime_shift")?;
+    let validation = find(L2GainSeedSet::Validation, "regime_shift")?;
+    let discovery_stable = find(L2GainSeedSet::Discovery, "stable")?;
+    let validation_stable = find(L2GainSeedSet::Validation, "stable")?;
+    let discovery = assess_gain_scenario(discovery);
+    let validation = assess_gain_scenario(validation);
+    let discovery_stable = assess_gain_scenario(discovery_stable);
+    let validation_stable = assess_gain_scenario(validation_stable);
+    let mechanism_precondition_met =
+        discovery.executed_interventions > 0 && validation.executed_interventions > 0;
+    let mut assessment = L2GainAssessment {
+        primary_scenario: "regime_shift".into(),
+        safety_scenario: "stable".into(),
+        stable_loss_tolerance: 0.01,
+        mechanism_precondition_met,
+        discovery_primary_passed: discovery.reward_ci95_lower_positive,
+        validation_reproduced: validation.reward_ci95_lower_positive,
+        discovery_safety_passed: discovery_stable.stable_loss_within_tolerance,
+        validation_safety_passed: validation_stable.stable_loss_within_tolerance,
+        reproducible_gain: false,
+        conclusion: String::new(),
+        discovery,
+        validation,
+    };
+    assessment.reproducible_gain = assessment.mechanism_precondition_met
+        && assessment.discovery_primary_passed
+        && assessment.validation_reproduced
+        && assessment.discovery_safety_passed
+        && assessment.validation_safety_passed;
+    assessment.conclusion = gain_conclusion(&assessment);
+    Ok(assessment)
+}
+
 fn factorial_differences<F>(runs: &[FactorialRun], value: F) -> [Vec<f64>; 4]
 where
     F: Fn(&BanditReport) -> f64,
@@ -1603,10 +1775,188 @@ pub fn run_l1_l2_factorial_benchmark(
     })
 }
 
+/// Execute the preregistered discovery/validation L2-only gain matrix. The
+/// factorial reports retain L1 and interaction diagnostics, but only L2-L0
+/// participates in the gain verdict. No controller setting is tuned here.
+pub fn run_l2_gain_matrix(
+    runs: u32,
+    episodes: u32,
+    steps_per_episode: u32,
+) -> Result<L2GainMatrixReport> {
+    if runs < 2 || episodes == 0 || steps_per_episode == 0 {
+        return Err(crate::error::OmegaError::Config(
+            "gain matrix requires at least two paired seeds and nonzero horizon".into(),
+        ));
+    }
+    let mut reports = Vec::with_capacity(L2_GAIN_SCENARIOS.len() * 2);
+    for seed in [L2_GAIN_DISCOVERY_SEED, L2_GAIN_VALIDATION_SEED] {
+        for scenario in L2_GAIN_SCENARIOS {
+            let negative_reward_required = if scenario == "stable" { 5 } else { 3 };
+            reports.push(run_l1_l2_factorial_benchmark(
+                scenario,
+                runs,
+                episodes,
+                steps_per_episode,
+                seed,
+                0.35,
+                3,
+                negative_reward_required,
+            )?);
+        }
+    }
+    let assessment = assess_l2_gain_matrix(&reports)?;
+    let kernel_runs = runs as u64 * L2_GAIN_SCENARIOS.len() as u64 * 2 * 4;
+    Ok(L2GainMatrixReport {
+        schema_version: 1,
+        design: "paired_l1_l2_factorial_discovery_validation_v1".into(),
+        runs_per_scenario: runs,
+        episodes,
+        steps_per_episode,
+        scenarios: L2_GAIN_SCENARIOS,
+        discovery_seed: L2_GAIN_DISCOVERY_SEED,
+        validation_seed: L2_GAIN_VALIDATION_SEED,
+        kernel_runs,
+        decision_steps: kernel_runs * episodes as u64 * steps_per_episode as u64,
+        reports,
+        assessment,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::env::temp_dir;
+
+    #[test]
+    fn gain_matrix_has_fixed_independent_design_and_replay() {
+        let first = run_l2_gain_matrix(2, 8, 8).unwrap();
+        let second = run_l2_gain_matrix(2, 8, 8).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+        assert_eq!(first.schema_version, 1);
+        assert_eq!(first.reports.len(), 8);
+        assert_eq!(first.kernel_runs, 64);
+        assert_eq!(first.decision_steps, 4_096);
+        assert_ne!(first.discovery_seed, first.validation_seed);
+        assert!(first.discovery_seed + first.runs_per_scenario as u64 <= first.validation_seed);
+        for report in &first.reports {
+            assert_eq!(report.runs, 2);
+            assert_eq!(report.arm_order, FactorialArm::ALL);
+            for pair in &report.paired_runs {
+                for (arm, arm_report) in FactorialArm::ALL.iter().zip(&pair.arms) {
+                    assert!(arm_report.mean_reward.is_finite());
+                    assert!(arm_report.mean_adjusted_reward.is_finite());
+                    if !arm.l1_enabled() {
+                        assert_eq!(arm_report.patches_accepted, 0);
+                        assert_eq!(arm_report.l1_rollback_count, 0);
+                    }
+                    if !arm.l2_enabled() {
+                        assert_eq!(arm_report.l2_proposals, 0);
+                        assert_eq!(arm_report.l2_commits, 0);
+                        assert_eq!(arm_report.committed_policies_applied, 0);
+                        assert_eq!(arm_report.l2_rollback_count, 0);
+                    }
+                }
+            }
+        }
+        let mut missing_primary = first.reports.clone();
+        missing_primary.retain(|report| {
+            !(report.scenario == "regime_shift" && report.seed == L2_GAIN_VALIDATION_SEED)
+        });
+        assert!(assess_l2_gain_matrix(&missing_primary).is_err());
+        let mut duplicate_primary = first.reports.clone();
+        duplicate_primary[6] = duplicate_primary[2].clone();
+        assert!(assess_l2_gain_matrix(&duplicate_primary).is_err());
+        let mut missing_seed = first.reports.clone();
+        missing_seed[2].paired_runs.pop();
+        assert!(assess_l2_gain_matrix(&missing_seed).is_err());
+        assert!(run_l2_gain_matrix(1, 8, 8).is_err());
+        assert!(run_l2_gain_matrix(2, 0, 8).is_err());
+        assert!(run_l2_gain_matrix(2, 8, 0).is_err());
+    }
+
+    #[test]
+    fn gain_verdict_requires_execution_discovery_validation_and_safety() {
+        let mut matrix = run_l2_gain_matrix(2, 8, 8).unwrap();
+        for report in &mut matrix.reports {
+            for pair in &mut report.paired_runs {
+                pair.arms[FactorialArm::L2.index()].committed_policies_applied = 1;
+            }
+            if report.scenario == "regime_shift" {
+                report.l2_effect.reward = PairedMeanDifference {
+                    mean: 0.02,
+                    ci95_low: Some(0.01),
+                    ci95_high: Some(0.03),
+                };
+            }
+            if report.scenario == "stable" {
+                report.l2_effect.reward = PairedMeanDifference {
+                    mean: 0.0,
+                    ci95_low: Some(-0.005),
+                    ci95_high: Some(0.005),
+                };
+            }
+        }
+        let assessment = assess_l2_gain_matrix(&matrix.reports).unwrap();
+        assert!(assessment.mechanism_precondition_met);
+        assert!(assessment.reproducible_gain);
+
+        let mut no_execution = matrix.clone();
+        for report in &mut no_execution.reports {
+            if report.scenario == "regime_shift" && report.seed == L2_GAIN_VALIDATION_SEED {
+                for pair in &mut report.paired_runs {
+                    pair.arms[FactorialArm::L2.index()].committed_policies_applied = 0;
+                }
+            }
+        }
+        let assessment = assess_l2_gain_matrix(&no_execution.reports).unwrap();
+        assert!(!assessment.mechanism_precondition_met);
+        assert!(!assessment.reproducible_gain);
+        assert!(assessment.conclusion.contains("No executed"));
+
+        let mut failed_replication = matrix.clone();
+        let validation = failed_replication
+            .reports
+            .iter_mut()
+            .find(|report| {
+                report.scenario == "regime_shift" && report.seed == L2_GAIN_VALIDATION_SEED
+            })
+            .unwrap();
+        validation.l2_effect.reward.ci95_low = Some(-0.01);
+        let assessment = assess_l2_gain_matrix(&failed_replication.reports).unwrap();
+        assert!(!assessment.validation_reproduced);
+        assert!(!assessment.reproducible_gain);
+        assert!(assessment.conclusion.contains("did not reproduce"));
+
+        let mut unsafe_stable = matrix;
+        let stable = unsafe_stable
+            .reports
+            .iter_mut()
+            .find(|report| report.scenario == "stable" && report.seed == L2_GAIN_DISCOVERY_SEED)
+            .unwrap();
+        stable.l2_effect.reward.ci95_low = Some(-0.011);
+        let assessment = assess_l2_gain_matrix(&unsafe_stable.reports).unwrap();
+        assert!(!assessment.discovery_safety_passed);
+        assert!(!assessment.reproducible_gain);
+    }
+
+    #[test]
+    fn preregistered_gain_defaults_are_large_and_unchanged() {
+        assert_eq!(L2_GAIN_DEFAULT_RUNS, 30);
+        assert_eq!(L2_GAIN_DEFAULT_EPISODES, 12);
+        assert_eq!(L2_GAIN_DEFAULT_STEPS, 12);
+        assert_eq!(L2_GAIN_DISCOVERY_SEED, 20261115);
+        assert_eq!(L2_GAIN_VALIDATION_SEED, 20270001);
+        assert_eq!(L2_GAIN_SCENARIOS.len(), 4);
+        let kernel_runs = L2_GAIN_DEFAULT_RUNS as u64 * 4 * 2 * 4;
+        assert_eq!(kernel_runs, 960);
+        assert_eq!(
+            kernel_runs * L2_GAIN_DEFAULT_EPISODES as u64 * L2_GAIN_DEFAULT_STEPS as u64,
+            138_240
+        );
+    }
 
     fn test_path(label: &str) -> std::path::PathBuf {
         let dir = temp_dir().join(format!(

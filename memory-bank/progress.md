@@ -20,6 +20,12 @@ The roadmap marks the 0.5.x schema/replay/events/strategy weights/dashboard/CLI 
 
 ## Verification state
 
+### L2 gain discovery/validation matrix, 2026-11-27
+
+On `test/l2-gain-matrix`, added `benchmark-l2-gain`, fixed discovery/validation factorial reports, preregistered execution/safety/gain assessment, negative-path verdict tests, deterministic CLI replay, and a CI smoke artifact. The full release matrix completed 960 kernel runs and 138,240 decisions without parameter changes. It did not demonstrate reproducible L2 benefit: discovery and validation `regime_shift` reward differences were `-0.004630` and `-0.008333`, with both Student-t 95% intervals entirely below zero; stable safety gates passed and actual L2 interventions occurred. See `docs/EXPERIMENTS.md` for the complete result table and evidence boundary.
+
+Passed `cargo test --locked` (200 library tests plus binary/CLI/doc targets), `cargo test --locked --all-features` (206 library tests plus applicable targets), stable all-target Clippy with warnings denied, formatting, Rust 1.74 `msrv` Clippy/tests (183 library tests plus applicable targets), and independent JSON accounting checks. The full JSON is `/tmp/omega-l2-gain-5078bf3/l2-gain-matrix.json`, with its checksum recorded in the experiment log; temporary files are not durable CI artifacts.
+
 ### L1/L2 factorial benchmark, 2026-11-26
 
 On `experiment/l1-l2-factorial`, added deterministic four-arm benchmark tests, gate isolation, per-seed interaction checks, raw/adjusted reward accounting, and L2 arbitration observability. Passed `cargo test --locked` (196 library tests plus CLI/doc targets), `cargo test --locked --all-features` (202 library tests plus GUI/CLI/doc targets), stable Clippy with warnings denied, formatting, `cargo test --locked --doc`, and Rust 1.74 `msrv` Clippy/tests (179 library tests plus applicable targets). Completed four two-seed preflight reports and the fixed eight-report 30-seed release matrix. Reports are in `/tmp/omega-l1-l2-factorial-f065e74/` with SHA-256 checksums; this temporary location is not a durable CI artifact.

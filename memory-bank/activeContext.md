@@ -18,7 +18,9 @@ For changes affecting behavior, start at `Kernel::step` in `src/api.rs`, follow 
 
 The roadmap still defers a full multi-tenant control plane, a workspace multi-kernel orchestration service, and possible docs.rs feature-flag polish. These are not present as runtime services in the current source.
 
-The current branch `experiment/l1-l2-factorial` adds the standalone `benchmark-l1l2` fixture in `src/task.rs` and `src/main.rs`. It compares L0, L1-only, L2-only, and L1+L2 without changing production gate defaults or state schema. `StepResult::l1_blocked_by_l2` and `BanditReport::mean_adjusted_reward` expose mechanism and learning-feedback accounting. The completed 30-seed discovery/validation matrix is recorded in `docs/EXPERIMENTS.md`; it does not establish a reproducible L1/L2 benefit. Raw JSON artifacts remain outside the repository.
+The current branch `test/l2-gain-matrix` adds `benchmark-l2-gain`, a fixed four-scenario, two-seed-set L1/L2 factorial assessment focused on L2-only external reward. It retains the existing `benchmark-l1l2` fixture and production gate defaults, adds explicit discovery/validation, execution and stable-safety verdicts, and supplies CI smoke reports. The completed 960-run matrix found no reproducible L2 benefit; primary reward differences were negative in both seed sets. Full details and artifact checksum are in `docs/EXPERIMENTS.md`.
+
+The earlier `benchmark-l1l2` fixture compares L0, L1-only, L2-only, and L1+L2 without changing production gate defaults or state schema. `StepResult::l1_blocked_by_l2` and `BanditReport::mean_adjusted_reward` expose mechanism and learning-feedback accounting. Neither matrix establishes a reproducible L1/L2 benefit. Raw JSON artifacts remain outside the repository.
 
 ## Open engineering questions
 

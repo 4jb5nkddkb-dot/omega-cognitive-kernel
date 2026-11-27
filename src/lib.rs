@@ -97,9 +97,12 @@ pub use persist::{KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH};
 #[cfg(feature = "std")]
 pub use task::{
     run_bandit_task, run_l1_l2_factorial_benchmark, run_l2_benchmark, run_l2_benchmark_scenario,
-    run_l2_benchmark_scenario_with_gate, BanditReport, FactorialArm, FactorialBenchmarkReport,
-    FactorialEffect, FactorialRun, L2BenchmarkAggregate, L2BenchmarkReport, L2PairedRun,
-    PairedMeanDifference,
+    run_l2_benchmark_scenario_with_gate, run_l2_gain_matrix, BanditReport, FactorialArm,
+    FactorialBenchmarkReport, FactorialEffect, FactorialRun, L2BenchmarkAggregate,
+    L2BenchmarkReport, L2GainAssessment, L2GainMatrixReport, L2GainScenarioAssessment,
+    L2GainSeedSet, L2PairedRun, PairedMeanDifference, L2_GAIN_DEFAULT_EPISODES,
+    L2_GAIN_DEFAULT_RUNS, L2_GAIN_DEFAULT_STEPS, L2_GAIN_DISCOVERY_SEED, L2_GAIN_SCENARIOS,
+    L2_GAIN_VALIDATION_SEED,
 };
 pub use types::*;
 
