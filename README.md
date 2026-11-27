@@ -14,7 +14,7 @@ World (L0) -> Reflect & patch (L1) -> Meta-modulate (L2) -> bias next L0
 
 Adaptive systems often require retraining/fine-tuning or allow unrestricted code changes that are difficult to inspect and reverse. Omega takes a narrower approach: online adaptation is expressed as bounded `RuleEffect` data and validated `L2Policy` snapshots, persisted as cognitive state, and exposed through audit and replay surfaces.
 
-The current repository is a **research prototype**. The Rust and Python packages declare version `0.6.0`. The `v0.6.0` tag and registry availability follow the release process; check the linked package registries for published versions.
+The current repository is a **research prototype**. The Rust and Python packages declare version `0.6.1`. Check the linked package registries and Releases page for published versions.
 
 ## Core concepts
 
