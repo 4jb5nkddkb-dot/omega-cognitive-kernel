@@ -65,6 +65,41 @@ For `regime_shift`, recovery is the first post-shift step that completes a strea
 
 Each run uses a fresh temporary state path. Persistent benchmark artifacts are removed after the run.
 
+## L1/L2 factorial benchmark
+
+Use `benchmark-l1l2` to separate the two independent mutation gates instead of
+inferring L1's effect from the existing L2-only ablation. The arm order in JSON
+is `l0`, `l1`, `l2`, `l1_l2`: both disabled, L1 only, L2 only, and both enabled.
+All four arms share the same initial UCB state and per-position environment RNG.
+The fixture explicitly disables spectral control and uses the same resident-L2
+thresholds as `benchmark-l2`.
+
+```bash
+cargo run --locked --release --bin omega-kernel -- benchmark-l1l2 \
+  --scenario regime_shift --runs 30 --episodes 12 --steps 12 \
+  --seed 20261115 --json > discovery-regime_shift.json
+```
+
+Run the same command for `stable`, `nonstationary`, and `cyclic_shift`; use
+`20270001` for the independent validation set. The report contains every arm's
+per-seed `BanditReport`, aggregate metrics, and four paired contrasts:
+
+```text
+l1_effect         = L1 - L0
+l2_effect         = L2 - L0
+joint_effect      = L1+L2 - L0
+interaction_effect = L1+L2 - L2 - L1 + L0
+```
+
+Each contrast includes Student-t 95% intervals for external reward, bootstrap
+95% intervals for reward, and paired best-arm and adjusted-reward differences.
+`mean_adjusted_reward` is the actual UCB learning feedback after error,
+rollback, and switching costs; it is not external task reward. Patch counts,
+`l1_blocked_by_l2_count`, commits, and applied policies are mechanism metrics,
+not success criteria. The completed preregistered matrix and its evidence
+limits are recorded in `docs/EXPERIMENTS.md`; the large JSON artifacts are not
+committed to the source tree.
+
 ## Spectral research experiment (default off)
 
 The ordinary benchmark and new kernels keep the resident L2 behavior described above,

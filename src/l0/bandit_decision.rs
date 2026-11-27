@@ -478,6 +478,10 @@ impl DecisionMaker for BanditUcbDecisionMaker {
         self.state.config = Self::sanitized_config(config);
     }
 
+    fn bandit_config(&self) -> Option<BanditConfig> {
+        Some(self.state.config.clone())
+    }
+
     fn set_l2_policy(&mut self, policy: crate::types::L2Policy) {
         self.state.l2_policy = policy.effective();
     }

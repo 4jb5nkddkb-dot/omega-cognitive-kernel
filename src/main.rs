@@ -8,7 +8,8 @@ use omega_cognitive_kernel::config::InterventionPolicy;
 #[cfg(feature = "toml")]
 use omega_cognitive_kernel::config_toml;
 use omega_cognitive_kernel::task::{
-    run_bandit_task, run_l2_benchmark_scenario_with_gate, L2ExperimentSettings,
+    run_bandit_task, run_l1_l2_factorial_benchmark, run_l2_benchmark_scenario_with_gate,
+    L2ExperimentSettings,
 };
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -121,6 +122,29 @@ enum Commands {
         #[arg(long)]
         diagnostics: bool,
         /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare L0, L1-only, L2-only, and L1+L2 on the same seeded task.
+    BenchmarkL1l2 {
+        /// stable, nonstationary, degraded, fixedpoint, regime_shift, or cyclic_shift
+        #[arg(long, default_value = "regime_shift")]
+        scenario: String,
+        #[arg(long, default_value_t = 5)]
+        runs: u32,
+        #[arg(long, default_value_t = 8)]
+        episodes: u32,
+        #[arg(long, default_value_t = 8)]
+        steps: u32,
+        #[arg(long, default_value_t = 20261115)]
+        seed: u64,
+        #[arg(long)]
+        commit_threshold: Option<f64>,
+        #[arg(long)]
+        commit_cooldown: Option<u64>,
+        #[arg(long)]
+        negative_reward_required: Option<u32>,
+        /// Emit machine-readable JSON with all four per-seed reports.
         #[arg(long)]
         json: bool,
     },
@@ -594,6 +618,72 @@ fn main() -> anyhow::Result<()> {
                     "Dayan residual    : {:>10.4}    {:>10.4}",
                     base.mean_final_dayan_residual, l2.mean_final_dayan_residual
                 );
+            }
+        }
+        Commands::BenchmarkL1l2 {
+            scenario,
+            runs,
+            episodes,
+            steps,
+            seed,
+            commit_threshold,
+            commit_cooldown,
+            negative_reward_required,
+            json,
+        } => {
+            let report = run_l1_l2_factorial_benchmark(
+                scenario,
+                *runs,
+                *episodes,
+                *steps,
+                *seed,
+                commit_threshold.unwrap_or(if scenario == "degraded" { 0.50 } else { 0.35 }),
+                commit_cooldown.unwrap_or(3),
+                negative_reward_required.unwrap_or(if scenario == "stable" { 5 } else { 3 }),
+            )?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("L1/L2 factorial benchmark (common seeded environments)");
+                println!(
+                    "scenario={} runs={} episodes={} steps={} seed={}",
+                    report.scenario,
+                    report.runs,
+                    report.episodes,
+                    report.steps_per_episode,
+                    report.seed
+                );
+                println!(
+                    "arm        reward    best-arm  adjusted  patches  L1-block  commits/applied"
+                );
+                for (arm, aggregate) in report.arm_order.iter().zip(&report.aggregates) {
+                    println!(
+                        "{:<7} {:>9.4}  {:>9.4}  {:>8.4}  {:>7.2}  {:>8.2}  {:.2}/{:.2}",
+                        arm.label(),
+                        aggregate.mean_reward,
+                        aggregate.best_arm_rate,
+                        aggregate.mean_adjusted_reward,
+                        aggregate.mean_patches_accepted,
+                        aggregate.mean_l1_blocked_by_l2_count,
+                        aggregate.mean_l2_commits,
+                        aggregate.mean_committed_policies_applied,
+                    );
+                }
+                for (name, effect) in [
+                    ("L1-L0", &report.l1_effect),
+                    ("L2-L0", &report.l2_effect),
+                    ("L1+L2-L0", &report.joint_effect),
+                    ("interaction", &report.interaction_effect),
+                ] {
+                    println!(
+                        "{name:<10} reward={:+.6} t95=[{:+.6}, {:+.6}] adjusted={:+.6}",
+                        effect.reward.mean,
+                        effect.reward.ci95_low.unwrap_or(f64::NAN),
+                        effect.reward.ci95_high.unwrap_or(f64::NAN),
+                        effect.adjusted_reward.mean,
+                    );
+                }
+                println!("Reward deltas are descriptive; patches/commits are not benefits.");
             }
         }
         Commands::StrategyWeight { name, weight } => {

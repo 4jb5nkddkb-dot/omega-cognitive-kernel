@@ -109,6 +109,8 @@ cargo run --release --bin omega-kernel -- replay --tail 15
 
 # Run the L2 benchmark and emit JSON.
 cargo run --release --bin omega-kernel -- benchmark-l2 --runs 20 --json
+# Independent L0 / L1-only / L2-only / L1+L2 factorial comparison
+cargo run --release --bin omega-kernel -- benchmark-l1l2 --runs 20 --json
 
 # Start the optional operator dashboard.
 cargo run --release --features gui --bin omega-dashboard
