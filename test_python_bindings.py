@@ -118,6 +118,15 @@ def test_l2_settings(kernel):
     assert kernel.status().l2_enabled is False
 
 
+def test_audit_size_limit_is_configurable_and_fails_closed(kernel, state_path):
+    kernel.set_audit_max_bytes(0)
+
+    with pytest.raises(Exception, match="audit log size limit exceeded"):
+        kernel.step("this step cannot be audited")
+
+    assert not (state_path.parent / "audit.jsonl").exists()
+
+
 def test_trajectory_replay(kernel):
     kernel.set_dump_trajectory(True)
     kernel.run("replay test", 4)

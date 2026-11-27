@@ -35,7 +35,7 @@ kernel.save()
 ## Exposed API
 
 - `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
-- Safety and policy controls: `create_checkpoint`, `list_checkpoints`, `rollback`, `set_strategy_weight`, `set_l2_enabled`.
+- Safety and policy controls: `create_checkpoint`, `list_checkpoints`, `rollback`, `set_strategy_weight`, `set_l2_enabled`, `set_audit_max_bytes`.
 - Runtime settings: `autosave`, `auto_checkpoint_on_patch`, and `dump_trajectory` getters/setters.
 - Observability: `replay_trajectory`, `AuditLog.beside_state`, `read_all`, `tail`, `poll_after`, `summarize`.
 - `CheckpointStore`: read persisted checkpoint metadata and snapshots.
@@ -67,6 +67,7 @@ Do not use the wheel checked into older development branches as a test dependenc
 ## Safety and limitations
 
 - `self_modify_enabled` defaults to `false`.
+- Audit JSONL appends default to a 64 MiB file ceiling. Use `kernel.set_audit_max_bytes(bytes)` before running steps to choose a different ceiling; exceeding it fails closed without truncating earlier records.
 - Policy updates are bounded structured `RuleEffect` values, not arbitrary code execution.
 - Use checkpoints, rollback, audit logs, and replay to inspect behavior.
 - CPython 3.10–3.15 are officially supported and covered by CI and the release wheel workflow. The package minimum remains Python 3.10.
