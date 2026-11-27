@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-27
+
+### CI / release
+- Replace the removed maturin `--universal2` flag with `--target universal2-apple-darwin` and install both macOS Rust targets in the PyPI release workflow. Preserve the complete Linux, Windows, and macOS wheel build, native install/test, and publication gates.
+
 ## [0.6.0] — 2026-11-27
 
 ### Highlights

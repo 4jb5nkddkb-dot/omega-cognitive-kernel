@@ -2,7 +2,7 @@
 
 This roadmap describes the next development sequence for Omega Cognitive Kernel based on the current source tree, Memory Bank, changelog, benchmarks, and the existing 0.5 roadmap.
 
-The project is currently a research prototype. The source package declares version `0.6.0`, and the current on-disk schema is `6`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
+The project is currently a research prototype. The source package declares version `0.6.1`, and the current on-disk schema is `6`. The 0.6.0 source line contains the core L0/L1/L2 loop, structured `RuleEffect` adaptation, audit/replay, checkpoints/rollback, async adapters, Python bindings, generic decision makers, and an optional dashboard.
 
 ## Planning principles
 
@@ -32,7 +32,7 @@ The paired benchmark now distinguishes commits, counterfactual candidate/selecti
 
 **Priority:** P0
 
-**Status:** In progress. The source manifests declare version `0.6.0`, but the live repository has no `v0.6.x` tag or GitHub release; Phase 0 release work is not complete.
+**Status:** In progress. The source manifests declare version `0.6.1`; `v0.6.0` has an immutable GitHub Release, and the 0.6.1 release restores the complete PyPI wheel pipeline.
 
 **Objective:** Make the current 0.6.x behavior easy to verify, document, and release before adding new policy mechanisms.
 
