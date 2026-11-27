@@ -27,7 +27,7 @@ In the dashboard, choose **Settings → Open state** and select `.omega/drop-inb
 | `inbox_vertical` | Longer vertical scenario |
 | `async_observer_demo` | **Async** file/dir/HTTP observers using tokio (requires `--features async`) |
 | `async_executor_demo` | **Async** executors & logging using tokio (requires `--features async`) |
-| `l1_probe` | L1 shadow zero-perturbation, L1/L2 write-mutex arbitration, and rollback-window probe (`cargo run --release --example l1_probe`) |
+| `l1_probe` | L1 shadow, controlled write-mutex arbitration, and one-step rollback-window probe (`cargo run --release --example l1_probe`); exits nonzero if a check fails |
 | `audit_panel` | Minimal audit panel integration example |
 | `wasm_runtime_smoke` | WASM runtime smoke check (`wasm32-wasip1` / `wasm32-unknown-unknown`) |
 

@@ -48,7 +48,7 @@ The runtime has two intentionally independent mutation channels:
 
 `self_modify_enabled = false` does not disable L2. To freeze all policy mutation, disable both gates explicitly. Disabling L2 clears its fixed-point state and dwell counter but still evaluates metrics for comparable baselines.
 
-L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed.
+L1 patch candidates are distilled, reflected, sanitized, validated by `CodeSandbox`, and subject to a minimum step cooldown. The behavior-changing surface is structured `RuleEffect`; arbitrary patch code is not executed. When L2 blocks an L1 write, `StepResult.l1_blocked_by_l2` reports the arbitration decision. After a genuinely restored L1 patch, `StepResult.l1.rollback_effect` contains the restored effect; an expired one-step rollback window does not produce this notification.
 
 ## Schema v6 and migration
 

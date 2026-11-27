@@ -12,7 +12,7 @@
 - **`BodyBus` and supporting primitives**: add `no_std` sensor/actuator channels with unauthorized writes disabled, a hybrid world predictor, and weight export, verification, migration, and delta-history utilities.
 
 ### Correctness / safety
-- **L1 safety controls**: add Shadow dry-run validation, L1/L2 write mutual-exclusion arbitration, and automatic rollback after worsening patch consequences. L1 self-modification remains disabled by default; `CodeSandbox` performs static validation rather than executing patch code.
+- **L1 safety controls**: add Shadow dry-run validation, L1/L2 write mutual-exclusion arbitration, and automatic rollback after worsening patch consequences. Return the restored `RuleEffect` in `StepResult.l1.rollback_effect` only for an actual rollback. L1 self-modification remains disabled by default; `CodeSandbox` performs static validation rather than executing patch code.
 - Make async observer/executor adapters reusable across calls, propagate async logging and tool-audit failures, and bound HTTP observation bodies at 1 MiB for both sync and async readers.
 - Record L1 rejection only for actual validation failures, preserve `PatchAccepted` when automatic checkpoints are disabled, and resolve CLI configuration/state paths before opening a snapshot.
 - Fail closed on malformed restored arm/expert indices and corrupt checkpoint metadata; make effect sanitization non-finite-safe and zero-capacity case memories bounded.
@@ -54,7 +54,7 @@
 - Officially support CPython 3.10–3.15, retaining `requires-python >=3.10`; update package classifiers, user/release documentation, standard CI, native wheel tests, and Linux/Windows/macOS PyPI wheel build/test matrices.
 
 ### Documentation and examples
-- Add `examples/l1_probe.rs` to exercise L1 Shadow zero-perturbation, L1/L2 write arbitration, and the automatic-rollback window through the public API.
+- Add `examples/l1_probe.rs` to exercise L1 Shadow zero-perturbation, controlled L1/L2 write arbitration, and the automatic-rollback window through the public API. The probe validates the actual arbitration flag, isolates immediate versus expired rollback feedback, and exits nonzero on failed checks.
 - Synchronize Vault documentation with XChaCha20-Poly1305 v2 encryption, CSPRNG-generated 24-byte nonces, and read-only legacy-v1 migration.
 - Add the `benchmark-l1l2` four-arm factorial experiment with paired L1/L2 main-effect, joint, and interaction contrasts, common environment randomness, raw/adjusted reward metrics, and independent seed validation. The completed matrix did not demonstrate reproducible positive gains; production gate defaults are unchanged.
 - Document the two independent self-modification gates in `ARCHITECTURE.md`: `self_modify_enabled` gates **L1 patch commits only** (default `false`); L2 `RuleEffect` modulation is an independent channel governed by `l2.enabled` (default `true`) and still runs when self-modify is off. Locked by `api::tests::l2_modulates_effect_even_when_self_modify_disabled`.
