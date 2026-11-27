@@ -206,9 +206,7 @@ impl GoalTree {
             })
             .map(|n| n.id.clone());
 
-        if let Some(id) = best_id {
-            self.active_id = Some(id);
-        }
+        self.active_id = best_id;
         self.active_id.as_ref().and_then(|id| self.nodes.get(id))
     }
 
@@ -236,6 +234,27 @@ impl GoalTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn select_active_clears_active_id_when_all_leaves_are_achieved() {
+        let mut tree = GoalTree::new();
+        tree.add_root("root", BTreeMap::new(), 1);
+        assert!(tree.add_child("root", "first", BTreeMap::new(), 1.0, 10));
+        assert!(tree.add_child("root", "second", BTreeMap::new(), 1.0, 5));
+
+        assert!(tree.select_active().is_some());
+        assert!(tree.active_id.is_some());
+        for node in tree
+            .nodes
+            .values_mut()
+            .filter(|node| node.children.is_empty())
+        {
+            node.status = GoalStatus::Achieved;
+        }
+
+        assert!(tree.select_active().is_none());
+        assert_eq!(tree.active_id, None);
+    }
 
     #[test]
     fn hierarchical_rollup_and_active_selection() {
