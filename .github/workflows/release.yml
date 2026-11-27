@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to create/update release for (e.g. v0.5.1)"
+        description: "Tag to create/update release for (e.g. v0.6.1)"
         required: true
-        default: "v0.5.1"
+        type: string
+      dry_run:
+        description: "Build and verify artifacts without publishing a GitHub release"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,14 +27,40 @@ jobs:
     name: Validate package versions
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.tag.outputs.name }}
+      release_sha: ${{ steps.tag.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Check tag and package versions
-        run: python3 scripts/check-release-version.py "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+      - name: Resolve requested tag and source commit
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unsupported release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          tag_sha="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          git checkout --detach "$tag_sha"
+          checkout_sha="$(git rev-parse HEAD)"
+          if [ "$checkout_sha" != "$tag_sha" ]; then
+            echo "Checked-out source $checkout_sha does not match tag target $tag_sha" >&2
+            exit 1
+          fi
+          echo "name=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$tag_sha" >> "$GITHUB_OUTPUT"
+          echo "Release tag $RELEASE_TAG resolves to source commit $tag_sha"
+
+      - name: Check package versions at the tag target
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.name }}
+        run: python3 scripts/check-release-version.py "$RELEASE_TAG"
 
   build-linux:
     name: Build Linux
@@ -38,6 +69,16 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
+      - name: Verify release source commit
+        env:
+          EXPECTED_RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Release artifact source SHA: $actual_sha"
+          test "$actual_sha" = "$EXPECTED_RELEASE_SHA"
 
       - name: Install system deps for egui
         run: |
@@ -65,13 +106,15 @@ jobs:
         run: cargo build --release --features gui --bin omega-dashboard --locked
 
       - name: Package artifacts
+        env:
+          RELEASE_TAG: ${{ needs.validate-version.outputs.release_tag }}
         run: |
           mkdir -p dist
           cp target/release/omega-kernel dist/omega-kernel-linux-x86_64
           cp target/release/omega-audit-panel dist/omega-audit-panel-linux-x86_64
           cp target/release/omega-dashboard dist/omega-dashboard-linux-x86_64
           cp LICENSE README.md CHANGELOG.md ARCHITECTURE.md dist/ 2>/dev/null || true
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          TAG="$RELEASE_TAG"
           NOTES="RELEASE_NOTES_${TAG}.md"
           [ -f "$NOTES" ] && cp "$NOTES" dist/ || true
           ls -la dist/
@@ -90,6 +133,18 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
+      - name: Verify release source commit
+        env:
+          EXPECTED_RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+        run: |
+          $actualSha = git rev-parse HEAD
+          Write-Host "Release artifact source SHA: $actualSha"
+          if ($actualSha -ne $env:EXPECTED_RELEASE_SHA) {
+            throw "Release source $actualSha does not match tag target $env:EXPECTED_RELEASE_SHA"
+          }
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -123,20 +178,22 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build-linux, build-windows]
+    needs: [validate-version, build-linux, build-windows]
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-version.outputs.release_sha }}
 
-      - name: Resolve tag
-        id: tag
+      - name: Verify release source commit
+        env:
+          EXPECTED_RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Release notes source SHA: $actual_sha"
+          test "$actual_sha" = "$EXPECTED_RELEASE_SHA"
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -151,8 +208,10 @@ jobs:
 
       - name: Load release notes
         id: notes
+        env:
+          RELEASE_TAG: ${{ needs.validate-version.outputs.release_tag }}
         run: |
-          TAG="${{ steps.tag.outputs.name }}"
+          TAG="$RELEASE_TAG"
           NOTES="RELEASE_NOTES_${TAG}.md"
           if [ -f "$NOTES" ]; then
             {
@@ -178,8 +237,8 @@ jobs:
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: Omega Cognitive Kernel ${{ steps.tag.outputs.name }}
+          tag_name: ${{ needs.validate-version.outputs.release_tag }}
+          name: Omega Cognitive Kernel ${{ needs.validate-version.outputs.release_tag }}
           generate_release_notes: false
           files: out/*
           body: ${{ steps.notes.outputs.body }}
