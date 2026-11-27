@@ -86,6 +86,9 @@ chacha20poly1305 = { version = "=0.10.1", default-features = false, features = [
 url = { version = "2.5", optional = true }
 getrandom = { version = "0.2", optional = true }
 
+[target.'cfg(any(unix, windows))'.dependencies]
+fs2 = "0.4"
+
 eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"], optional = true }
 egui = { version = "0.29", optional = true }
 # rfd's build script hard-fails on Linux/BSD unless exactly one backend is

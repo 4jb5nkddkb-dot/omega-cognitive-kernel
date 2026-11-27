@@ -1,7 +1,9 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(any(unix, windows))]
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -206,29 +208,65 @@ where
     result
 }
 
+/// A cross-process advisory lock on a stable lock-file path.
+///
+/// Cooperating processes must lock the same path. The file is intentionally
+/// retained after the guard is dropped; the operating system releases the
+/// advisory lock when its handle closes or the owning process terminates.
 #[derive(Debug)]
 pub struct StorageLock {
-    lock_path: PathBuf,
+    #[cfg(any(unix, windows))]
+    _file: std::fs::File,
 }
 
 impl StorageLock {
     pub fn acquire(lock_path: impl Into<PathBuf>) -> Result<Self> {
         let lock_path = lock_path.into();
-        if let Some(parent) = lock_path.parent() {
+        if let Some(parent) = lock_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-            .map_err(|e| OmegaError::ExecutionBlocked(format!("storage lock busy: {e}")))?;
-        Ok(Self { lock_path })
+
+        #[cfg(any(unix, windows))]
+        {
+            use fs2::FileExt;
+
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)
+                .map_err(|e| OmegaError::Persist(format!("storage lock open failed: {e}")))?;
+            match file.try_lock_exclusive() {
+                Ok(()) => Ok(Self { _file: file }),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Err(
+                    OmegaError::ExecutionBlocked(format!("storage lock busy: {error}")),
+                ),
+                Err(error) => Err(OmegaError::Persist(format!(
+                    "storage lock acquire failed: {error}"
+                ))),
+            }
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = lock_path;
+            Err(OmegaError::ExecutionBlocked(
+                "storage locking is unsupported on this platform".into(),
+            ))
+        }
     }
 }
 
 impl Drop for StorageLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.lock_path);
+        #[cfg(any(unix, windows))]
+        {
+            let _ = fs2::FileExt::unlock(&self._file);
+        }
     }
 }
 
@@ -245,6 +283,110 @@ mod tests {
             "omega-vault-{label}-{}-{sequence}.bin",
             std::process::id()
         ))
+    }
+
+    #[cfg(any(unix, windows))]
+    struct StorageLockChild(std::process::Child);
+
+    #[cfg(any(unix, windows))]
+    impl Drop for StorageLockChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    fn spawn_storage_lock_child(mode: &str, path: &Path) -> StorageLockChild {
+        use std::process::{Command, Stdio};
+
+        let child = Command::new(std::env::current_exe().expect("test executable path"))
+            .args(["storage_lock_process_child", "--nocapture"])
+            .env("OMEGA_STORAGE_LOCK_CHILD_MODE", mode)
+            .env("OMEGA_STORAGE_LOCK_PATH", path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn storage-lock child process");
+        StorageLockChild(child)
+    }
+
+    #[cfg(any(unix, windows))]
+    fn wait_for_lock_child(child: &mut StorageLockChild) {
+        use std::io::BufRead as _;
+
+        let stdout = child.0.stdout.as_mut().expect("child stdout");
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let bytes = reader.read_line(&mut line).expect("read child output");
+            assert_ne!(
+                bytes, 0,
+                "lock-holder child exited before acquiring the lock"
+            );
+            if line.contains("LOCK_HELD") {
+                return;
+            }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    fn try_storage_lock_in_child(path: &Path) -> bool {
+        use std::process::{Command, Stdio};
+
+        let output = Command::new(std::env::current_exe().expect("test executable path"))
+            .args(["storage_lock_process_child", "--nocapture"])
+            .env("OMEGA_STORAGE_LOCK_CHILD_MODE", "try")
+            .env("OMEGA_STORAGE_LOCK_PATH", path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("run storage-lock contender process");
+        assert!(
+            output.status.success(),
+            "contender process failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("LOCK_ACQUIRED") {
+            true
+        } else if stdout.contains("LOCK_BUSY") {
+            false
+        } else {
+            panic!("contender did not report its lock result: {stdout}");
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn storage_lock_process_child() {
+        use std::io::Write as _;
+
+        let Ok(mode) = std::env::var("OMEGA_STORAGE_LOCK_CHILD_MODE") else {
+            return;
+        };
+        let path = std::env::var_os("OMEGA_STORAGE_LOCK_PATH")
+            .map(PathBuf::from)
+            .expect("storage-lock child path");
+        match mode.as_str() {
+            "hold" => {
+                let _guard = StorageLock::acquire(path).expect("child acquires lock");
+                println!("LOCK_HELD");
+                std::io::stdout().flush().expect("flush ready signal");
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
+            }
+            "try" => match StorageLock::acquire(path) {
+                Ok(_guard) => println!("LOCK_ACQUIRED"),
+                Err(error) if error.to_string().contains("storage lock busy") => {
+                    println!("LOCK_BUSY")
+                }
+                Err(error) => panic!("unexpected lock error: {error}"),
+            },
+            other => panic!("unknown storage-lock child mode: {other}"),
+        }
     }
 
     #[test]
@@ -356,16 +498,43 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn storage_lock_excludes_live_process_and_recovers_after_termination() {
+        let path = temp_path("storage-lock-process");
+        let mut holder = spawn_storage_lock_child("hold", &path);
+        wait_for_lock_child(&mut holder);
+
+        let blocked_while_alive = !try_storage_lock_in_child(&path);
+        let kill_result = holder.0.kill();
+        let exit_status = holder.0.wait().expect("wait for killed lock holder");
+
+        assert!(kill_result.is_ok(), "forcefully terminate lock holder");
+        assert!(
+            !exit_status.success(),
+            "lock holder should not exit normally and run Rust destructors"
+        );
+        assert!(
+            blocked_while_alive,
+            "live owner must exclude another process"
+        );
+        assert!(
+            try_storage_lock_in_child(&path),
+            "a new process should acquire the lock after its former owner is killed"
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[cfg(any(unix, windows))]
     #[test]
     fn storage_lock_prevents_concurrent_acquire() {
-        let mut path = std::env::temp_dir();
-        path.push("omega-kernel-test-storage.lock");
-        let _ = fs::remove_file(&path);
+        let path = temp_path("storage-lock");
 
         let guard = StorageLock::acquire(&path).expect("first acquire");
         assert!(StorageLock::acquire(&path).is_err());
         drop(guard);
-        assert!(StorageLock::acquire(&path).is_ok());
+        let recovered = StorageLock::acquire(&path).expect("reacquire after drop");
+        drop(recovered);
         let _ = fs::remove_file(&path);
     }
 }
