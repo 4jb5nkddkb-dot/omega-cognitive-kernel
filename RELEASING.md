@@ -111,7 +111,7 @@ Notes:
 It is split into three gated stages:
 
 1. **Build** — Linux (manylinux2014 via Docker), Windows, macOS (universal2) wheels
-   for CPython 3.10–3.13, plus an sdist.
+   for CPython 3.10–3.15, plus an sdist.
 2. **Test** — each built wheel is downloaded, installed, and `pytest`-tested on its
    native platform and Python version. A wheel that fails to install or pass tests
    blocks publication.
@@ -138,6 +138,7 @@ overwritten; bump the version instead.
 
 ### Do not tag until green
 
-The Python `requires-python` metadata is `>=3.10` and the CI `python` job now tests
-the manylinux wheel on 3.10–3.13. Confirm that matrix is green on `main` before
-cutting a `v*` tag, since the release publishes for exactly those versions.
+The Python `requires-python` metadata remains `>=3.10`; the standard CI Python job,
+the native-wheel workflow, and the PyPI build/test matrices cover CPython 3.10–3.15.
+Confirm these matrices are green on `main` before cutting a `v*` tag. Adding newer
+supported interpreters does not require raising the Python 3.10 minimum.

@@ -82,6 +82,8 @@ For a reproducible remote source installation, use `--git <repository-url> --rev
 python -m pip install omega-cognitive-kernel
 ```
 
+The Python bindings support CPython 3.10–3.15; each version is included in the CI and release wheel matrices. The package minimum remains Python 3.10.
+
 The local binding module exposes `Kernel`, `AuditLog`, and `CheckpointStore` through PyO3. See [`bindings/python/README.md`](bindings/python/README.md) for development and testing instructions.
 
 ## Quick start
