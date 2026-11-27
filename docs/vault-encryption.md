@@ -1,18 +1,15 @@
-# Vault encryption and migration
+# Vault Encryption (`src/safety/vault.rs`)
 
-New Vault writes use **XChaCha20-Poly1305**, an authenticated-encryption-with-associated-data (AEAD) construction. `Vault::seal` and `Vault::save_sealed` generate a fresh 24-byte nonce from the operating system random source and store it in the blob; callers no longer provide a nonce. The file header and nonce are authenticated along with the ciphertext. A modified ciphertext, nonce, tag, or header is rejected during `open`.
+## Current Implementation
 
-## Existing version-1 blobs
+`Vault` uses pure-Rust, hand-written cryptographic primitives implemented in `src/safety/crypto.rs`:
 
-Vault format version 1 used an HMAC-derived keystream and a separate HMAC tag. The current implementation retains a **read-only compatibility path** for authenticated v1 blobs. `Vault::load_sealed` can read them, but all new calls to `seal` or `save_sealed` write version 2. There is no automatic rewrite simply from reading a file.
+- **Key derivation**: A master passphrase (`>= 16` bytes) is stretched via `PBKDF2-HMAC-SHA256` (at least 10,000 iterations) to derive a master key, which is then domain-separated to derive `enc_key` and `mac_key`.
+- **Authenticated encryption**: Plaintext is encrypted using an `HMAC-SHA256` counter-mode XOR keystream followed by an **Encrypt-then-MAC** tag.
+- **Explicit 16-byte nonce**: Callers must explicitly pass a **16-byte `nonce`**; `Vault` does **not** invoke the operating system random number generator internally. Any modification to the ciphertext, nonce, header, or tag is rejected during `open`.
 
-To migrate a file, keep the same secret, salt, and PBKDF2 iteration count used to create its `Vault`, back up the old file, load its plaintext, and save it again. For example:
+## Security Notice
 
-```rust
-let backup = path.with_extension("v1.backup");
-std::fs::copy(&path, &backup)?;
-let plaintext = vault.load_sealed(&path)?; // Reads v1 or v2.
-vault.save_sealed(&path, &plaintext)?;    // Writes v2 with a generated nonce.
-```
-
-Keep the backup until the new file has been reopened and verified. If the original Vault secret or KDF parameters are unavailable, the old blob cannot be migrated. Do not treat v1 as a format for new writes; its decryptor exists only to ease conversion.
+- The current source code does **not** use `XChaCha20-Poly1305`.
+- The built-in cryptographic primitives in `src/safety/crypto.rs` have **not yet undergone an independent external security audit**.
+- Migrating to `XChaCha20-Poly1305` with automatic OS-RNG nonce generation is only an optional future upgrade direction.
