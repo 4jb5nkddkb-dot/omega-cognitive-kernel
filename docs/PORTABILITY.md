@@ -1,4 +1,5 @@
 # 可移植性摘要
+> **语言与基准说明**：本文档为可移植性中文摘要，权威矩阵与最新平台测试状态以英文 [`HOST_PORTABILITY.md`](HOST_PORTABILITY.md) 为准。
 
 **Last updated:** 2026-11-26
 **Target source version:** 0.6.0
