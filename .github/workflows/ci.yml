@@ -222,6 +222,18 @@ jobs:
             --scenario nonstationary --runs 5 --episodes 8 --steps 8 --seed 20261115 --json \
             | tee l2-benchmark.json
 
+      - name: Run L2 gain matrix smoke test
+        run: |
+          cargo run --locked --release --bin omega-kernel -- benchmark-l2-gain --smoke --json \
+            | tee l2-gain-smoke.json
+
+      - name: Upload L2 gain smoke report
+        uses: actions/upload-artifact@v7
+        with:
+          name: l2-gain-smoke
+          path: l2-gain-smoke.json
+          retention-days: 30
+
       - name: Upload L2 benchmark artifact
         uses: actions/upload-artifact@v7
         with:

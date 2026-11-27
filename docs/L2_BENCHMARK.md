@@ -100,6 +100,42 @@ not success criteria. The completed preregistered matrix and its evidence
 limits are recorded in `docs/EXPERIMENTS.md`; the large JSON artifacts are not
 committed to the source tree.
 
+## Preregistered L2 gain matrix
+
+`benchmark-l2-gain` runs the complete four-scenario factorial design for both
+fixed seed sets. Its primary contrast is **L2-only minus L0**, using raw external
+reward rather than adjusted learning feedback. The default run executes 960
+independent kernels and 138,240 decisions:
+
+```bash
+cargo run --locked --release --bin omega-kernel -- benchmark-l2-gain --json \
+  > /tmp/l2-gain-matrix.json
+```
+
+The fixed scenarios are `stable`, `nonstationary`, `regime_shift`, and
+`cyclic_shift`, with 30 paired seeds per scenario in each set. Discovery starts
+at `20261115`; validation starts at `20270001`. Every arm runs `12 × 12` steps.
+The command does not tune controller settings or change production defaults.
+
+`assessment.reproducible_gain` is true only when all preregistered conditions
+hold: positive Student-t 95% lower bounds in both `regime_shift` seed sets,
+`stable` lower bounds no worse than `-0.01`, and at least one actually applied
+L2 policy in each primary seed set. A discovery-only effect, proposal, commit,
+cache hit, internal-error improvement, or adjusted-reward improvement does not
+qualify. Missing primary reports and underpowered one-seed runs are rejected.
+
+For a fast mechanism preflight, use `--smoke --json`. It runs two seeds per set
+with an `8 × 8` horizon and is not effectiveness evidence. CI stores this report
+as `l2-gain-smoke`; the full large JSON remains outside the source tree.
+
+The completed 2026-11-27 default matrix did **not** demonstrate a reproducible
+L2 gain. Discovery `regime_shift` reward difference was `-0.004630`, t95
+`[-0.009214, -0.000045]`; validation was `-0.008333`, t95
+`[-0.014949, -0.001718]`. Both primary sets had actually applied interventions
+and both stable safety checks passed. These findings are bounded to this UCB
+fixture and seed matrix. Exact commands, other scenarios, and the artifact
+checksum are in `docs/EXPERIMENTS.md`.
+
 ## Spectral research experiment (default off)
 
 The ordinary benchmark and new kernels keep the resident L2 behavior described above,

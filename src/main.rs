@@ -9,7 +9,8 @@ use omega_cognitive_kernel::config::InterventionPolicy;
 use omega_cognitive_kernel::config_toml;
 use omega_cognitive_kernel::task::{
     run_bandit_task, run_l1_l2_factorial_benchmark, run_l2_benchmark_scenario_with_gate,
-    L2ExperimentSettings,
+    run_l2_gain_matrix, L2ExperimentSettings, L2_GAIN_DEFAULT_EPISODES, L2_GAIN_DEFAULT_RUNS,
+    L2_GAIN_DEFAULT_STEPS, L2_GAIN_DISCOVERY_SEED,
 };
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -145,6 +146,22 @@ enum Commands {
         #[arg(long)]
         negative_reward_required: Option<u32>,
         /// Emit machine-readable JSON with all four per-seed reports.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the fixed four-scenario, discovery/validation L2 gain matrix.
+    BenchmarkL2Gain {
+        /// Paired seeds per scenario; must be at least two for intervals.
+        #[arg(long, default_value_t = L2_GAIN_DEFAULT_RUNS)]
+        runs: u32,
+        #[arg(long, default_value_t = L2_GAIN_DEFAULT_EPISODES)]
+        episodes: u32,
+        #[arg(long, default_value_t = L2_GAIN_DEFAULT_STEPS)]
+        steps: u32,
+        /// Run a quick two-seed preflight; not effectiveness evidence.
+        #[arg(long, conflicts_with_all = ["runs", "episodes", "steps"])]
+        smoke: bool,
+        /// Emit all eight factorial reports and the preregistered assessment.
         #[arg(long)]
         json: bool,
     },
@@ -684,6 +701,63 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
                 println!("Reward deltas are descriptive; patches/commits are not benefits.");
+            }
+        }
+        Commands::BenchmarkL2Gain {
+            runs,
+            episodes,
+            steps,
+            smoke,
+            json,
+        } => {
+            let report = if *smoke {
+                run_l2_gain_matrix(2, 8, 8)?
+            } else {
+                run_l2_gain_matrix(*runs, *episodes, *steps)?
+            };
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("L2 gain matrix (paired L2-only minus L0 external reward)");
+                println!(
+                    "seeds={} discovery={} validation={} horizon={}x{}",
+                    report.runs_per_scenario,
+                    report.discovery_seed,
+                    report.validation_seed,
+                    report.episodes,
+                    report.steps_per_episode,
+                );
+                println!(
+                    "scale={} kernel runs / {} decision steps",
+                    report.kernel_runs, report.decision_steps
+                );
+                for factorial in &report.reports {
+                    let seed_set = if factorial.seed == L2_GAIN_DISCOVERY_SEED {
+                        "discovery"
+                    } else {
+                        "validation "
+                    };
+                    println!(
+                        "{} {:<14} reward={:+.6} t95=[{:+.6}, {:+.6}] applied={:.2}",
+                        seed_set,
+                        factorial.scenario,
+                        factorial.l2_effect.reward.mean,
+                        factorial.l2_effect.reward.ci95_low.unwrap_or(f64::NAN),
+                        factorial.l2_effect.reward.ci95_high.unwrap_or(f64::NAN),
+                        factorial.aggregates[2].mean_committed_policies_applied,
+                    );
+                }
+                let assessment = &report.assessment;
+                println!(
+                    "primary discovery={} validation={} safety discovery={} validation={} executed={}",
+                    assessment.discovery_primary_passed,
+                    assessment.validation_reproduced,
+                    assessment.discovery_safety_passed,
+                    assessment.validation_safety_passed,
+                    assessment.mechanism_precondition_met,
+                );
+                println!("reproducible_gain={}", assessment.reproducible_gain);
+                println!("conclusion: {}", assessment.conclusion);
             }
         }
         Commands::StrategyWeight { name, weight } => {

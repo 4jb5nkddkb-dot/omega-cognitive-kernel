@@ -111,6 +111,10 @@ cargo run --release --bin omega-kernel -- replay --tail 15
 cargo run --release --bin omega-kernel -- benchmark-l2 --runs 20 --json
 # Independent L0 / L1-only / L2-only / L1+L2 factorial comparison
 cargo run --release --bin omega-kernel -- benchmark-l1l2 --runs 20 --json
+# Fixed four-scenario L2 gain matrix with discovery and validation seeds
+cargo run --release --bin omega-kernel -- benchmark-l2-gain --json
+# Fast mechanism-only matrix preflight (not effectiveness evidence)
+cargo run --release --bin omega-kernel -- benchmark-l2-gain --smoke --json
 
 # Start the optional operator dashboard.
 cargo run --release --features gui --bin omega-dashboard

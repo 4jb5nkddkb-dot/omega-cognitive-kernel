@@ -184,6 +184,44 @@ fn benchmark_spectral_intervention_is_explicitly_opt_in() {
     assert!(!rejected.status.success());
 }
 #[test]
+fn benchmark_l2_gain_smoke_is_complete_and_deterministic() {
+    let binary = omega_kernel_binary();
+    let run = || {
+        let output = Command::new(&binary)
+            .args(["benchmark-l2-gain", "--smoke", "--json"])
+            .output()
+            .expect("run L2 gain matrix");
+        assert!(
+            output.status.success(),
+            "gain matrix failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    };
+    let first = run();
+    let second = run();
+    assert_eq!(first, second);
+    let report: serde_json::Value = serde_json::from_slice(&first).expect("gain matrix JSON");
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(
+        report["design"],
+        "paired_l1_l2_factorial_discovery_validation_v1"
+    );
+    assert_eq!(report["runs_per_scenario"], 2);
+    assert_eq!(report["kernel_runs"], 64);
+    assert_eq!(report["decision_steps"], 4096);
+    assert_eq!(report["reports"].as_array().unwrap().len(), 8);
+    assert!(report["assessment"]["reproducible_gain"].is_boolean());
+    assert!(report["assessment"]["conclusion"].is_string());
+
+    let invalid = Command::new(&binary)
+        .args(["benchmark-l2-gain", "--runs", "1", "--json"])
+        .output()
+        .expect("reject underpowered gain matrix");
+    assert!(!invalid.status.success());
+}
+
+#[test]
 fn cli_checkpoint_and_rollback_restores_prior_state() {
     let dir = std::env::temp_dir().join(format!(
         "omega-cli-rollback-test-{}-{}",
