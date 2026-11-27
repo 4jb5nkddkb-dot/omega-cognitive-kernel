@@ -9,11 +9,12 @@ Use this workflow when a Rust-backed Python package publishes wheels for multipl
 
 ## Workflow
 
-1. Read the binding metadata, supported Python classifiers and `requires-python`, plus every CI and release matrix that builds or tests wheels. Keep the declared support range and each matrix in agreement.
-2. Make each build use the matrix interpreter. On a native runner, pass the active interpreter's resolved executable path to maturin; on a manylinux container, pass the matching interpreter available inside the container. Do not assume the host runner's Python selection changes the container's interpreters.
-3. Before uploading a wheel, fail if the wheelhouse is empty or any filename has Python/ABI tags that differ from the matrix entry. For CPython-specific PyO3 builds, expect matching `cpXY-cpXY` tags. Run the checker under the selected matrix interpreter and verify its runtime version too.
-4. Install and test each platform/version artifact on its native runner. Keep publication dependent on all wheel tests and other required release artifacts.
-5. Verify workflow syntax, the checker, and its failure paths with representative matching and mismatching wheel filenames. Run the Rust feature build/tests relevant to the package, then inspect `git diff --check` and the final changed-file list.
+1. Read the binding metadata, supported Python classifiers and `requires-python`, plus every CI and release matrix that builds or tests wheels. Keep declared support metadata and release matrices aligned when changing the supported range.
+2. For a test-only probe of Python versions outside the declared support range, add a separate non-publishing workflow. Do not change `requires-python`, classifiers, support documentation or release matrices. Limit the workflow to the requested OS/version combinations, grant minimum permissions, and use only pull-request or manual triggers. Do not add artifact publication, PyPI, tag, or release steps; a passing probe does not declare that Python version supported.
+3. Make each build use the matrix interpreter. On a native runner, pass the active interpreter's resolved executable path to maturin; on a manylinux container, pass the matching interpreter available inside the container. Do not assume the host runner's Python selection changes the container's interpreters.
+4. Before uploading a wheel, fail if the wheelhouse is empty or any filename has Python/ABI tags that differ from the matrix entry. For CPython-specific PyO3 builds, expect matching `cpXY-cpXY` tags. Run the checker under the selected matrix interpreter and verify its runtime version too.
+5. Install and test each platform/version artifact on its native runner. Keep publication dependent on all wheel tests and other required release artifacts.
+6. Verify workflow syntax, the checker, and its failure paths with representative matching and mismatching wheel filenames. Run the Rust feature build/tests relevant to the package, then inspect `git diff --check` and the final changed-file list.
 
 ## Recovery and limits
 
