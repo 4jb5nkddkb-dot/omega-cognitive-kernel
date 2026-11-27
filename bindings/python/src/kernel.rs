@@ -268,6 +268,16 @@ impl Kernel {
         self.inner.dump_trajectory = value;
     }
 
+    /// Get the maximum trajectory JSONL file size in bytes.
+    pub fn trajectory_max_bytes(&self) -> u64 {
+        self.inner.trajectory_max_bytes()
+    }
+
+    /// Set the maximum trajectory JSONL file size in bytes for future records.
+    pub fn set_trajectory_max_bytes(&mut self, value: u64) {
+        self.inner.set_trajectory_max_bytes(value);
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Kernel(state_path={}, steps={})",

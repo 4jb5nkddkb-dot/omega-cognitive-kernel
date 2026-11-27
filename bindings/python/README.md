@@ -36,7 +36,7 @@ kernel.save()
 
 - `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
 - Safety and policy controls: `create_checkpoint`, `list_checkpoints`, `rollback`, `set_strategy_weight`, `set_l2_enabled`.
-- Runtime settings: `autosave`, `auto_checkpoint_on_patch`, and `dump_trajectory` getters/setters.
+- Runtime settings: `autosave`, `auto_checkpoint_on_patch`, and `dump_trajectory` getters/setters; `trajectory_max_bytes()` / `set_trajectory_max_bytes()` control the default 64 MiB trajectory limit.
 - Observability: `replay_trajectory`, `AuditLog.beside_state`, `read_all`, `tail`, `poll_after`, `summarize`.
 - `CheckpointStore`: read persisted checkpoint metadata and snapshots.
 

@@ -132,6 +132,21 @@ def test_trajectory_replay(kernel):
     assert sum(count for _, count in replay.action_counts) == 4
 
 
+def test_trajectory_size_limit_setting(kernel):
+    assert kernel.trajectory_max_bytes() == 64 * 1024 * 1024
+    kernel.set_trajectory_max_bytes(4096)
+    assert kernel.trajectory_max_bytes() == 4096
+
+
+def test_trajectory_size_limit_fails_step_without_appending(kernel):
+    kernel.set_trajectory_max_bytes(0)
+    with pytest.raises(RuntimeError, match="trajectory size limit exceeded"):
+        kernel.step("reject trajectory append")
+
+    trajectory_path = Path(kernel.state_path()).parent / "trajectory.jsonl"
+    assert not trajectory_path.exists()
+
+
 def test_audit_log_tracks_steps_and_rollback(kernel):
     kernel.run("audit goal", 2)
     checkpoint = kernel.create_checkpoint("audit checkpoint")

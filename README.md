@@ -160,6 +160,7 @@ Useful product-facing methods include:
 | `checkpoint` / `rollback` | Create or restore a full recovery snapshot |
 | `audit_summary` / `audit_tail` | Inspect append-only audit events |
 | `replay_trajectory` | Summarize trajectory JSONL without world re-execution |
+| `set_trajectory_max_bytes` | Set the maximum size for new trajectory rows |
 | `set_event_hook` | Receive events after durable audit append |
 | `set_l2_enabled` | Enable or disable L2 interventions (default on) |
 | `observe_l2_consequence` | Feed reward/error/risk feedback to L2 |
@@ -217,6 +218,8 @@ Given a state path such as `.omega/state.json`, the runtime stores:
 The current on-disk schema is version `6`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, the resident L2 controller, bounded cache, Dayan residual, pending/applied policy snapshots, and a per-instance case-replay cursor. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
 
 State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored. These failures do not roll back an external action that an executor already performed; custom executors need their own timeout, idempotency, and recovery policy.
+
+New kernels cap `trajectory.jsonl` at 64 MiB by default. Rust and Python callers can change the per-kernel limit with `set_trajectory_max_bytes`; an append that would exceed it fails the step instead of truncating or rotating history. Existing oversized files remain replayable, but new rows are rejected until the limit is raised. Set `dump_trajectory = false` to disable trajectory writes.
 
 On Unix, newly created persistence directories request mode `0700` and files request `0600`; existing sidecar files and directories are not chmod'd. State is atomically replaced on save and therefore adopts the private file mode on its next save. Windows uses the current user's default ACL/inheritance. The opt-in redaction scope, exact paths, old-file behavior, and limitations are documented in [`docs/persistence-privacy.md`](docs/persistence-privacy.md).
 

@@ -81,7 +81,7 @@ pub mod types;
 #[cfg(feature = "std")]
 pub use api::{
     replay_trajectory_file, Kernel, KernelStatus, RunReport, TrajectoryReplayRow,
-    TrajectoryReplaySummary,
+    TrajectoryReplaySummary, DEFAULT_MAX_TRAJECTORY_BYTES,
 };
 #[cfg(feature = "std")]
 pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditSummary, KernelEvent};
