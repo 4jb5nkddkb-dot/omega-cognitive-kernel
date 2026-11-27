@@ -20,4 +20,4 @@ jobs:
       - name: Check internal Markdown links
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --verbose --no-progress --offline README.md ARCHITECTURE.md CHANGELOG.md RELEASING.md ROADMAP.md "docs/**/*.md" examples/README.md bindings/python/README.md
+          args: --verbose --no-progress --offline README.md ARCHITECTURE.md CHANGELOG.md RELEASING.md ROADMAP.md "docs/*.md" examples/README.md bindings/python/README.md
