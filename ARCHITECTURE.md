@@ -154,4 +154,15 @@ Stable design contracts are the bounded `RuleEffect` surface, independent L1/L2 
 - Internal dashboard/workspace structures.
 - Benchmark outcomes before reproducible evidence establishes a benefit.
 
+## Body bus, hybrid prediction, weights, and safety primitives
+
+- **`BodyBus` (`src/body/mod.rs`)**: `no_std` sensor and actuator channel (`ChannelKind`, `BodyPacket`) that enforces `write_authorized = false` by default so embodiment telemetry and actuator traffic remain decoupled from unauthorized kernel state mutation.
+- **Hybrid predictor and weight management**: `hybrid_predictor` (`src/l0/hybrid_predictor.rs`, exporting `HybridWorldPredictor`) provides hybrid world-model prediction, while `weights` (`src/memory/weights.rs`, exporting `export_weights`, `verify_weights`, `migrate_payload`, and `squash_delta_history`) handles weight snapshot verification, payload schema migration, and incremental delta compression.
+- **L1/L2 collaborative safety boundaries**:
+  - `l1_shadow_mode` runs dry-run validation of proposed L1 changes without mutating committed state.
+  - `L2MetaLayer::blocks_l1_write` enforces L2-priority write mutual-exclusion arbitration so L1 cannot overwrite state while L2 holds write precedence.
+  - `OmegaOrchestrator::run_once` performs automatic rollback if post-step invariants or validation checks fail.
+  - `CodeSandbox` performs static rule, keyword, and bounds checking only—it does **not** compile or execute arbitrary code.
+- **Built-in authorization and cryptographic primitives**: `TokenBook` and `Vault` implement built-in capability authorization and stream encryption using handwritten pure-Rust SHA-256 / HMAC-SHA256 primitives. These primitives have **not** undergone an external independent security audit.
+
 See [`docs/API_0.5.md`](docs/API_0.5.md) for the public API and [`docs/INTEGRATING.md`](docs/INTEGRATING.md) for embedding guidance.
