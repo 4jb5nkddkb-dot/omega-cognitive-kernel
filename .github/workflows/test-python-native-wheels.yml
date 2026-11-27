@@ -28,6 +28,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Rust targets for macOS universal2
+        if: matrix.os == 'macos-latest'
+        run: rustup target add --toolchain stable x86_64-apple-darwin aarch64-apple-darwin
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
