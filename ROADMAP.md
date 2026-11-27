@@ -8,7 +8,7 @@ The project is currently a research prototype. The source package declares versi
 
 1. **Safety before autonomy.** Keep L1 self-modification disabled by default, preserve the independent L2 gate, and require bounded effects, explicit consequence feedback, and rollback paths for new mutation behavior.
 2. **Evidence before product claims.** Do not describe L2 modulation as an improvement until reproducible benchmarks demonstrate better or safer outcomes than the disabled-L2 baseline.
-3. **Compatibility is a feature.** Treat public Rust APIs, Python wrappers, `KernelSnapshot`, `AuditEvent`, JSONL formats, feature flags, and the Rust 1.74 MSRV as compatibility surfaces.
+3. **Compatibility is a feature.** Treat public Rust APIs, Python wrappers, `KernelSnapshot`, `AuditEvent`, JSONL formats, feature flags, and the core Rust package's 1.74 MSRV as compatibility surfaces. The Python binding has a separate Rust build MSRV.
 4. **Operational visibility is mandatory.** New behavior must be inspectable through status, audit, trajectory, metrics, or an equivalent deterministic test artifact.
 5. **Keep the open core focused.** Hosted multi-tenancy, managed policy packs, and enterprise control-plane features should remain separately scoped rather than silently expanding the MIT runtime.
 
@@ -18,6 +18,12 @@ The project is currently a research prototype. The source package declares versi
 
 The current implementation provides a generic `Kernel<O, D, E>` over observer, decision maker, and executor adapters, a default model-based predictor, case/strategy/CAS memory, L1 patch reflection and sandbox validation, L2 fixed-point scoring and bounded modulation, consequence feedback and defensive mode, schema-versioned snapshots, atomic saves, append-only audit events, byte-offset audit polling, trajectory replay, checkpoints, rollback, status JSON, strategy-weight nudges, TOML configuration, async adapters, Python bindings, examples, and a GUI dashboard.
 
+### Language and build compatibility
+
+- **Core Rust:** The root `Cargo.toml` declares Rust 1.74 as its MSRV, and CI tests the core package with Rust 1.74 using the `msrv` feature ([CI workflow](.github/workflows/ci.yml)).
+- **Python:** The package declares CPython 3.10–3.15 support, and CI builds and tests a wheel for each version ([package metadata](pyproject.toml), [Python CI](.github/workflows/ci.yml)). The release workflow defines Linux, Windows, and macOS wheel build and install-test jobs for the same version range ([PyPI workflow](.github/workflows/release-pypi.yml)).
+- **Python binding build:** The binding package separately declares Rust 1.83 and uses PyO3 0.29.3; this build minimum is not the core Rust MSRV ([binding manifest](bindings/python/Cargo.toml), [binding MSRV CI](.github/workflows/ci.yml)).
+
 ### Known baseline gaps
 
 The paired benchmark now distinguishes commits, counterfactual candidate/selection changes, and formally attributed L0 interventions. The 2026-11-26 ordinary-L2 experiments produced executable commits, but failed the preregistered reward criterion and did not reproduce the positive discovery estimate in validation. Spectral-control experiments also failed to demonstrate benefit and remain opt-in. Evidence across broader tasks and seed ranges is still needed. Full feature-matrix verification and release reproducibility remain ongoing work. Multi-tenant control-plane and workspace orchestration are intentionally deferred.
@@ -25,6 +31,8 @@ The paired benchmark now distinguishes commits, counterfactual candidate/selecti
 ## Phase 0 — Stabilize and release the current line
 
 **Priority:** P0
+
+**Status:** In progress. The source manifests declare version `0.6.0`, but the live repository has no `v0.6.x` tag or GitHub release; Phase 0 release work is not complete.
 
 **Objective:** Make the current 0.6.x behavior easy to verify, document, and release before adding new policy mechanisms.
 
