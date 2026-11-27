@@ -28,6 +28,9 @@ pub struct StepResult {
     pub trajectory: Trajectory,
     pub l1: L1Result,
     pub l2: L2Result,
+    /// L2 write arbitration disabled L1 processing for this step. This is
+    /// mechanism observability, not evidence that either layer improved reward.
+    pub l1_blocked_by_l2: bool,
 }
 
 struct RestoreSelfModifyGuard<'a> {
@@ -200,6 +203,7 @@ where
             trajectory,
             l1: l1_result,
             l2: l2_result,
+            l1_blocked_by_l2: l1_write_blocked,
         })
     }
 }
@@ -606,6 +610,7 @@ mod tests {
         kernel.l2.defensive_mode = true;
         let step = kernel.run_once("test").expect("step");
         assert!(!step.l1.patched);
+        assert!(step.l1_blocked_by_l2);
         assert_eq!(kernel.l0.memory.cognitive_effect, initial_effect);
         assert!(kernel.l1.self_modify_enabled);
     }

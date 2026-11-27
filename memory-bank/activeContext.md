@@ -18,6 +18,8 @@ For changes affecting behavior, start at `Kernel::step` in `src/api.rs`, follow 
 
 The roadmap still defers a full multi-tenant control plane, a workspace multi-kernel orchestration service, and possible docs.rs feature-flag polish. These are not present as runtime services in the current source.
 
+The current branch `experiment/l1-l2-factorial` adds the standalone `benchmark-l1l2` fixture in `src/task.rs` and `src/main.rs`. It compares L0, L1-only, L2-only, and L1+L2 without changing production gate defaults or state schema. `StepResult::l1_blocked_by_l2` and `BanditReport::mean_adjusted_reward` expose mechanism and learning-feedback accounting. The completed 30-seed discovery/validation matrix is recorded in `docs/EXPERIMENTS.md`; it does not establish a reproducible L1/L2 benefit. Raw JSON artifacts remain outside the repository.
+
 ## Open engineering questions
 
 The current tree retains resident L2 state through schema v6, including controller/cache state, validated pending/applied policy snapshots, and a per-instance case-replay cursor. New kernels and missing `[l2]` configuration enable L2 by default; legacy snapshots without an explicit L2 permission remain disabled. L1 self-modification remains disabled by default. Current documentation distinguishes the `L2Policy` intervention path from L1's discrete `RuleEffect` patches. Optional feature combinations, especially `async`, `gui`, `wasm`, and `msrv`, deserve continued CI coverage when dependencies change. Any schema or audit enum change requires a migration/compatibility decision before implementation.

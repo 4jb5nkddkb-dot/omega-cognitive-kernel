@@ -26,6 +26,12 @@ pub trait DecisionMaker {
 
     fn set_bandit_config(&mut self, _config: crate::types::BanditConfig) {}
 
+    /// Read-only feedback configuration for benchmark accounting. Non-bandit
+    /// decision makers have no such configuration.
+    fn bandit_config(&self) -> Option<crate::types::BanditConfig> {
+        None
+    }
+
     fn set_l2_policy(&mut self, _policy: crate::types::L2Policy) {}
 
     /// Discount sufficient statistics after a confirmed regime transition.

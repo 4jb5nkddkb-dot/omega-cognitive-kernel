@@ -12,11 +12,17 @@ The repository also contains Python bindings exposing `Kernel`, `AuditLog`, and 
 
 ## Release and roadmap state
 
-L1 remains disabled by default; new kernels enable L2 by default. The paired UCB benchmark varies only L2 enablement. The 2026-11-23 20-seed runs below are historical: they produced no executable commits. The 2026-11-26 30-seed ordinary-L2 experiments did produce attributed interventions, but did not meet the preregistered reward criterion or reproduce the positive discovery estimate in validation. Neither result demonstrates an L2 benefit.
+L1 remains disabled by default; new kernels enable L2 by default. The paired UCB benchmark varies only L2 enablement. A separate `benchmark-l1l2` command compares L0, L1-only, L2-only, and L1+L2 with common seeded environments, per-seed factorial contrasts, and raw/adjusted reward metrics. The 2026-11-26 preregistered four-scenario, two-seed-set matrix found no reproducible positive benefit. In validation `regime_shift`, L2-only and joint reward deltas were negative with Student-t 95% intervals entirely below zero; see `docs/EXPERIMENTS.md` for the complete results and scope.
+
+Historical L2 results: the 2026-11-23 20-seed runs below produced no executable commits. The 2026-11-26 30-seed ordinary-L2 experiments did produce attributed interventions, but did not meet the preregistered reward criterion or reproduce the positive discovery estimate in validation. Neither result demonstrates an L2 benefit.
 
 The roadmap marks the 0.5.x schema/replay/events/strategy weights/dashboard/CLI work as shipped. Full multi-tenant control plane, workspace multi-kernel orchestration, and optional docs.rs polish remain deferred.
 
 ## Verification state
+
+### L1/L2 factorial benchmark, 2026-11-26
+
+On `experiment/l1-l2-factorial`, added deterministic four-arm benchmark tests, gate isolation, per-seed interaction checks, raw/adjusted reward accounting, and L2 arbitration observability. Passed `cargo test --locked` (196 library tests plus CLI/doc targets), `cargo test --locked --all-features` (202 library tests plus GUI/CLI/doc targets), stable Clippy with warnings denied, formatting, `cargo test --locked --doc`, and Rust 1.74 `msrv` Clippy/tests (179 library tests plus applicable targets). Completed four two-seed preflight reports and the fixed eight-report 30-seed release matrix. Reports are in `/tmp/omega-l1-l2-factorial-f065e74/` with SHA-256 checksums; this temporary location is not a durable CI artifact.
 
 ### Comprehensive code review, 2026-11-26
 

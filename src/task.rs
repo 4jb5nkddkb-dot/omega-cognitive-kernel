@@ -105,6 +105,9 @@ pub struct BanditReport {
     pub episodes: u32,
     pub steps_per_episode: u32,
     pub mean_reward: f64,
+    /// Mean external reward after UCB's error, rollback, and switching costs.
+    /// This is a learning diagnostic, not a substitute for external reward.
+    pub mean_adjusted_reward: f64,
     pub best_arm_rate: f64,
     pub final_damping: f64,
     pub final_explore_bonus: f64,
@@ -138,6 +141,7 @@ pub struct BanditReport {
     pub final_alignment_score: f64,
     pub recovery_steps: Option<u32>,
     pub l1_rollback_count: u64,
+    pub l1_blocked_by_l2_count: u64,
     pub l2_rollback_count: u64,
     pub dayan_converged: bool,
     pub final_dayan_residual: f64,
@@ -165,6 +169,7 @@ pub struct BanditReport {
 pub struct L2BenchmarkAggregate {
     pub runs: u32,
     pub mean_reward: f64,
+    pub mean_adjusted_reward: f64,
     pub best_arm_rate: f64,
     pub error_decrease_rate: f64,
     pub mean_initial_error: f64,
@@ -188,6 +193,7 @@ pub struct L2BenchmarkAggregate {
     pub mean_recovery_steps: Option<f64>,
     pub recovery_rate: f64,
     pub mean_l1_rollback_count: f64,
+    pub mean_l1_blocked_by_l2_count: f64,
     pub mean_l2_rollback_count: f64,
     pub dayan_convergence_rate: f64,
     pub mean_final_dayan_residual: f64,
@@ -206,7 +212,7 @@ pub struct L2BenchmarkAggregate {
     pub mean_residual_improvement: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct PairedMeanDifference {
     pub mean: f64,
     pub ci95_low: Option<f64>,
@@ -243,6 +249,114 @@ pub struct L2BenchmarkReport {
     pub l0_influenced_runs: u32,
     /// Per-seed evidence for diagnosing differences that occur without a commit.
     pub paired_runs: Vec<L2PairedRun>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FactorialArm {
+    L0,
+    L1,
+    L2,
+    L1L2,
+}
+
+impl FactorialArm {
+    pub const ALL: [Self; 4] = [Self::L0, Self::L1, Self::L2, Self::L1L2];
+
+    fn index(self) -> usize {
+        match self {
+            Self::L0 => 0,
+            Self::L1 => 1,
+            Self::L2 => 2,
+            Self::L1L2 => 3,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::L0 => "L0",
+            Self::L1 => "L1",
+            Self::L2 => "L2",
+            Self::L1L2 => "L1+L2",
+        }
+    }
+
+    fn l1_enabled(self) -> bool {
+        matches!(self, Self::L1 | Self::L1L2)
+    }
+
+    fn l2_enabled(self) -> bool {
+        matches!(self, Self::L2 | Self::L1L2)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct FactorialEffect {
+    pub reward: PairedMeanDifference,
+    pub reward_bootstrap: PairedMeanDifference,
+    pub best_arm_rate: PairedMeanDifference,
+    pub adjusted_reward: PairedMeanDifference,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FactorialRun {
+    pub seed: u64,
+    pub arms: [BanditReport; 4],
+    pub l1_reward_delta: f64,
+    pub l2_reward_delta: f64,
+    pub joint_reward_delta: f64,
+    pub interaction_reward_delta: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FactorialBenchmarkReport {
+    pub scenario: String,
+    pub episodes: u32,
+    pub steps_per_episode: u32,
+    pub runs: u32,
+    pub seed: u64,
+    pub arm_order: [FactorialArm; 4],
+    pub aggregates: [L2BenchmarkAggregate; 4],
+    pub l1_effect: FactorialEffect,
+    pub l2_effect: FactorialEffect,
+    pub joint_effect: FactorialEffect,
+    pub interaction_effect: FactorialEffect,
+    pub paired_runs: Vec<FactorialRun>,
+}
+
+fn factorial_differences<F>(runs: &[FactorialRun], value: F) -> [Vec<f64>; 4]
+where
+    F: Fn(&BanditReport) -> f64,
+{
+    let mut differences = core::array::from_fn(|_| Vec::with_capacity(runs.len()));
+    for run in runs {
+        let values = [
+            value(&run.arms[0]),
+            value(&run.arms[1]),
+            value(&run.arms[2]),
+            value(&run.arms[3]),
+        ];
+        differences[0].push(values[1] - values[0]);
+        differences[1].push(values[2] - values[0]);
+        differences[2].push(values[3] - values[0]);
+        differences[3].push(values[3] - values[2] - values[1] + values[0]);
+    }
+    differences
+}
+
+fn factorial_effects(runs: &[FactorialRun], seed: u64) -> [FactorialEffect; 4] {
+    let reward = factorial_differences(runs, |report| report.mean_reward);
+    let best_arm = factorial_differences(runs, |report| report.best_arm_rate);
+    let adjusted = factorial_differences(runs, |report| report.mean_adjusted_reward);
+    core::array::from_fn(|effect| FactorialEffect {
+        reward: paired_difference(&reward[effect]),
+        reward_bootstrap: bootstrap_difference(
+            &reward[effect],
+            seed ^ 0x4c314c32 ^ (effect as u64),
+        ),
+        best_arm_rate: paired_difference(&best_arm[effect]),
+        adjusted_reward: paired_difference(&adjusted[effect]),
+    })
 }
 
 struct Rng {
@@ -309,6 +423,7 @@ where
 {
     let mut rng = Rng::new(seed);
     let mut total_reward = 0.0;
+    let mut total_adjusted_reward = 0.0;
     let mut best_hits = 0u32;
     let mut total_choices = 0u32;
     let mut patches = 0u64;
@@ -328,6 +443,7 @@ where
     let mut recovery_steps = None;
     let mut recovery_streak = 0;
     let mut l1_rollback_count = 0;
+    let mut l1_blocked_by_l2_count = 0;
     let mut l2_rollback_count = 0;
     let mut final_dayan_residual = 1.0;
     let mut dwell_hold_count = 0;
@@ -620,6 +736,25 @@ where
                 }
             }
 
+            let rollback_count = u64::from(l1_rollback) + u64::from(r.l1.safety_degraded);
+            let switch_cost =
+                r.l2.decision
+                    .as_ref()
+                    .filter(|decision| decision.switched && decision.selected_arm == arm)
+                    .map(|decision| decision.switch_cost_applied)
+                    .unwrap_or(0.0);
+            let rollback_penalty = kernel
+                .inner
+                .l0
+                .decision
+                .bandit_config()
+                .map(|config| config.rollback_penalty)
+                .unwrap_or(0.0);
+            let adjusted_reward = reward
+                - 0.25 * (after_err - before_err)
+                - rollback_penalty * rollback_count as f64
+                - switch_cost;
+            total_adjusted_reward += adjusted_reward;
             kernel.inner.l0.memory.record_reward(&action, reward);
             // External reward is separated from error improvement and explicit
             // L1 safety costs so a rollback cannot disappear behind a good error.
@@ -631,6 +766,17 @@ where
                     safety_degradation: r.l1.safety_degraded,
                     error_delta: after_err - before_err,
                 },
+            );
+            debug_assert!(
+                kernel.inner.l0.decision.bandit_config().is_none()
+                    || kernel
+                        .inner
+                        .l0
+                        .decision
+                        .l2_decision()
+                        .and_then(|decision| decision.adjusted_reward)
+                        == Some(adjusted_reward),
+                "reported net reward must equal the UCB learning feedback"
             );
             kernel.observe_l2_feedback(
                 reward,
@@ -647,6 +793,7 @@ where
             {
                 l2_rollback_count += 1;
             }
+            l1_blocked_by_l2_count += u64::from(r.l1_blocked_by_l2);
             l1_rollback_count += u64::from(l1_rollback);
             if r.l2.modulation_committed {
                 last_warm_commit = kernel
@@ -716,6 +863,7 @@ where
         } else {
             total_reward / total_choices as f64
         },
+        mean_adjusted_reward: total_adjusted_reward / total_choices.max(1) as f64,
         best_arm_rate: if total_choices == 0 {
             0.0
         } else {
@@ -755,6 +903,7 @@ where
         final_alignment_score: status.last_alignment_score,
         recovery_steps,
         l1_rollback_count,
+        l1_blocked_by_l2_count,
         l2_rollback_count,
         dayan_converged: final_dayan_residual <= 0.18
             && dayan_decreased_steps > 0
@@ -798,6 +947,7 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
         return L2BenchmarkAggregate {
             runs,
             mean_reward: 0.0,
+            mean_adjusted_reward: 0.0,
             best_arm_rate: 0.0,
             error_decrease_rate: 0.0,
             mean_initial_error: 0.0,
@@ -820,6 +970,7 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             mean_recovery_steps: None,
             recovery_rate: 0.0,
             mean_l1_rollback_count: 0.0,
+            mean_l1_blocked_by_l2_count: 0.0,
             mean_l2_rollback_count: 0.0,
             dayan_convergence_rate: 0.0,
             mean_final_dayan_residual: 0.0,
@@ -850,6 +1001,7 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
     L2BenchmarkAggregate {
         runs,
         mean_reward: mean(|r| r.mean_reward),
+        mean_adjusted_reward: mean(|r| r.mean_adjusted_reward),
         best_arm_rate: mean(|r| r.best_arm_rate),
         error_decrease_rate: reports.iter().filter(|r| r.error_decreased).count() as f64 / n,
         mean_initial_error: mean(|r| r.initial_avg_error),
@@ -899,6 +1051,7 @@ fn aggregate(reports: &[BanditReport]) -> L2BenchmarkAggregate {
             .count() as f64
             / n,
         mean_l1_rollback_count: mean(|r| r.l1_rollback_count as f64),
+        mean_l1_blocked_by_l2_count: mean(|r| r.l1_blocked_by_l2_count as f64),
         mean_l2_rollback_count: mean(|r| r.l2_rollback_count as f64),
         dayan_convergence_rate: reports.iter().filter(|r| r.dayan_converged).count() as f64 / n,
         mean_final_dayan_residual: mean(|r| r.final_dayan_residual),
@@ -1333,6 +1486,123 @@ pub fn run_l2_benchmark_scenario_with_gate(
     })
 }
 
+/// Run a 2x2 factorial comparison of independent L1/L2 intervention gates.
+/// Arm order is L0, L1-only, L2-only, and L1+L2. Each position in a seeded
+/// environment consumes one random number, providing common random numbers
+/// across arms without changing the existing task environment.
+#[allow(clippy::too_many_arguments)]
+pub fn run_l1_l2_factorial_benchmark(
+    scenario: &str,
+    runs: u32,
+    episodes: u32,
+    steps_per_episode: u32,
+    seed: u64,
+    commit_threshold: f64,
+    commit_cooldown_steps: u64,
+    negative_reward_required: u32,
+) -> Result<FactorialBenchmarkReport> {
+    if !matches!(
+        scenario,
+        "stable" | "nonstationary" | "degraded" | "fixedpoint" | "regime_shift" | "cyclic_shift"
+    ) {
+        return Err(crate::error::OmegaError::Config(format!(
+            "unknown benchmark scenario: {scenario}"
+        )));
+    }
+    let runs = runs.max(1);
+    let mut paired_runs = Vec::with_capacity(runs as usize);
+    for index in 0..runs {
+        let run_seed = seed.wrapping_add(index as u64);
+        let mut arm_reports = Vec::with_capacity(FactorialArm::ALL.len());
+        for arm in FactorialArm::ALL {
+            let directory = temp_dir().join(format!(
+                "omega-l1-l2-factorial-{}-{}-{}",
+                std::process::id(),
+                crate::new_uuid(),
+                arm.label()
+            ));
+            std::fs::create_dir_all(&directory)
+                .map_err(|error| crate::error::OmegaError::Persist(error.to_string()))?;
+            let path = directory.join("state.json");
+            let mut kernel = Kernel::with_bandit_ucb(&path);
+            kernel.autosave = false;
+            kernel.auto_checkpoint_on_patch = false;
+            kernel.dump_trajectory = false;
+            kernel.inner.l1.self_modify_enabled = arm.l1_enabled();
+            kernel.inner.l1.shadow_mode = false;
+            kernel
+                .inner
+                .l1
+                .store
+                .active
+                .insert("cognitive_rules".into(), "self-model bias damp rule".into());
+            kernel.inner.l2.detector.window = 2;
+            kernel.inner.l2.detector.pred_threshold = 0.30;
+            kernel.inner.l2.detector.self_ref_threshold = 0.30;
+            kernel.inner.l2.detector.cooldown_steps = 0;
+            kernel.inner.l2.commit_threshold = commit_threshold.clamp(0.0, 1.0);
+            kernel.inner.l2.commit_cooldown_steps = commit_cooldown_steps;
+            kernel.inner.l2.negative_reward_required = negative_reward_required.max(1);
+            kernel.inner.l2.configure_spectral_control(false);
+            if matches!(scenario, "regime_shift" | "cyclic_shift") {
+                let mut state = kernel.inner.l0.decision.snapshot();
+                state.discount_factor = 0.85;
+                kernel.inner.l0.decision.restore(state);
+            }
+            kernel.set_l2_enabled(arm.l2_enabled());
+            let report = run_bandit_task_seeded_scenario(
+                &mut kernel,
+                episodes,
+                steps_per_episode,
+                run_seed,
+                scenario,
+                None,
+            );
+            cleanup_benchmark_files(&path);
+            arm_reports.push(report?);
+        }
+        let arms: [BanditReport; 4] = arm_reports.try_into().map_err(|_| {
+            crate::error::OmegaError::Memory("factorial benchmark requires four arms".into())
+        })?;
+        let l1_reward_delta = arms[1].mean_reward - arms[0].mean_reward;
+        let l2_reward_delta = arms[2].mean_reward - arms[0].mean_reward;
+        let joint_reward_delta = arms[3].mean_reward - arms[0].mean_reward;
+        let interaction_reward_delta =
+            arms[3].mean_reward - arms[2].mean_reward - arms[1].mean_reward + arms[0].mean_reward;
+        paired_runs.push(FactorialRun {
+            seed: run_seed,
+            arms,
+            l1_reward_delta,
+            l2_reward_delta,
+            joint_reward_delta,
+            interaction_reward_delta,
+        });
+    }
+    let aggregates = FactorialArm::ALL.map(|arm| {
+        let reports: Vec<_> = paired_runs
+            .iter()
+            .map(|run| run.arms[arm.index()].clone())
+            .collect();
+        aggregate(&reports)
+    });
+    let [l1_effect, l2_effect, joint_effect, interaction_effect] =
+        factorial_effects(&paired_runs, seed);
+    Ok(FactorialBenchmarkReport {
+        scenario: scenario.into(),
+        episodes,
+        steps_per_episode,
+        runs,
+        seed,
+        arm_order: FactorialArm::ALL,
+        aggregates,
+        l1_effect,
+        l2_effect,
+        joint_effect,
+        interaction_effect,
+        paired_runs,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1347,6 +1617,72 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("state.json")
+    }
+
+    #[test]
+    fn factorial_benchmark_is_deterministic_and_separates_gates() {
+        let run =
+            || run_l1_l2_factorial_benchmark("regime_shift", 2, 8, 8, 73, 0.35, 3, 3).unwrap();
+        let first = run();
+        let second = run();
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+        assert_eq!(first.arm_order, FactorialArm::ALL);
+        for pair in &first.paired_runs {
+            for (arm, report) in FactorialArm::ALL.iter().zip(&pair.arms) {
+                if !arm.l1_enabled() {
+                    assert_eq!(report.patches_accepted, 0);
+                    assert_eq!(report.l1_rollback_count, 0);
+                }
+                if !arm.l2_enabled() {
+                    assert_eq!(report.l2_proposals, 0);
+                    assert_eq!(report.l2_commits, 0);
+                    assert_eq!(report.committed_policies_applied, 0);
+                    assert_eq!(report.l2_rollback_count, 0);
+                    assert_eq!(report.l1_blocked_by_l2_count, 0);
+                }
+                assert!(report.mean_adjusted_reward.is_finite());
+            }
+            let values = [
+                pair.arms[0].mean_reward,
+                pair.arms[1].mean_reward,
+                pair.arms[2].mean_reward,
+                pair.arms[3].mean_reward,
+            ];
+            assert_eq!(pair.l1_reward_delta, values[1] - values[0]);
+            assert_eq!(pair.l2_reward_delta, values[2] - values[0]);
+            assert_eq!(pair.joint_reward_delta, values[3] - values[0]);
+            assert_eq!(
+                pair.interaction_reward_delta,
+                values[3] - values[2] - values[1] + values[0]
+            );
+        }
+        assert!(first
+            .paired_runs
+            .iter()
+            .any(|pair| pair.arms[1].patches_accepted > 0));
+        assert!(first
+            .paired_runs
+            .iter()
+            .any(|pair| pair.arms[3].l1_blocked_by_l2_count > 0));
+    }
+
+    #[test]
+    fn factorial_effect_uses_four_arm_interaction_contrast() {
+        let report =
+            run_l1_l2_factorial_benchmark("nonstationary", 3, 8, 8, 20261115, 0.35, 3, 3).unwrap();
+        for (effect, selector) in [
+            (&report.l1_effect, 0),
+            (&report.l2_effect, 1),
+            (&report.joint_effect, 2),
+            (&report.interaction_effect, 3),
+        ] {
+            let differences = factorial_differences(&report.paired_runs, |arm| arm.mean_reward);
+            assert_eq!(effect.reward, paired_difference(&differences[selector]));
+        }
+        assert!(run_l1_l2_factorial_benchmark("invalid", 1, 1, 1, 1, 0.35, 3, 3).is_err());
     }
 
     #[test]

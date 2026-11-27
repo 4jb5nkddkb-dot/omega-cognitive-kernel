@@ -24,6 +24,7 @@ Changes in this section are not included in the pending v0.6.0 release noted bel
 - Fix the Rust 1.74 Clippy gate, cover the active development branch in CI, and stop recursively deriving auto-commit subjects from previous commits.
 
 ### Documentation
+- Add the `benchmark-l1l2` four-arm factorial experiment with paired L1/L2 main-effect, joint, and interaction contrasts, common environment randomness, raw/adjusted reward metrics, and independent seed validation. The completed matrix did not demonstrate reproducible positive gains; production gate defaults are unchanged.
 - Align schema-v6 migration, executable source-installation guidance, and independent L1/L2 defaults with the current runtime. Document L2 `L2Policy` execution attribution separately from commits and no-op proposals.
 - Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
 - Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
