@@ -1,0 +1,62 @@
+name: Python manylinux Wheel Tests (3.14/3.15)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-manylinux-wheels:
+    name: Linux manylinux / CPython ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.14', '3.15']
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test tooling
+        run: python -m pip install pytest
+
+      - name: Prepare wheelhouse
+        run: mkdir -p "${RUNNER_TEMP}/omega-wheelhouse"
+
+      - name: Build manylinux2014 wheel
+        run: |
+          docker run --rm \
+            -e PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
+            -v "${{ github.workspace }}":/io \
+            -v "${RUNNER_TEMP}/omega-wheelhouse":/wheelhouse \
+            -w /io/bindings/python \
+            ghcr.io/pyo3/maturin:latest \
+            build --release --locked \
+              --interpreter python${{ matrix.python-version }} \
+              --compatibility manylinux2014 \
+              --out /wheelhouse
+
+      - name: Verify wheel Python and ABI tags
+        run: >-
+          python scripts/check-python-wheel-tags.py
+          --python-version "${{ matrix.python-version }}"
+          "${RUNNER_TEMP}/omega-wheelhouse"
+
+      - name: Install the wheel
+        run: >-
+          python -m pip install
+          "${RUNNER_TEMP}/omega-wheelhouse"/omega_cognitive_kernel-*.whl
+
+      - name: Test the installed extension
+        run: python -m pytest

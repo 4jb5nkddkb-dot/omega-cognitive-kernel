@@ -69,7 +69,7 @@ Do not use the wheel checked into older development branches as a test dependenc
 - `self_modify_enabled` defaults to `false`.
 - Policy updates are bounded structured `RuleEffect` values, not arbitrary code execution.
 - Use checkpoints, rollback, audit logs, and replay to inspect behavior.
-- Python 3.10–3.13 are covered by the release workflow; newer interpreters are best-effort until added to CI.
+- CPython 3.10–3.15 are officially supported and covered by CI and the release wheel workflow. The package minimum remains Python 3.10.
 - For custom real-world adapters and async I/O, use the Rust API described in the [integration guide](../../docs/INTEGRATING.md).
 
 ## License
