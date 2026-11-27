@@ -1,4 +1,4 @@
-# Omega Closed-Loop Checklist (2026-11-12)
+# Omega Closed-Loop Checklist (2026-11-26)
 
 ## Product status
 
@@ -8,8 +8,12 @@
 | Persistent state | ✅ | `state.json` |
 | Strategy + case memory | ✅ | |
 | Audit trail | ✅ | `audit.jsonl` |
-| Checkpoints / rollback | ✅ | |
+| Checkpoints / rollback | ✅ | `Kernel::rollback`, `cli_demo` end-to-end test, and `omega-kernel rollback` state persistence |
 | **Self-modify master switch** | ✅ | `self_modify_enabled = false` by default |
+| L1 Shadow mode | ✅ | `l1_shadow_mode = false` by default; dry-run validation without mutating `RuleEffect` |
+| L1/L2 write-mutex arbitration | ✅ | `L2MetaLayer::blocks_l1_write()` enforces L2 priority during active gate, defensive mode, committed policy, or cooldown |
+| L1 auto-rollback | ✅ | `OmegaOrchestrator::run_once` observes `error_delta > 0.05` and restores `previous_effect` |
+| BodyBus | ✅ | `src/body/mod.rs`: `no_std` sensor/actuator channels, `write_authorized` always `false` |
 | Trajectory dump | ✅ | `trajectory.jsonl` when `dump_trajectory=true` |
 | CLI status shows switch | ✅ | `omega-kernel status` |
 | Weekly runtime report | ✅ | `.github/workflows/weekly-runtime-report.yml` |
@@ -19,6 +23,7 @@
 
 ```toml
 self_modify_enabled = false
+l1_shadow_mode = false
 dump_trajectory = true
 autosave = true
 auto_checkpoint_on_patch = true
@@ -47,11 +52,6 @@ cargo run --release --bin omega-audit-panel -- ./path/to/state.json
 
 ## Safe procedure
 
-1. Keep `self_modify_enabled = false` until you deliberately want L1 rule evolution.
+1. Keep `self_modify_enabled = false` until you deliberately want L1 rule evolution; enable `l1_shadow_mode = true` first (keeping `self_modify_enabled = false`) for dry-run observation before carefully enabling L1 self-modification.
 2. Inspect `status`, `audit --summary`, and `trajectory.jsonl` after runs.
 3. Weekly Actions writes `reports/weekly-YYYY-Www.md` automatically.
-
-## Relation to file-seal
-
-`file-seal` = offline integrity desktop product (closed).
-Omega = cognitive runtime with explicit safety switches and operator panel.

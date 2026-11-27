@@ -29,7 +29,8 @@ Changes in this section are not included in the pending v0.6.0 release noted bel
 - Regenerate spectral benchmark checksums for the pre-action dry-run implementation, distinguish historical evidence from current verification, and mark the incomplete component-ablation series explicitly.
 - Keep the drop-inbox example state in a configurable persistent directory, resume it on later runs, and document loading that exact state file in the dashboard.
 - Sync `README.md` (adding `l1_shadow_mode`, L1/L2 write mutual-exclusion arbitration, L1 automatic rollback, `CodeSandbox` static validation boundaries, and updated repository layout), the `RELEASING.md` release checklist, and `.github/pull_request_template.md` against the `main` branch source code.
-
+- Complete comprehensive P0/P1 documentation audit and align `CLOSED_LOOP.md`, `vault-encryption.md`, `ARCHITECTURE.md`, `API_0.6.md` (with `API_0.5.md` notice and `README.md` doc-map update), and `examples/README.md` with the 0.6.0 codebase.
+- 
 ### Python support
 - Officially support CPython 3.10–3.15, retaining `requires-python >=3.10`; update package classifiers, user/release documentation, standard CI, native wheel tests, and Linux/Windows/macOS PyPI wheel build/test matrices.
 
