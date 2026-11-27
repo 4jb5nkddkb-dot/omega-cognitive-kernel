@@ -267,7 +267,7 @@ Current behavior is documented in the files below. `RELEASE_NOTES_v*.md`, `docs/
 | Document | Focus |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layer model, safety gates, and persistence design |
-| [`docs/API_0.5.md`](docs/API_0.5.md) | Public API, schema, replay, and events |
+| [`docs/API_0.6.md`](docs/API_0.6.md) | Public API, schema, replay, and events |
 | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | Adapters, configuration, and embedding |
 | [`docs/persistence-privacy.md`](docs/persistence-privacy.md) | Persisted data scope, opt-in redaction, and file permissions |
 | [`docs/CLOSED_LOOP.md`](docs/CLOSED_LOOP.md) | Safety switches and trajectory behavior |
