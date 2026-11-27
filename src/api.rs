@@ -198,6 +198,11 @@ fn step_journal_path(state_path: &Path, step_id: Uuid) -> PathBuf {
         .join(format!("{step_id}.jsonl"))
 }
 
+#[cfg(any(unix, windows))]
+fn step_journal_lock_path(state_path: &Path, step_id: Uuid) -> PathBuf {
+    step_journal_path(state_path, step_id).with_extension("lock")
+}
+
 fn read_step_journal(state_path: &Path, step_id: Uuid) -> Result<Option<StepJournalRecord>> {
     let path = step_journal_path(state_path, step_id);
     if !path.exists() {
@@ -853,6 +858,9 @@ where
     /// possibly-dispatched action. A duplicate committed ID returns
     /// [`OmegaError::StepAlreadyCommitted`]; an incomplete or uncertain attempt
     /// returns a distinct error so callers can reconcile external effects.
+    /// On Unix and Windows, concurrent calls using the same ID and state path
+    /// are serialized across processes; a competing caller is blocked before
+    /// executor dispatch.
     pub fn step_with_id(&mut self, step_id: Uuid, goal: &str) -> Result<StepResult> {
         self.step_with_id_inner(step_id, goal, || Ok(()))
     }
@@ -863,6 +871,23 @@ where
         goal: &str,
         mut before_dispatch: impl FnMut() -> Result<()>,
     ) -> Result<StepResult> {
+        // Hold the per-ID lock through the final journal transition. A retry
+        // must not make a read/append decision concurrently with another caller.
+        #[cfg(any(unix, windows))]
+        let _step_lock = {
+            let lock_path = step_journal_lock_path(&self.state_path, step_id);
+            if let Some(parent) = lock_path.parent() {
+                crate::private_fs::create_dir_all(parent).map_err(|error| {
+                    OmegaError::Persist(format!(
+                        "step journal directory {}: {error}",
+                        parent.display()
+                    ))
+                })?;
+            }
+            crate::safety::StorageLock::acquire(lock_path)?
+        };
+        #[cfg(not(any(unix, windows)))]
+        let _step_lock = ();
         let previous = read_step_journal(&self.state_path, step_id).map_err(|error| {
             OmegaError::StepExecutionOutcomeUnknown {
                 step_id,
@@ -1420,6 +1445,21 @@ mod tests {
         }
     }
 
+    struct BlockingFailingExecutor {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+
+    impl crate::l0::executor::Executor for BlockingFailingExecutor {
+        fn execute(&mut self, _actions: &[crate::types::Action]) -> Result<Vec<serde_json::Value>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _ = self.entered.send(());
+            let _ = self.release.recv();
+            Err(OmegaError::Persist("injected executor uncertainty".into()))
+        }
+    }
+
     #[test]
     fn disabled_l1_is_not_a_patch_rejection_and_disabled_checkpoint_keeps_acceptance() {
         let dir = temp_dir().join(format!("omega-audit-patch-{}", crate::new_uuid()));
@@ -1864,6 +1904,88 @@ mod tests {
         assert_eq!(
             final_record.goal_digest.as_deref(),
             Some(expected_digest.as_str())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn concurrent_same_step_id_does_not_dispatch_twice() {
+        let dir = temp_dir().join(format!("omega-concurrent-step-id-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut first = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            BlockingFailingExecutor {
+                calls: calls.clone(),
+                entered: entered_tx,
+                release: release_rx,
+            },
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        first.autosave = false;
+        first.dump_trajectory = false;
+        let step_id = crate::new_uuid();
+        let goal = "concurrent idempotency retry";
+
+        let first_attempt = std::thread::spawn(move || first.step_with_id(step_id, goal));
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("first caller should reach the executor while holding its ID lock");
+
+        let mut second = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            FailingExecutor(calls.clone()),
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        second.autosave = false;
+        second.dump_trajectory = false;
+        assert!(matches!(
+            second.step_with_id(step_id, goal),
+            Err(OmegaError::ExecutionBlocked(_))
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a concurrent retry must not reach its executor"
+        );
+
+        let mut independent = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            FailingExecutor(calls.clone()),
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        independent.autosave = false;
+        independent.dump_trajectory = false;
+        assert!(matches!(
+            independent.step_with_id(crate::new_uuid(), goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "different step IDs should use independent locks"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(matches!(
+            first_attempt.join().unwrap(),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert!(matches!(
+            second.step_with_id(step_id, goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "a retry after the uncertain outcome must not dispatch again"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
