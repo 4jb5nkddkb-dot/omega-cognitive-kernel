@@ -299,10 +299,7 @@ mod tests {
         let previous_blob = fs::read(&path).expect("read previous blob");
 
         let error = write_blob_atomically_with(&path, b"replacement blob", |_, _| {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "injected replace failure",
-            ))
+            Err(std::io::Error::other("injected replace failure"))
         })
         .unwrap_err();
 
