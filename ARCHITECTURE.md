@@ -163,6 +163,5 @@ Stable design contracts are the bounded `RuleEffect` surface, independent L1/L2 
   - `L2MetaLayer::blocks_l1_write` enforces L2-priority write mutual-exclusion arbitration so L1 cannot overwrite state while L2 holds write precedence.
   - `OmegaOrchestrator::run_once` performs automatic rollback if post-step invariants or validation checks fail.
   - `CodeSandbox` performs static rule, keyword, and bounds checking only—it does **not** compile or execute arbitrary code.
-- **Built-in authorization and cryptographic primitives**: `TokenBook` and `Vault` implement built-in capability authorization and stream encryption using handwritten pure-Rust SHA-256 / HMAC-SHA256 primitives. These primitives have **not** undergone an external independent security audit.
-
-See [`docs/API_0.5.md`](docs/API_0.5.md) for the public API and [`docs/INTEGRATING.md`](docs/INTEGRATING.md) for embedding guidance.
+- **Built-in authorization and cryptographic primitives**: `TokenBook` implements built-in capability authorization using pure-Rust SHA-256 / HMAC-SHA256 primitives, while `Vault` uses `PBKDF2-HMAC-SHA256` key derivation and **XChaCha20-Poly1305** (with a 24-byte OS CSPRNG random nonce) for sealed storage while retaining read-only compatibility for legacy v1 payloads. These primitives and cryptographic wrappers have **not** undergone an external independent security audit.
+  
