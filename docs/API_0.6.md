@@ -242,7 +242,7 @@ In addition to the 0.5/0.6.x core surface above, `0.6.0` exposes the following p
 - **L1 shadow validation**: `l1_shadow_mode` — dry-run validation mode for L1 changes without mutating committed state.
 - **Hybrid world model (`src/l0/hybrid_predictor.rs`)**: `HybridWorldPredictor` — hybrid world-model predictor.
 - **Weight management (`src/memory/weights.rs`)**: `export_weights`, `verify_weights`, `migrate_payload`, `squash_delta_history` — weight snapshot export, integrity verification, payload schema migration, and incremental delta history compression.
-- **Built-in authorization and encryption primitives**: `Vault`, `TokenBook` — capability token book and stream encryption built on handwritten pure-Rust SHA-256 / HMAC-SHA256 primitives (not externally security audited).
+- **Built-in authorization and encryption primitives**: `TokenBook` provides capability tokens. `Vault` writes XChaCha20-Poly1305 v2 blobs with internally generated 24-byte CSPRNG nonces and PBKDF2-HMAC-SHA256 key derivation (at least 10,000 iterations); legacy v1 blobs remain readable for migration. The cryptographic implementation has not been externally security audited.
 
 - Dashboard internal state and workspace implementation details.
 
