@@ -264,7 +264,7 @@ Before changing behavior, start at `Kernel::step` in [`src/api.rs`](src/api.rs),
 
 ## Documentation map
 
-Current behavior is documented in the files below. `RELEASE_NOTES_v*.md`, `docs/API_FREEZE_0.4.md`, `docs/ROADMAP_0.5.md`, dated experiment results, and weekly reports are historical snapshots rather than current-default references.
+Current behavior is documented in the files below. `docs/releases/RELEASE_NOTES_v*.md`, `docs/API_FREEZE_0.4.md`, `docs/ROADMAP_0.5.md`, dated experiment results, and weekly reports are historical snapshots rather than current-default references.
 
 | Document | Focus |
 |---|---|
