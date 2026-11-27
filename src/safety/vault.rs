@@ -156,17 +156,54 @@ impl Vault {
     }
 
     pub fn save_sealed(&self, path: &Path, plaintext: &[u8]) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| OmegaError::Persist(e.to_string()))?;
-        }
         let blob = self.seal(plaintext)?;
-        fs::write(path, blob).map_err(|e| OmegaError::Persist(e.to_string()))
+        write_blob_atomically(path, &blob)
     }
 
     pub fn load_sealed(&self, path: &Path) -> Result<Vec<u8>> {
         let blob = fs::read(path).map_err(|e| OmegaError::Persist(e.to_string()))?;
         self.open(&blob)
     }
+}
+
+fn write_blob_atomically(path: &Path, blob: &[u8]) -> Result<()> {
+    write_blob_atomically_with(path, blob, |from, to| fs::rename(from, to))
+}
+
+fn write_blob_atomically_with<F>(path: &Path, blob: &[u8], replace: F) -> Result<()>
+where
+    F: FnOnce(&Path, &Path) -> std::io::Result<()>,
+{
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    crate::private_fs::create_dir_all(parent)
+        .map_err(|e| OmegaError::Persist(format!("vault directory create: {e}")))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| OmegaError::Persist(format!("invalid vault path: {}", path.display())))?;
+    let temp_path = parent.join(format!(".{file_name}.{}.tmp", crate::new_uuid()));
+
+    let result = (|| -> Result<()> {
+        use std::io::Write;
+        let mut file = crate::private_fs::open_options()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|e| OmegaError::Persist(format!("vault temp create: {e}")))?;
+        file.write_all(blob)
+            .and_then(|()| file.sync_all())
+            .map_err(|e| OmegaError::Persist(format!("vault temp write: {e}")))?;
+        replace(&temp_path, path)
+            .map_err(|e| OmegaError::Persist(format!("vault atomic replace: {e}")))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 #[derive(Debug)]
@@ -249,6 +286,48 @@ mod tests {
 
         let _ = fs::remove_file(first_path);
         let _ = fs::remove_file(second_path);
+    }
+
+    #[test]
+    fn failed_atomic_replace_preserves_previous_vault_blob() {
+        let vault = Vault::from_secret("super-secret-passphrase-2026", b"omega-salt", 10_000)
+            .expect("vault init");
+        let path = temp_path("atomic-preserve");
+        vault
+            .save_sealed(&path, b"previous encrypted state")
+            .expect("initial save");
+        let previous_blob = fs::read(&path).expect("read previous blob");
+
+        let error = write_blob_atomically_with(&path, b"replacement blob", |_, _| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "injected replace failure",
+            ))
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("atomic replace"), "{error}");
+        assert_eq!(
+            fs::read(&path).expect("previous blob remains"),
+            previous_blob
+        );
+        assert_eq!(
+            vault
+                .load_sealed(&path)
+                .expect("previous blob still decrypts"),
+            b"previous encrypted state"
+        );
+        let prefix = format!(
+            ".{}.",
+            path.file_name().expect("file name").to_string_lossy()
+        );
+        assert!(
+            fs::read_dir(path.parent().unwrap_or_else(|| Path::new(".")))
+                .expect("read temp directory")
+                .filter_map(std::result::Result::ok)
+                .all(|entry| !entry.file_name().to_string_lossy().starts_with(&prefix))
+        );
+        let _ = fs::remove_file(path);
     }
 
     #[test]
