@@ -101,6 +101,9 @@ impl GoalTree {
             return false;
         }
         let child_id = id.into();
+        if self.nodes.contains_key(&child_id) {
+            return false;
+        }
         let node = GoalNode {
             id: child_id.clone(),
             targets,
@@ -259,5 +262,28 @@ mod tests {
         assert_eq!(tree.nodes["sub2"].status, GoalStatus::Active);
         assert!((tree.summary().root_progress - 0.5).abs() < 1e-9);
         assert_eq!(tree.select_active().map(|n| n.id.as_str()), Some("sub2"));
+    }
+
+    #[test]
+    fn add_child_rejects_duplicate_ids_and_cycles_without_mutating_tree() {
+        let mut tree = GoalTree::new();
+        tree.add_root("root", BTreeMap::new(), 1);
+        assert!(tree.add_child("root", "branch", BTreeMap::new(), 1.0, 1));
+        assert!(tree.add_child("branch", "leaf", BTreeMap::new(), 1.0, 1));
+
+        let original = tree.clone();
+        let state = BTreeMap::new();
+        for (parent_id, duplicate_id) in [
+            ("root", "leaf"),   // duplicate ID from a different branch depth
+            ("leaf", "leaf"),   // self-cycle
+            ("root", "root"),   // root as its own child
+            ("leaf", "root"),   // root/ancestor cycle
+            ("leaf", "branch"), // ancestor cycle
+        ] {
+            assert!(!tree.add_child(parent_id, duplicate_id, BTreeMap::new(), 1.0, 1,));
+            assert_eq!(tree, original);
+            tree.update_from_state(&state, 0.05);
+            assert_eq!(tree, original);
+        }
     }
 }
