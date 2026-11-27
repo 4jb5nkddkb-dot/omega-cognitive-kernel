@@ -228,6 +228,11 @@ fn whitelist() -> Vec<String> {
 // ─── Demo driver ─────────────────────────────────────────────────────────────
 
 #[cfg(feature = "toml")]
+fn prepare_workspace(root: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(root)
+}
+
+#[cfg(feature = "toml")]
 fn main() -> Result<()> {
     let keep = env::var("KEEP_INBOX").ok().as_deref() == Some("1");
     let root = if keep {
@@ -238,8 +243,7 @@ fn main() -> Result<()> {
             omega_cognitive_kernel::new_uuid()
         ))
     };
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("mkdir");
+    prepare_workspace(&root).expect("mkdir");
 
     let state_path = root.join("state.json");
     let cfg_path = root.join("omega.toml");
@@ -380,6 +384,31 @@ fn main() -> Result<()> {
         println!("\n(temp workspace removed; set KEEP_INBOX=1 to inspect files)");
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "toml"))]
+mod tests {
+    use super::prepare_workspace;
+    use std::fs;
+
+    #[test]
+    fn preparing_kept_workspace_preserves_existing_files() {
+        let root = std::env::temp_dir().join(format!(
+            "omega-inbox-vertical-{}",
+            omega_cognitive_kernel::new_uuid()
+        ));
+        fs::create_dir_all(&root).expect("create workspace");
+        let marker = root.join("user-data.txt");
+        fs::write(&marker, b"keep this file").expect("write marker");
+
+        prepare_workspace(&root).expect("prepare existing workspace");
+
+        assert_eq!(
+            fs::read(&marker).expect("marker still exists"),
+            b"keep this file"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 #[cfg(not(feature = "toml"))]
