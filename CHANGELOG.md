@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Correctness / safety
+- Reject weight-history squashes that would overflow finite values, preserving the original payload on failure.
+
 ### Testing
 - Add `benchmark-l2-gain`, a preregistered four-scenario L1/L2 factorial matrix with independent discovery/validation seed sets, explicit execution and safety gates, deterministic replay tests, and CI smoke artifacts. The completed 960-run matrix did not demonstrate a reproducible L2 reward gain; no production control defaults changed.
 
