@@ -1,4 +1,5 @@
 # Host portability and hot snapshots
+> **Language note**: Authoritative English portability matrix. For a concise Chinese summary, see [`PORTABILITY.md`](PORTABILITY.md).
 
 ## Current status
 
