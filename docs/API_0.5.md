@@ -1,3 +1,5 @@
+> **Note:** This document is superseded by [docs/API_0.6.md](API_0.6.md) for the complete 0.6.0 public API reference.
+
 # API notes — 0.6.x
 
 **Source baseline:** `0.6.0`
