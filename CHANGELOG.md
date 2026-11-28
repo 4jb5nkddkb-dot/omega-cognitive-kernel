@@ -13,7 +13,19 @@
 
 ### Reliability
 - Bound trajectory JSONL growth to 64 MiB by default, with a per-kernel Rust/Python override and serialized local appends. Oversized appends fail closed without truncating history; existing logs remain replayable.
+## [0.8.0] - 2026-11-28
 
+### Added
+- Cross-process persistence for external closed-loop sessions via `schema v6`-compatible `ExternalLoopState` on `KernelSnapshot`, serializable `CooldownTracker`, and structured `AuditEvent::{ExternalStep, ExternalRollback, ExternalStepDuplicate}` events (`#131`).
+- `--no-save` flag on `omega-kernel step-external` for stateless dry-runs (`#131`).
+- Real `L2MetaLayer` engine bridge (`OmegaOrchestrator::step_l2_from_telemetry`) populating `kl_prior_bias`, `in_fixed_point`, `lyapunov_potential`, `lyapunov_veto`, `alpha`, `beta`, and `selected_expert` in `L2PriorPayload` across both Rust and PyO3 bindings (`#133`).
+- 7-mode closed-loop benchmark suite (`run_closed_loop_matrix_benchmark` and `omega-kernel benchmark-loops --scenario steady|shift|noisy --steps N [--json]`) (`#135`).
+- Boundary hardening and long-horizon stress tests covering `CooldownTracker` saturation caps, out-of-order `StepTelemetry` bursts, and 180-step noisy external loops (`#137`).
+- Manual GitHub Actions helpers `Auto Format (rustfmt)` (`#132`) and `Bump Release Version` (`#134`).
+
+### Fixed
+- Rejected non-finite (`NaN` / `±inf`) prediction errors and risk values in `CooldownTracker::can_patch` (`#137`).
+  
 ## [0.7.1] - 2026-11-28
 
 ### Documentation & Packaging

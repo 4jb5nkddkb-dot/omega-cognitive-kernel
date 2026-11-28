@@ -118,6 +118,10 @@ cargo run --release --bin omega-kernel -- benchmark-l2-gain --smoke --json
 
 # Run a single external-telemetry closed-loop step with a preset.
 cargo run --release --bin omega-kernel -- --preset control-plane step-external --step-id 1 --error 0.55 --risk 0.20 --json
+# Dry-run an external step without saving state (--no-save).
+omega-kernel --preset control-plane step-external --step-id 1 --error 0.55 --risk 0.20 --no-save --json
+# Run the 7-combination closed-loop comparison benchmark.
+omega-kernel benchmark-loops --scenario shift --steps 24 --json
 # Start the optional operator dashboard.
 cargo run --release --features gui --bin omega-dashboard
 ```
@@ -219,6 +223,7 @@ Given a state path such as `.omega/state.json`, the runtime stores:
 
 The current on-disk schema is version `6`. It persists total steps, biases, constraints, CAS metrics, cases, strategies, active modules, patch history, L1 safety state, UCB decision state, the resident L2 controller, bounded cache, Dayan residual, pending/applied policy snapshots, and a per-instance case-replay cursor. Older snapshots migrate forward with safe defaults; newer unsupported schema versions are rejected.
 
+External closed-loop mode supports cross-process persistence (`ExternalLoopState`, compatible with `schema v6`), structured audit events (`ExternalStep`, `ExternalRollback`, `ExternalStepDuplicate`), and real `L2MetaLayer` engine bridging.
 State writes serialize to a same-directory temporary file, call `sync_all`, and atomically rename the file. Audit append, trajectory writes, and autosave failures are returned to the caller instead of being silently ignored. These failures do not roll back an external action that an executor already performed; custom executors need their own timeout, idempotency, and recovery policy.
 
 New kernels cap `trajectory.jsonl` at 64 MiB by default. Rust and Python callers can change the per-kernel limit with `set_trajectory_max_bytes`; an append that would exceed it fails the step instead of truncating or rotating history. Existing oversized files remain replayable, but new rows are rejected until the limit is raised. Set `dump_trajectory = false` to disable trajectory writes.
