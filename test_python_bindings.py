@@ -256,3 +256,6 @@ def test_closed_loop_session_presets_and_external_loop(state_path):
 
     rolled = json.loads(cp.step_external_json(3, 0.65, 0.20, None, "degraded"))
     assert rolled["rollback_to_checkpoint"] == "ckpt-2"
+    assert active.get("checkpoint_uuid") is not None
+    assert rolled.get("rollback_checkpoint_uuid") == active["checkpoint_uuid"]
+    assert len(ok.CheckpointStore.beside_state(str(state_path)).list()) >= 1
