@@ -435,3 +435,17 @@ impl KernelConfig {
         self
     }
 }
+impl KernelConfig {
+    pub fn effective_switches(&self) -> LayerSwitches {
+        let default_layers = LayerSwitches::default();
+        if self.layers != default_layers {
+            self.layers
+        } else {
+            LayerSwitches {
+                l0: self.layers.l0,
+                l1: self.self_modify_enabled || self.layers.l1,
+                l2: self.l2.enabled,
+            }
+        }
+    }
+}
