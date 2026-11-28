@@ -66,6 +66,47 @@ where
     pub fn run_once(&mut self, high_level_goal: &str) -> Result<StepResult> {
         self.run_once_with_executor_hooks(high_level_goal, || Ok(()), || Ok(()))
     }
+    pub fn step_l2_from_telemetry(
+        &mut self,
+step_id: u64,
+prediction_error: f64,
+goal: &str,
+) -> Result<L2Result> {
+        self.total_steps = self.total_steps.max(step_id);
+        let state = SystemState {
+            active_code: self.l1.store.active.clone(),
+            highest_attractor: goal.to_string(),
+            generative_base: self
+                .l1
+                .store
+                .history
+                .iter()
+                .rev()
+                .find(|(patch, _)| patch.target_module == "cognitive_rules")
+                .map(|(patch, _)| patch.description.clone())
+                .or(Some("dayan_generative_base".into())),
+            last_trajectory_summary: Some(format!(
+                "external_step={} err={:.4}",
+                step_id, prediction_error
+            )),
+            avg_prediction_error: prediction_error,
+            total_steps: self.total_steps,
+        };
+
+        let current_effect = self.l0.memory.cognitive_effect.clone();
+        let l2_result = self.l2.step(
+            &state,
+            self.biases.clone(),
+            self.constraints.clone(),
+            &current_effect,
+        )?;
+        self.biases = l2_result.biases.clone();
+        self.constraints = l2_result.constraints.clone();
+        if let Some(nudged) = &l2_result.effect_nudge {
+            self.l0.memory.cognitive_effect = nudged.clone();
+        }
+        Ok(l2_result)
+    }
 
     pub(crate) fn run_once_with_executor_hooks<Before, After>(
         &mut self,
