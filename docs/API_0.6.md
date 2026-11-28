@@ -176,9 +176,14 @@ The in-process API is:
 ```text
 Kernel::set_event_hook(FnMut(&AuditEvent) + Send + 'static)
 Kernel::clear_event_hook()
+Kernel::set_audit_max_bytes(max_bytes: u64)
+AuditLog::append_with_max_bytes(event, max_bytes)
+ToolGateExecutor::audit_max_bytes(max_bytes)
 ```
 
-A hook fires only after the related audit record has been appended successfully. `AuditLog::byte_len()` returns a cursor position and `AuditLog::poll_after(offset)` returns complete records plus the next cursor. An incomplete trailing JSONL line is held for a later poll; if the file was truncated or rotated, polling resynchronizes from offset zero. A malformed complete record returns an error with its path, line, and byte offset instead of being silently dropped. The line number is relative to the requested polling slice; the byte offset is absolute.
+A new audit JSONL file is limited to 64 MiB by default. `Kernel::set_audit_max_bytes` changes the per-kernel ceiling, the Python `Kernel` wrapper exposes the same setter, and `ToolGateExecutor::audit_max_bytes` configures tool-event writes. Direct callers can use `AuditLog::append_with_max_bytes` to set a per-append ceiling. The size check includes the serialized record and newline and is serialized across cooperating local writers. An append that would cross the configured limit returns an error before adding bytes; records are never rotated, truncated, or dropped. Existing files that already exceed the limit remain readable, but further appends are rejected until the caller chooses a higher limit. Kernel step and ToolGate audit failures propagate to the caller, and an event hook fires only after its related audit record has been appended successfully.
+
+`AuditLog::byte_len()` returns a cursor position and `AuditLog::poll_after(offset)` returns complete records plus the next cursor. An incomplete trailing JSONL line is held for a later poll; if the file was truncated or rotated, polling resynchronizes from offset zero. A malformed complete record returns an error with its path, line, and byte offset instead of being silently dropped. The line number is relative to the requested polling slice; the byte offset is absolute.
 
 The `Kernel::step` event ordering is intentionally observable:
 

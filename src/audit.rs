@@ -170,6 +170,52 @@ pub struct AuditLog {
     pub path: PathBuf,
 }
 
+/// Default maximum size for an audit JSONL file (64 MiB).
+///
+/// Existing files larger than this remain readable; only new appends are
+/// limited. Integrators can choose a different ceiling per append.
+pub const DEFAULT_MAX_AUDIT_BYTES: u64 = 64 * 1024 * 1024;
+
+struct AuditAppendLock {
+    #[cfg(any(unix, windows))]
+    _file: fs::File,
+}
+
+impl AuditAppendLock {
+    fn acquire(path: &Path) -> Result<Self> {
+        #[cfg(any(unix, windows))]
+        {
+            use fs2::FileExt;
+
+            let file = crate::private_fs::open_options()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(path)
+                .map_err(|error| {
+                    OmegaError::Persist(format!("audit lock open {}: {error}", path.display()))
+                })?;
+            file.lock_exclusive().map_err(|error| {
+                OmegaError::Persist(format!("audit lock acquire {}: {error}", path.display()))
+            })?;
+            Ok(Self { _file: file })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            // These targets do not support the crate's advisory file locks;
+            // single-writer audit usage remains supported there.
+            let _ = path;
+            Ok(Self {})
+        }
+    }
+}
+
+fn audit_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    PathBuf::from(lock_path)
+}
+
 impl AuditLog {
     fn malformed_record(&self, line: usize, offset: u64, error: serde_json::Error) -> OmegaError {
         OmegaError::Persist(format!(
@@ -187,14 +233,29 @@ impl AuditLog {
     }
 
     pub fn append(&self, event: AuditEvent) -> Result<()> {
-        self.append_with_privacy(event, false)
+        self.append_with_max_bytes(event, DEFAULT_MAX_AUDIT_BYTES)
+    }
+
+    /// Append an event with an explicit maximum audit-file size in bytes.
+    ///
+    /// The check and append are serialized across cooperating local writers.
+    /// A zero limit rejects every record; use `u64::MAX` for an effectively
+    /// unlimited file. Existing bytes are never truncated or rotated.
+    pub fn append_with_max_bytes(&self, event: AuditEvent, max_bytes: u64) -> Result<()> {
+        self.append_with_privacy_and_max_bytes(event, false, max_bytes)
     }
 
     /// Append an event, optionally replacing user-provided text fields before serialization.
-    pub fn append_with_privacy(
+    pub fn append_with_privacy(&self, event: AuditEvent, redact_user_content: bool) -> Result<()> {
+        self.append_with_privacy_and_max_bytes(event, redact_user_content, DEFAULT_MAX_AUDIT_BYTES)
+    }
+
+    /// Append an event with privacy redaction and an explicit maximum file size.
+    pub fn append_with_privacy_and_max_bytes(
         &self,
         mut event: AuditEvent,
         redact_user_content: bool,
+        max_bytes: u64,
     ) -> Result<()> {
         if redact_user_content {
             match &mut event {
@@ -208,17 +269,44 @@ impl AuditLog {
             crate::private_fs::create_dir_all(parent)
                 .map_err(|e| OmegaError::Persist(e.to_string()))?;
         }
+        let _lock = AuditAppendLock::acquire(&audit_lock_path(&self.path))?;
+
         let rec = AuditRecord {
             ts: crate::now_utc(),
             event,
         };
-        let line = serde_json::to_string(&rec).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        let mut line =
+            serde_json::to_string(&rec).map_err(|e| OmegaError::Persist(e.to_string()))?;
+        line.push('\n');
+
+        let current_len = match fs::metadata(&self.path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(OmegaError::Persist(error.to_string())),
+        };
+        let record_len = u64::try_from(line.len())
+            .map_err(|error| OmegaError::Persist(format!("audit record size: {error}")))?;
+        let resulting_len = current_len.checked_add(record_len);
+        if !matches!(resulting_len, Some(size) if size <= max_bytes) {
+            return Err(OmegaError::Persist(format!(
+                "audit log size limit exceeded for {}: current {current_len} bytes, record {record_len} bytes, maximum {max_bytes} bytes",
+                self.path.display()
+            )));
+        }
+
         let mut f = crate::private_fs::open_options()
             .create(true)
             .append(true)
             .open(&self.path)
             .map_err(|e| OmegaError::Persist(e.to_string()))?;
-        writeln!(f, "{line}").map_err(|e| OmegaError::Persist(e.to_string()))?;
+        if let Err(error) = f.write_all(line.as_bytes()) {
+            return match f.set_len(current_len) {
+                Ok(()) => Err(OmegaError::Persist(error.to_string())),
+                Err(rollback_error) => Err(OmegaError::Persist(format!(
+                    "audit write failed: {error}; partial-record cleanup failed: {rollback_error}"
+                ))),
+            };
+        }
         Ok(())
     }
 
@@ -320,6 +408,11 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
 
+    fn remove_audit_file(path: &Path) {
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(audit_lock_path(path));
+    }
+
     #[test]
     fn append_and_tail() {
         let path = temp_dir().join(format!("omega-audit-{}.jsonl", crate::new_uuid()));
@@ -345,7 +438,100 @@ mod tests {
         let sum = log.summarize().unwrap();
         assert_eq!(sum.steps, 1);
         assert_eq!(sum.action_counts[0].0, "observe");
-        let _ = fs::remove_file(&path);
+        remove_audit_file(&path);
+    }
+
+    #[test]
+    fn append_limit_accepts_exact_boundary_and_preserves_file_when_full() {
+        let event = AuditEvent::ToolAllowed {
+            tool: "read".into(),
+        };
+        let record_len = serde_json::to_vec(&AuditRecord {
+            ts: crate::now_utc(),
+            event: event.clone(),
+        })
+        .unwrap()
+        .len() as u64
+            + 1;
+        let path = temp_dir().join(format!("omega-audit-limit-{}.jsonl", crate::new_uuid()));
+        let log = AuditLog { path: path.clone() };
+
+        log.append_with_max_bytes(event.clone(), record_len)
+            .unwrap();
+        assert_eq!(log.byte_len().unwrap(), record_len);
+        let before = fs::read(&path).unwrap();
+
+        let error = log
+            .append_with_max_bytes(event, record_len)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("audit log size limit exceeded"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(log.read_all().unwrap().len(), 1);
+        remove_audit_file(&path);
+    }
+
+    #[test]
+    fn concurrent_appends_cannot_exceed_size_limit() {
+        let event = AuditEvent::ToolAllowed {
+            tool: "read".into(),
+        };
+        let record_len = serde_json::to_vec(&AuditRecord {
+            ts: crate::now_utc(),
+            event: event.clone(),
+        })
+        .unwrap()
+        .len() as u64
+            + 1;
+        let path = temp_dir().join(format!("omega-audit-race-{}.jsonl", crate::new_uuid()));
+        let log = AuditLog { path: path.clone() };
+
+        let writers: Vec<_> = (0..2)
+            .map(|_| {
+                let path = path.clone();
+                let event = event.clone();
+                std::thread::spawn(move || {
+                    AuditLog { path }.append_with_max_bytes(event, record_len)
+                })
+            })
+            .collect();
+        let outcomes: Vec<_> = writers
+            .into_iter()
+            .map(|writer| writer.join().unwrap())
+            .collect();
+
+        assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(log.read_all().unwrap().len(), 1);
+        assert!(log.byte_len().unwrap() <= record_len);
+        remove_audit_file(&path);
+    }
+
+    #[test]
+    fn existing_oversized_audit_files_remain_readable_but_reject_appends() {
+        let path = temp_dir().join(format!(
+            "omega-audit-legacy-limit-{}.jsonl",
+            crate::new_uuid()
+        ));
+        let log = AuditLog { path: path.clone() };
+        let event = AuditEvent::ToolAllowed {
+            tool: "read".into(),
+        };
+        log.append_with_max_bytes(event.clone(), u64::MAX).unwrap();
+        log.append_with_max_bytes(event.clone(), u64::MAX).unwrap();
+        let existing_len = log.byte_len().unwrap();
+        let before = fs::read(&path).unwrap();
+
+        let error = log
+            .append_with_max_bytes(event, existing_len - 1)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("audit log size limit exceeded"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(log.read_all().unwrap().len(), 2);
+        let (rows, offset) = log.poll_after(0).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(offset, existing_len);
+        remove_audit_file(&path);
     }
 
     #[test]
@@ -403,7 +589,7 @@ mod tests {
         fs::write(&path, partial).unwrap();
         let error = log.poll_after(0).unwrap_err().to_string();
         assert!(error.contains("line 2"), "{error}");
-        let _ = fs::remove_file(&path);
+        remove_audit_file(&path);
     }
 
     #[test]
@@ -449,7 +635,7 @@ mod tests {
         assert!(matches!(second[0].event, AuditEvent::PatchAccepted { .. }));
         assert!(off3 > off);
 
-        let _ = fs::remove_file(&path);
+        remove_audit_file(&path);
     }
 
     #[test]
@@ -471,6 +657,6 @@ mod tests {
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o640
         );
-        let _ = fs::remove_file(path);
+        remove_audit_file(&path);
     }
 }

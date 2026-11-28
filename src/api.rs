@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use crate::audit::{AuditEvent, AuditLog};
+use crate::audit::{AuditEvent, AuditLog, DEFAULT_MAX_AUDIT_BYTES};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::config::KernelConfig;
 #[cfg(feature = "toml")]
@@ -54,6 +54,7 @@ where
     pub dump_trajectory: bool,
     /// Whether known user-provided text is redacted from persisted output.
     pub redact_user_content: bool,
+    audit_max_bytes: u64,
     /// Optional in-process hook invoked after each audit event is appended.
     event_hook: Option<EventHook>,
 }
@@ -479,6 +480,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -507,6 +509,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -539,12 +542,14 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
         let auto_ckpt = self.auto_checkpoint_on_patch;
         let dump = self.dump_trajectory;
         let redact = self.redact_user_content;
+        let audit_max_bytes = self.audit_max_bytes;
         let hook = self.event_hook.take();
         *self = Self::with_state_path(path);
         self.autosave = autosave;
         self.auto_checkpoint_on_patch = auto_ckpt;
         self.dump_trajectory = dump;
         self.redact_user_content = redact;
+        self.audit_max_bytes = audit_max_bytes;
         self.event_hook = hook;
         if self.state_path.exists() {
             std::fs::remove_file(&self.state_path)
@@ -598,6 +603,7 @@ where
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -633,6 +639,15 @@ where
     /// Remove the in-process event hook.
     pub fn clear_event_hook(&mut self) {
         self.event_hook = None;
+    }
+
+    /// Set the maximum audit JSONL file size in bytes for future events.
+    ///
+    /// The default is [`DEFAULT_MAX_AUDIT_BYTES`]. A zero limit rejects all
+    /// records; use `u64::MAX` for an effectively unlimited file. Existing
+    /// audit history is never truncated or rotated.
+    pub fn set_audit_max_bytes(&mut self, max_bytes: u64) {
+        self.audit_max_bytes = max_bytes;
     }
 
     /// Enable or disable L2 interventions while keeping metric evaluation
@@ -753,8 +768,11 @@ where
     /// audit trail silently drops the transition. The in-process hook fires only
     /// after the append has actually succeeded.
     fn append_event(&mut self, event: AuditEvent) -> Result<()> {
-        self.audit()
-            .append_with_privacy(event.clone(), self.redact_user_content)?;
+        self.audit().append_with_privacy_and_max_bytes(
+            event.clone(),
+            self.redact_user_content,
+            self.audit_max_bytes,
+        )?;
         self.emit_event(&event);
         Ok(())
     }
@@ -1789,6 +1807,39 @@ mod tests {
             before_steps + 1,
             "retry must not re-execute"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn step_fails_closed_when_audit_size_limit_is_reached() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        let dir = temp_dir().join(format!("omega-audit-limit-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let mut k = Kernel::with_state_path(state_path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.set_audit_max_bytes(0);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        k.set_event_hook(move |_| {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let error = k
+            .step_with_id(crate::new_uuid(), "limit audit growth")
+            .unwrap_err();
+        assert!(matches!(&error, OmegaError::StepCommitIncomplete { .. }));
+        assert!(
+            format!("{error:?}").contains("audit log size limit exceeded"),
+            "{error:?}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!dir.join("audit.jsonl").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
