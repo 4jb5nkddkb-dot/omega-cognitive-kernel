@@ -203,6 +203,25 @@ Promote the 7-mode closed-loop control plane from an in-memory session prototype
 - External `(0,1,0)`, `(0,0,1)`, and `(0,1,1)` modes run through the real `L1`/`L2` engines with full parity against internal modes.
 - Reproducible 7-mode benchmark results are documented in `README.md` and `reports/`, and all CI checks (`std`, `no_std`, `wasm`, `gui`, CPython 3.10–3.15) pass without regression.
 
+## v0.9.0 — Real-World Integration, Published Benchmarks & Lean CI
+
+**Prerequisite:** `v0.8.0` released on GitHub Releases and PyPI with persistent external control plane, real `L2MetaLayer` bridge, and `benchmark-loops` CLI.
+
+### Goal
+Turn the `v0.8.0` runtime into an immediately adoptable control plane for real-world Python/Rust applications by shipping runnable integration examples, published 7-mode benchmark evidence, real `CheckpointStore` backing for external rollbacks, and leaner CI turnaround.
+
+### Planned Phases
+- [ ] **Phase 1 — Real-World Integration Examples (`examples/`, `examples/python/`):** Ship runnable Python examples (`llm_agent_guard.py`, `service_policy_adapter.py`) and a Rust external control-plane example demonstrating cross-process persistence, rollback, and `AuditLog` replay.
+- [ ] **Phase 2 — Published 7-Mode Benchmarks & Preset Guide (`reports/`, `README.md`, `bindings/python/README.md`):** Record reproducible `benchmark-loops` results across `steady`, `shift`, and `noisy` workloads and publish a concise preset-selection guide in both Rust and PyPI READMEs.
+- [ ] **Phase 3 — Real `CheckpointStore` Backing for External Rollbacks (`src/api.rs`, `tests/`):** Optionally persist real `CheckpointStore` snapshots during `step_external` when `auto_checkpoint_on_patch` and `autosave` are enabled, unifying external control-plane checkpoints with `omega-kernel checkpoints` / `rollback`.
+- [ ] **Phase 4 — Lean CI, Devcontainer & Multi-Registry Release (`Cargo.toml`, `.github/workflows/`, `.devcontainer/`):** Add `paths-ignore` for docs-only PRs, add Codespaces `.devcontainer/devcontainer.json`, document recommended HTTP/async feature combinations, and publish `v0.9.0` across GitHub Releases, PyPI, and crates.io.
+
+### Exit Criteria
+- External developers can run Python and Rust real-world examples against `omega-cognitive-kernel` in under 3 minutes.
+- Reproducible 7-mode benchmark tables are published in `reports/` and summarized in `README.md`.
+- External control-plane checkpoints round-trip cleanly through `CheckpointStore` and CLI `checkpoints` / `rollback`.
+- Docs-only PRs skip heavy wheel builds, and `v0.9.0` passes full CI and live verification on GitHub Releases, PyPI, and crates.io.
+
 ## Cross-cutting backlog
 
 | Area | Next useful increment | Success signal |
