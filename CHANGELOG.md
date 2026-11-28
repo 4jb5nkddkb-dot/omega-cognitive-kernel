@@ -14,6 +14,13 @@
 ### Reliability
 - Bound trajectory JSONL growth to 64 MiB by default, with a per-kernel Rust/Python override and serialized local appends. Oversized appends fail closed without truncating history; existing logs remain replayable.
 
+## [0.7.1] - 2026-11-28
+
+### Documentation & Packaging
+- Aligned PyPI long description (`bindings/python/README.md`) with current `v0.7.x` bindings, documenting `ClosedLoopSession` and all 7 `LoopPreset` modes (`#128`).
+- Unified package `description` and added `[project.urls]` (`Homepage`, `Repository`, `Changelog`, `Issues`) across both root `pyproject.toml` and `bindings/python/pyproject.toml` (`#128`).
+- Synchronized `README.md`, `docs/PRODUCT.md`, `ARCHITECTURE.md`, and `RELEASING.md` release checklist (`#128`).
+
 ## [0.7.0] - 2026-11-27
 
 ### Added
