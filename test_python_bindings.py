@@ -247,7 +247,9 @@ def test_closed_loop_session_presets_and_external_loop(state_path):
     blocked = json.loads(cp.step_external_json(1, 0.05, 0.10))
     assert blocked["l1_gate"] == "blocked_by_l2"
     assert blocked["rule_patch"] is None
-
+    assert len(blocked["l2_prior"]["kl_prior_bias"]) > 0
+    assert "lyapunov_potential" in blocked["l2_prior"]
+    assert "selected_expert" in blocked["l2_prior"]
     active = json.loads(cp.step_external_json(2, 0.60, 0.20))
     assert active["l1_gate"] == "active"
     assert active["rule_patch"] is not None
