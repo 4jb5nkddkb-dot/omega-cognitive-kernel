@@ -179,6 +179,29 @@ Enable every non-empty combination of `(L0, L1, L2)` to form a self-contained, a
 - `KEEP_L0` zero-interference steady-state invariant holds under `(1,0,0)`, `(1,0,1)`, and `L2`-gated `(1,1,1)` runs.
 - Existing `30+` CI checks (`std`, `no_std`, `wasm`, `gui`, Python bindings) pass without regression, and `CHANGELOG.md` / `README.md` examples are updated for `v0.7.0`.
 
+## v0.8.0 — Persistent External Control Plane & Real-Engine Bridge
+
+**Prerequisite:** `v0.7.1` released on GitHub Releases and PyPI with all 7 `(L0, L1, L2)` closed-loop presets, CLI, and PyO3 bindings aligned.
+
+### Goal
+Promote the 7-mode closed-loop control plane from an in-memory session prototype to a cross-process persistent, auditable runtime driven by the full `L1CognitiveLayer` and `L2MetaLayer` engines, backed by reproducible 7-mode benchmarks.
+
+### Core Design Principles
+- **Backward-Compatible Persistence:** Persist external closed-loop state (`last_external_step_id`, `CooldownTracker`, `last_checkpoint_id`) via optional `#[serde(default)]` snapshot fields without breaking existing `schema v6` state files.
+- **Single Algorithm Source of Truth:** Bridge `StepTelemetry` (`signal_window`, `prediction_error`, `observed_risk`) into the real `L1CognitiveLayer` and `L2MetaLayer` controllers instead of maintaining simplified external-only threshold heuristics.
+- **Reproducible Evidence:** Publish deterministic, multi-scenario benchmarks comparing all 7 `LoopPreset` modes so operators can choose presets based on measured latency, stability, and rollback behavior.
+
+### Planned Phases
+- [ ] **Phase 1 — Persistent External State & Audit Trail (`persist.rs`, `audit.rs`, `api.rs`, `main.rs`):** Persist external `step_id`, `CooldownTracker`, and checkpoint state across process restarts; emit structured `AuditLog` entries on every `step_external` call, L2 gate block, and rollback; support `--no-save` and autosave in `omega-kernel step-external`.
+- [ ] **Phase 2 — Real L1/L2 Engine Bridge (`orchestrator.rs`, `api.rs`, `bindings/python`):** Route `StepTelemetry` through the core `L2MetaLayer` (Lyapunov potential, Hedge expert weights, meta-cache, `kl_prior_bias`) and `L1CognitiveLayer` patch evaluation, and expose enriched directive summaries in Rust and PyO3 bindings.
+- [ ] **Phase 3 — 7-Mode Benchmark Suite (`task.rs`, `main.rs`, `reports/`, `README.md`):** Add `omega-kernel benchmark-loops --scenario steady|shift|noisy --json` comparing all 7 `LoopPreset` combinations on error convergence, rollback count, steady-state residual, and step latency, and publish reproducible summary tables in `README.md`.
+- [ ] **Phase 4 — Boundary Hardening & Feature-Matrix Consolidation (`tests/`, `Cargo.toml`):** Add property-based / fuzz-style tests for `CooldownTracker`, out-of-order `StepTelemetry`, trajectory bounds, and weight-history squashing; evaluate consolidating redundant HTTP/async feature stacks while preserving MSRV 1.74 and Python MSRV 1.83.
+
+### Exit Criteria
+- Cross-process `omega-kernel --preset control-plane step-external` preserves idempotent `step_id`, cooldown backoff, checkpoints, and `AuditLog` replay across restarts.
+- External `(0,1,0)`, `(0,0,1)`, and `(0,1,1)` modes run through the real `L1`/`L2` engines with full parity against internal modes.
+- Reproducible 7-mode benchmark results are documented in `README.md` and `reports/`, and all CI checks (`std`, `no_std`, `wasm`, `gui`, CPython 3.10–3.15) pass without regression.
+
 ## Cross-cutting backlog
 
 | Area | Next useful increment | Success signal |
