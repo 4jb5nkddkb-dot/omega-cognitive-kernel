@@ -308,7 +308,10 @@ impl L2MetaLayer {
                 if self.controller.certificate.lyapunov_veto {
                     self.controller.veto_count = self.controller.veto_count.saturating_add(1);
                 }
-                let mut beta = self.controller.beta_for(self.spectral_control_enabled); if spectral_out.regime_detected { beta = beta.max(1.0); }
+                let mut beta = self.controller.beta_for(self.spectral_control_enabled);
+                if spectral_out.regime_detected {
+                    beta = beta.max(1.0);
+                }
                 // A high anomaly score is evidence for waking up, not evidence
                 // that an intervention will help. Commit confidence comes from
                 // the residual model; the Lyapunov certificate is the final
@@ -320,7 +323,8 @@ impl L2MetaLayer {
                     && self.commit_cooldown_remaining == 0
                     && !self.defensive_mode
                     && self.controller.model_confidence >= self.commit_threshold.clamp(0.0, 1.0);
-                if allowed || (self.enabled && !self.defensive_mode && spectral_out.regime_detected) {
+                if allowed || (self.enabled && !self.defensive_mode && spectral_out.regime_detected)
+                {
                     self.pending_policy = crate::types::L2Policy {
                         prior: if selected == 2 && self.spectral_control_enabled {
                             self.spectral_gate.explore_prior(&spectral_out)
