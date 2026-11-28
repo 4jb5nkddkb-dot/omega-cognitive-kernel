@@ -1,10 +1,10 @@
 #[allow(unused_imports)]
 use omega_cognitive_kernel::prelude::*;
 
-use clap::{Parser, Subcommand};
-use omega_cognitive_kernel::api::{replay_trajectory_file, Kernel};
+use clap::{Parser, Subcommand, ValueEnum};
+use omega_cognitive_kernel::api::{replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel, StepTelemetry};
 use omega_cognitive_kernel::audit::AuditLog;
-use omega_cognitive_kernel::config::InterventionPolicy;
+use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig, LoopPreset};
 #[cfg(feature = "toml")]
 use omega_cognitive_kernel::config_toml;
 use omega_cognitive_kernel::task::{
@@ -14,6 +14,48 @@ use omega_cognitive_kernel::task::{
 };
 use std::path::PathBuf;
 use uuid::Uuid;
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum CliLoopPreset {
+    Deterministic,
+    HotPatcher,
+    MetaGuard,
+    FastAdapt,
+    SteadyPrior,
+    ControlPlane,
+    FullKernel,
+}
+
+impl From<CliLoopPreset> for LoopPreset {
+    fn from(preset: CliLoopPreset) -> Self {
+        match preset {
+            CliLoopPreset::Deterministic => Self::Deterministic,
+            CliLoopPreset::HotPatcher => Self::HotPatcher,
+            CliLoopPreset::MetaGuard => Self::MetaGuard,
+            CliLoopPreset::FastAdapt => Self::FastAdapt,
+            CliLoopPreset::SteadyPrior => Self::SteadyPrior,
+            CliLoopPreset::ControlPlane => Self::ControlPlane,
+            CliLoopPreset::FullKernel => Self::FullKernel,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum CliExternalOutcome {
+    Improved,
+    Degraded,
+    Timeout,
+}
+
+impl From<CliExternalOutcome> for ExternalOutcome {
+    fn from(outcome: CliExternalOutcome) -> Self {
+        match outcome {
+            CliExternalOutcome::Improved => Self::AcceptedAndImproved,
+            CliExternalOutcome::Degraded => Self::Degraded,
+            CliExternalOutcome::Timeout => Self::TimeoutOrSkipped,
+        }
+    }
+}
+
 
 #[derive(Parser)]
 #[command(
@@ -27,6 +69,9 @@ struct Cli {
     config: Option<PathBuf>,
     #[arg(long, global = true)]
     state: Option<PathBuf>,
+    /// Closed-loop layer preset (deterministic, hot-patcher, meta-guard, fast-adapt, steady-prior, control-plane, full-kernel).
+    #[arg(long, global = true, value_enum)]
+    preset: Option<CliLoopPreset>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -178,6 +223,27 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         offset: u64,
     },
+    /// Run a single external-telemetry step for L0-off presets (hot-patcher, meta-guard, control-plane).
+    StepExternal {
+        /// Monotonically increasing step identifier.
+        #[arg(long, default_value_t = 1)]
+        step_id: u64,
+        /// Observed prediction or policy error.
+        #[arg(long)]
+        error: f64,
+        /// Observed action risk in [0, 1].
+        #[arg(long, default_value_t = 0.0)]
+        risk: f64,
+        /// Outcome of the previous directive, if any.
+        #[arg(long, value_enum)]
+        outcome: Option<CliExternalOutcome>,
+        /// Run L1 in shadow-only mode without mutating cooldown state.
+        #[arg(long)]
+        shadow: bool,
+        /// Emit ControlDirective as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn state_path(cli: &Cli) -> Option<String> {
@@ -197,11 +263,35 @@ fn load_intervention(cli: &Cli) -> InterventionPolicy {
     let _ = cli;
     InterventionPolicy::default()
 }
+fn resolve_effective_config(cli: &Cli) -> anyhow::Result<KernelConfig> {
+    #[allow(unused_mut)]
+    let mut cfg = {
+        #[cfg(feature = "toml")]
+        {
+            if let Some(ref cfg_path) = cli.config {
+                config_toml::KernelConfig::load(cfg_path)?
+            } else {
+                KernelConfig::default()
+            }
+        }
+        #[cfg(not(feature = "toml"))]
+        {
+            KernelConfig::default()
+        }
+    };
+    if let Some(preset) = cli.preset {
+        cfg = cfg.with_loop_preset(preset.into());
+    }
+    Ok(cfg)
+}
 
 fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
     #[cfg(feature = "toml")]
     if let Some(ref cfg_path) = cli.config {
-        let cfg = config_toml::KernelConfig::load(cfg_path)?;
+        let mut cfg = config_toml::KernelConfig::load(cfg_path)?;
+        if let Some(preset) = cli.preset {
+            cfg = cfg.with_loop_preset(preset.into());
+        }
         let state_path = cli
             .state
             .clone()
@@ -211,7 +301,12 @@ fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
         kernel.state_path = state_path;
         return Ok(kernel);
     }
-    Kernel::open(state_path(cli).as_deref()).map_err(Into::into)
+    let mut kernel = Kernel::open(state_path(cli).as_deref()?;
+    if let Some(preset) = cli.preset {
+        let cfg = KernelConfig::default().with_loop_preset(preset.into());
+        kernel.apply_config(&cfg);
+    }
+    Ok(kernel)
 }
 
 fn print_intervention_block(p: &InterventionPolicy) {
@@ -778,6 +873,41 @@ fn main() -> anyhow::Result<()> {
             println!("new_events : {}", rows.len());
             for r in &rows {
                 println!("{}  {:?}", r.ts.to_rfc3339(), r.event);
+            }
+        }
+        Commands::StepExternal {
+            step_id,
+            error,
+            risk,
+            outcome,
+            shadow,
+            json,
+        } => {
+            let mut cfg = resolve_effective_config(&cli)?;
+            if *shadow {
+                cfg.l1_shadow_mode = true;
+            }
+            let kernel = open_kernel(&cli)?;
+            let mut session = ClosedLoopSession::from_kernel(kernel, &cfg);
+            let telemetry = StepTelemetry {
+                step_id: *step_id,
+                prediction_error: *error,
+                observed_risk: *risk,
+                signal_window: vec![*error],
+                last_outcome: outcome.map(Into::into),
+            };
+            let directive = session
+                .step_external(telemetry)
+                .map_err(anyhow::Error::msg)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&directive)?);
+            } else {
+                println!("step_id     : {}", directive.step_id);
+                println!("l1_gate     : {:?}", directive.l1_gate);
+                println!("keep_steady : {}", directive.keep_steady);
+                println!("rule_patch  : {:?}", directive.rule_patch);
+                println!("l2_prior    : {:?}", directive.l2_prior);
+                println!("rollback_to : {:?}", directive.rollback_to_checkpoint);
             }
         }
     }
