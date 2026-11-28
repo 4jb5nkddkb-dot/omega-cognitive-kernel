@@ -2,7 +2,8 @@ use omega_cognitive_kernel::api::{
     run_closed_loop_matrix_benchmark, ClosedLoopKernel, ClosedLoopSession, DefaultKernel,
     ExternalOutcome, LoopBenchmarkScenario, StepTelemetry,
 };
-use omega_cognitive_kernel::audit::AuditLog;
+use omega_cognitive_kernel::audit::AuditLog
+use omega_cognitive_kernel::checkpoint::CheckpointStore;;
 use omega_cognitive_kernel::config::{
     KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode, LoopPreset,
 };
@@ -340,7 +341,7 @@ fn external_loop_state_and_audit_survive_restart() {
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let state_path = dir.join("state.json");
 
-    {
+    let ckpt_uuid = {
         let mut kernel = DefaultKernel::with_state_path(state_path.clone());
         kernel.autosave = true;
         kernel.dump_trajectory = false;
@@ -349,7 +350,8 @@ fn external_loop_state_and_audit_survive_restart() {
             .step_external(telemetry(1, 0.50, 0.20, None))
             .expect("step 1");
         assert!(first.rule_patch.is_some());
-    }
+        first.checkpoint_uuid.expect("real checkpoint uuid")
+    };
 
     let state_str = state_path.to_str().expect("utf8 path");
     let reopened_kernel = DefaultKernel::open(Some(state_str)).expect("reopen kernel");
@@ -366,6 +368,14 @@ fn external_loop_state_and_audit_survive_restart() {
         .expect("degraded step 2 after restart");
     assert_eq!(degraded.rollback_to_checkpoint.as_deref(), Some("ckpt-1"));
     assert_eq!(session.cooldown().current_cooldown(), 6);
+    assert_eq!(
+        degraded.rollback_checkpoint_uuid.as_deref(),
+        Some(ckpt_uuid.as_str())
+    );
+    let ckpts = CheckpointStore::beside_state(&state_path)
+        .list()
+        .expect("list checkpoints");
+    assert!(ckpts.iter().any(|c| c.id.to_string() == ckpt_uuid));
 
     let summary = AuditLog::beside_state(&state_path)
         .summarize()
