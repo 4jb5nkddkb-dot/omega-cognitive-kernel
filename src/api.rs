@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 use crate::audit::{AuditEvent, AuditLog, DEFAULT_MAX_AUDIT_BYTES};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
-use crate::config::{KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode};
+use crate::config::{KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode, LoopPreset};
 #[cfg(feature = "toml")]
 use crate::config_toml;
 use crate::error::{OmegaError, Result};
@@ -3030,5 +3030,165 @@ where
             l2_prior,
             rollback_to_checkpoint,
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopBenchmarkScenario {
+    Steady,
+    Shift,
+    Noisy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopPresetBenchmarkRow {
+    pub preset: String,
+    pub mode: String,
+    pub steps: u32,
+    pub mean_error: f64,
+    pub patches_emitted: u32,
+    pub rollbacks: u32,
+    pub steady_steps: u32,
+    pub avg_step_us: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopMatrixBenchmarkReport {
+    pub scenario: LoopBenchmarkScenario,
+    pub steps_per_preset: u32,
+    pub rows: Vec<LoopPresetBenchmarkRow>,
+}
+
+fn scenario_telemetry(scenario: LoopBenchmarkScenario, step: u32, total: u32) -> StepTelemetry {
+    let idx = step as f64;
+    let third = (total / 3).max(1);
+    let (err, risk, outcome) = match scenario {
+        LoopBenchmarkScenario::Steady => (0.06 + 0.02 * (idx * 0.5).sin().abs(), 0.10, None),
+        LoopBenchmarkScenario::Shift => {
+            if step <= third {
+                (0.08, 0.10, None)
+            } else if step <= third.saturating_mul(2) {
+                let out = match step.cmp(&(third + 2)) {
+                    std::cmp::Ordering::Less => None,
+                    std::cmp::Ordering::Equal => Some(ExternalOutcome::Degraded),
+                    std::cmp::Ordering::Greater => Some(ExternalOutcome::AcceptedAndImproved),
+                };
+                (0.62, 0.22, out)
+            } else {
+                (0.12, 0.12, Some(ExternalOutcome::AcceptedAndImproved))
+            }
+        }
+        LoopBenchmarkScenario::Noisy => {
+            let err = if step % 2 == 0 { 0.68 } else { 0.24 };
+            let risk = if step % 5 == 0 { 0.80 } else { 0.25 };
+            let out = if step > 1 && step % 3 == 0 {
+                Some(ExternalOutcome::Degraded)
+            } else {
+                None
+            };
+            (err, risk, out)
+        }
+    };
+    StepTelemetry {
+        step_id: u64::from(step),
+        prediction_error: err,
+        observed_risk: risk,
+        signal_window: vec![err],
+        last_outcome: outcome,
+    }
+}
+
+pub fn run_closed_loop_matrix_benchmark(
+    scenario: LoopBenchmarkScenario,
+    steps: u32,
+) -> LoopMatrixBenchmarkReport {
+    let steps_clamped = steps.max(1);
+    let presets = [
+        ("deterministic", LoopPreset::Deterministic),
+        ("hot_patcher", LoopPreset::HotPatcher),
+        ("meta_guard", LoopPreset::MetaGuard),
+        ("fast_adapt", LoopPreset::FastAdapt),
+        ("steady_prior", LoopPreset::SteadyPrior),
+        ("control_plane", LoopPreset::ControlPlane),
+        ("full_kernel", LoopPreset::FullKernel),
+    ];
+
+    let base_dir = std::env::temp_dir().join(format!(
+        "omega-bench-loops-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let _ = std::fs::create_dir_all(&base_dir);
+
+    let mut rows = Vec::with_capacity(presets.len());
+    for (name, preset) in presets {
+        let cfg = KernelConfig::default().with_loop_preset(preset);
+        let mode = cfg
+            .effective_switches()
+            .validate()
+            .unwrap_or(LoopMode::InternalWorld);
+        let state_path = base_dir.join(format!("{name}.json"));
+        let mut kernel = DefaultKernel::with_state_path(state_path);
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        let mut session = ClosedLoopSession::from_kernel(kernel, &cfg);
+
+        let start = std::time::Instant::now();
+        let mut err_sum = 0.0;
+        let mut patches_emitted = 0u32;
+        let mut rollbacks = 0u32;
+        let mut steady_steps = 0u32;
+
+        for step in 1..=steps_clamped {
+            let directive = match mode {
+                LoopMode::InternalWorld => {
+                    let res = session.step_internal();
+                    err_sum += session.kernel.inner.l0.memory.cas.avg_prediction_error;
+                    res.ok()
+                }
+                LoopMode::ExternalTelemetry => {
+                    let tel = scenario_telemetry(scenario, step, steps_clamped);
+                    err_sum += tel.prediction_error;
+                    session.step_external(tel).ok()
+                }
+            };
+            if let Some(d) = directive {
+                if d.rule_patch.is_some() {
+                    patches_emitted += 1;
+                }
+                if d.rollback_to_checkpoint.is_some() {
+                    rollbacks += 1;
+                }
+                if d.keep_steady {
+                    steady_steps += 1;
+                }
+            }
+        }
+
+        let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+        rows.push(LoopPresetBenchmarkRow {
+            preset: String::from(name),
+            mode: match mode {
+                LoopMode::InternalWorld => String::from("internal"),
+                LoopMode::ExternalTelemetry => String::from("external"),
+            },
+            steps: steps_clamped,
+            mean_error: err_sum / f64::from(steps_clamped),
+            patches_emitted,
+            rollbacks,
+            steady_steps,
+            avg_step_us: elapsed_us / f64::from(steps_clamped),
+        });
+    }
+
+    let _ = std::fs::remove_dir_all(&base_dir);
+    LoopMatrixBenchmarkReport {
+        scenario,
+        steps_per_preset: steps_clamped,
+        rows,
     }
 }
