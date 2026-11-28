@@ -21,8 +21,8 @@ use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
 use crate::orchestrator::{CooldownTracker, OmegaOrchestrator, StepResult};
 use crate::persist::{
-    resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH,
-    ExternalLoopState,
+    resolve_state_path, ExternalLoopState, KernelSnapshot, CURRENT_SCHEMA_VERSION,
+    DEFAULT_STATE_PATH,
 };
 use crate::safety;
 use hashbrown::HashMap;
@@ -2791,14 +2791,14 @@ where
                     ext.cooldown.clone(),
                     ext.last_external_step_id,
                     ext.last_checkpoint_id.clone(),
-                    )
-                } else {
+                )
+            } else {
                 (
                     CooldownTracker::new(config.min_steps_between_patches),
                     None,
                     None,
-                    )
-                };
+                )
+            };
         Self {
             kernel,
             switches: config.effective_switches(),
@@ -2880,14 +2880,14 @@ where
         if let Some(prev) = self.last_external_step_id {
             if telemetry.step_id <= prev { 
            let audit = AuditLog::beside_state(&self.kernel.state_path);
-             let _ = audit.append_with_privacy_and_max_bytes(
-AuditEvent::ExternalStepDuplicate {
-step_id: telemetry.step_id,
-last_step_id: prev,
-},
-self.kernel.redact_user_content,
-self.kernel.audit_max_bytes,
-);
+         let _ = audit.append_with_privacy_and_max_bytes(
+                    AuditEvent::ExternalStepDuplicate {
+                        step_id: telemetry.step_id,
+                        last_step_id: prev,
+                    },
+                    self.kernel.redact_user_content,
+                    self.kernel.audit_max_bytes,
+                );
                 return Ok(ControlDirective {
                     step_id: telemetry.step_id,
                     l1_gate: resolve_l1_gate(self.switches, false, self.shadow_mode),
@@ -2980,7 +2980,7 @@ self.kernel.audit_max_bytes,
         if self.kernel.autosave {
             self.kernel.save().map_err(|e| format!("{e}"))?;
         }
-        
+
         Ok(ControlDirective {
             step_id: telemetry.step_id,
             l1_gate,
