@@ -5,6 +5,11 @@ use crate::types::{
 use omega_cognitive_kernel::OmegaError;
 use pyo3::prelude::*;
 use uuid::Uuid;
+use omega_cognitive_kernel::api::{
+    ClosedLoopKernel, ClosedLoopSession as CoreClosedLoopSession, ExternalOutcome, StepTelemetry,
+};
+use omega_cognitive_kernel::config::{KernelConfig, LoopPreset};
+use pyo3::exceptions::PyValueError;
 
 /// Python wrapper for Kernel
 #[pyclass(unsendable)]
@@ -289,5 +294,94 @@ impl Kernel {
             self.inner.state_path.display(),
             self.inner.inner.total_steps
         )
+    }
+}
+
+fn parse_loop_preset(name: &str) -> pyo3::PyResult<LoopPreset> {
+    match name {
+        "deterministic" => Ok(LoopPreset::Deterministic),
+        "hot_patcher" | "hot-patcher" => Ok(LoopPreset::HotPatcher),
+        "meta_guard" | "meta-guard" => Ok(LoopPreset::MetaGuard),
+        "fast_adapt" | "fast-adapt" => Ok(LoopPreset::FastAdapt),
+        "steady_prior" | "steady-prior" => Ok(LoopPreset::SteadyPrior),
+        "control_plane" | "control-plane" => Ok(LoopPreset::ControlPlane),
+        "full_kernel" | "full-kernel" => Ok(LoopPreset::FullKernel),
+        other => Err(PyValueError::new_err(format!("unknown loop preset: {other}"))),
+    }
+}
+
+fn parse_external_outcome(name: &str) -> pyo3::PyResult<ExternalOutcome> {
+    match name {
+        "improved" | "accepted_and_improved" => Ok(ExternalOutcome::AcceptedAndImproved),
+        "degraded" => Ok(ExternalOutcome::Degraded),
+        "timeout" | "timeout_or_skipped" => Ok(ExternalOutcome::TimeoutOrSkipped),
+        other => Err(PyValueError::new_err(format!(
+            "unknown external outcome: {other}"
+        ))),
+    }
+}
+
+/// Python wrapper for v0.7.0 ClosedLoopSession supporting all 7 (L0, L1, L2) presets.
+#[pyclass(unsendable)]
+pub struct ClosedLoopSession {
+    inner: CoreClosedLoopSession,
+}
+
+#[pymethods]
+impl ClosedLoopSession {
+    #[staticmethod]
+    #[pyo3(signature = (preset, state_path=None, shadow_mode=false))]
+    pub fn from_preset(
+        preset: &str,
+        state_path: Option<&str>,
+        shadow_mode: bool,
+    ) -> pyo3::PyResult<Self> {
+        let parsed = parse_loop_preset(preset)?;
+        let mut cfg = KernelConfig::default().with_loop_preset(parsed);
+        cfg.l1_shadow_mode = shadow_mode;
+        let mut kernel = match state_path {
+            Some(path) => omega_cognitive_kernel::Kernel::with_state_path(path),
+            None => omega_cognitive_kernel::Kernel::new(),
+        };
+        kernel.apply_config(&cfg);
+        Ok(Self {
+            inner: CoreClosedLoopSession::from_kernel(kernel, &cfg),
+        })
+    }
+
+    pub fn switches_json(&self) -> pyo3::PyResult<String> {
+        serde_json::to_string(&self.inner.switches())
+            .map_err(|e| PyValueError::new_err(format!("serialize switches failed: {e}")))
+    }
+
+    pub fn step_internal_json(&mut self) -> pyo3::PyResult<String> {
+        let directive = self.inner.step_internal().map_err(PyValueError::new_err)?;
+        serde_json::to_string(&directive)
+            .map_err(|e| PyValueError::new_err(format!("serialize directive failed: {e}")))
+    }
+
+    #[pyo3(signature = (step_id, prediction_error, observed_risk=0.0, signal_window=None, last_outcome=None))]
+    pub fn step_external_json(
+        &mut self,
+        step_id: u64,
+        prediction_error: f64,
+        observed_risk: f64,
+        signal_window: Option<Vec<f64>>,
+        last_outcome: Option<&str>,
+    ) -> pyo3::PyResult<String> {
+        let parsed_outcome = match last_outcome {
+            Some(raw) => Some(parse_external_outcome(raw)?),
+            None => None,
+        };
+        let telemetry = StepTelemetry {
+            step_id,
+            prediction_error,
+            observed_risk,
+            signal_window: signal_window.unwrap_or_else(|| vec![prediction_error]),
+            last_outcome: parsed_outcome,
+        };
+        let directive = self.inner.step_external(telemetry).map_err(PyValueError::new_err)?;
+        serde_json::to_string(&directive)
+            .map_err(|e| PyValueError::new_err(format!("serialize directive failed: {e}")))
     }
 }
