@@ -624,3 +624,61 @@ mod tests {
         assert!(kernel.l1.self_modify_enabled);
     }
 }
+#[derive(Debug, Clone)]
+pub struct CooldownTracker {
+    base_cooldown: u64,
+    current_cooldown: u64,
+    steps_since_patch: u64,
+    consecutive_rollbacks: u32,
+    max_cooldown_cap: u64,
+}
+
+impl CooldownTracker {
+    pub fn new(base_cooldown: u64) -> Self {
+        let cap = base_cooldown.saturating_mul(16).max(48);
+        Self {
+            base_cooldown,
+            current_cooldown: base_cooldown,
+            steps_since_patch: base_cooldown,
+            consecutive_rollbacks: 0,
+            max_cooldown_cap: cap,
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.steps_since_patch = self.steps_since_patch.saturating_add(1);
+    }
+
+    pub fn record_improved(&mut self) {
+        self.consecutive_rollbacks = 0;
+        self.current_cooldown = self.base_cooldown;
+    }
+
+    pub fn record_rollback(&mut self) {
+        self.consecutive_rollbacks = self.consecutive_rollbacks.saturating_add(1);
+        let shift = self.consecutive_rollbacks.min(4);
+        self.current_cooldown = self
+            .base_cooldown
+            .saturating_mul(1u64 << shift)
+            .min(self.max_cooldown_cap);
+        self.steps_since_patch = 0;
+    }
+
+    pub fn can_patch(&self, error: f64, error_threshold: f64, risk: f64, max_risk: f64) -> bool {
+        self.steps_since_patch >= self.current_cooldown
+            && error >= error_threshold
+            && risk <= max_risk
+    }
+
+    pub fn mark_patched(&mut self) {
+        self.steps_since_patch = 0;
+    }
+
+    pub fn current_cooldown(&self) -> u64 {
+        self.current_cooldown
+    }
+
+    pub fn consecutive_rollbacks(&self) -> u32 {
+        self.consecutive_rollbacks
+    }
+}
