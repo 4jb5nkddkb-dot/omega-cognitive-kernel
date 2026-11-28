@@ -2740,6 +2740,10 @@ pub struct ControlDirective {
     pub rule_patch: Option<RulePatchPayload>,
     pub l2_prior: Option<L2PriorPayload>,
     pub rollback_to_checkpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollback_checkpoint_uuid: Option<String>,
 }
 
 pub trait ClosedLoopKernel {
@@ -2805,6 +2809,7 @@ pub struct ClosedLoopSession<
     default_goal: String,
     last_external_step_id: Option<u64>,
     last_checkpoint_id: Option<String>,
+    last_checkpoint_uuid: Option<String>,
 }
 
 impl<O, D, E> ClosedLoopSession<O, D, E>
@@ -2814,16 +2819,18 @@ where
     E: Executor,
 {
     pub fn from_kernel(kernel: Kernel<O, D, E>, config: &KernelConfig) -> Self {
-        let (cooldown, last_external_step_id, last_checkpoint_id) =
+        let (cooldown, last_external_step_id, last_checkpoint_id, last_checkpoint_uuid) =
             if let Some(ref ext) = kernel.external_loop_state {
                 (
                     ext.cooldown.clone(),
                     ext.last_external_step_id,
                     ext.last_checkpoint_id.clone(),
+                    ext.last_checkpoint_uuid.clone(),
                 )
             } else {
                 (
                     CooldownTracker::new(config.min_steps_between_patches),
+                    None,
                     None,
                     None,
                 )
@@ -2841,6 +2848,7 @@ where
                 .unwrap_or_else(|| String::from("closed_loop_step")),
             last_external_step_id,
             last_checkpoint_id,
+            last_checkpoint_uuid,
         }
     }
 
@@ -2892,6 +2900,8 @@ where
             rule_patch: None,
             l2_prior,
             rollback_to_checkpoint: None,
+            checkpoint_uuid: None,
+            rollback_checkpoint_uuid: None,
         })
     }
 
@@ -2924,6 +2934,8 @@ where
                     rule_patch: None,
                     l2_prior: None,
                     rollback_to_checkpoint: None,
+                    checkpoint_uuid: None,
+                    rollback_checkpoint_uuid: None,
                 });
             }
         }
@@ -2931,6 +2943,7 @@ where
         self.cooldown.tick();
 
         let mut rollback_to_checkpoint = None;
+        let mut rollback_checkpoint_uuid = None;
         match telemetry.last_outcome {
             Some(ExternalOutcome::AcceptedAndImproved) => {
                 self.cooldown.record_improved();
@@ -2938,6 +2951,7 @@ where
             Some(ExternalOutcome::Degraded) => {
                 self.cooldown.record_rollback();
                 rollback_to_checkpoint = self.last_checkpoint_id.clone();
+                rollback_checkpoint_uuid = self.last_checkpoint_uuid.clone();
             }
             Some(ExternalOutcome::TimeoutOrSkipped) | None => {}
         }
@@ -2973,11 +2987,21 @@ where
                 telemetry.observed_risk,
                 self.max_risk,
             );
-
+        let mut created_checkpoint_uuid = None;
         let rule_patch = if can_emit_patch {
             if l1_gate == L1RuntimeGate::Active {
                 self.cooldown.mark_patched();
                 self.last_checkpoint_id = Some(format!("ckpt-{}", telemetry.step_id));
+                if self.kernel.autosave && self.kernel.auto_checkpoint_on_patch {
+                    if let Ok(meta) = self
+                        .kernel
+                        .checkpoint(&format!("external-step-{}", telemetry.step_id))
+                    {
+                        let id_str = meta.id.to_string();
+                        created_checkpoint_uuid = Some(id_str.clone());
+                        self.last_checkpoint_uuid = Some(id_str);
+                    }
+                }
             }
             Some(RulePatchPayload {
                 patch_id: format!("patch-{}", telemetry.step_id),
@@ -3017,6 +3041,7 @@ where
             last_external_step_id: self.last_external_step_id,
             cooldown: self.cooldown.clone(),
             last_checkpoint_id: self.last_checkpoint_id.clone(),
+            last_checkpoint_uuid: self.last_checkpoint_uuid.clone(),
         });
         if self.kernel.autosave {
             self.kernel.save().map_err(|e| format!("{e}"))?;
@@ -3029,6 +3054,8 @@ where
             rule_patch,
             l2_prior,
             rollback_to_checkpoint,
+            checkpoint_uuid: created_checkpoint_uuid,
+            rollback_checkpoint_uuid,
         })
     }
 }

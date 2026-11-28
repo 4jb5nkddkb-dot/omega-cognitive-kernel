@@ -72,6 +72,8 @@ pub struct ExternalLoopState {
     pub cooldown: crate::orchestrator::CooldownTracker,
     #[serde(default)]
     pub last_checkpoint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_checkpoint_uuid: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
