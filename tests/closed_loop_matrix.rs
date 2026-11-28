@@ -347,7 +347,8 @@ fn external_loop_state_and_audit_survive_restart() {
         assert!(first.rule_patch.is_some());
     }
 
-    let reopened_kernel = DefaultKernel::open(&state_path).expect("reopen kernel");
+    let state_str = state_path.to_str().expect("utf8 path");
+    let reopened_kernel = DefaultKernel::open(Some(state_str)).expect("reopen kernel");
     let mut session = ClosedLoopSession::from_kernel(reopened_kernel, &cfg);
 
     let dup = session
