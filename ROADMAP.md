@@ -157,6 +157,28 @@ The paired benchmark now distinguishes commits, counterfactual candidate/selecti
 - Hosted functionality is clearly separated from the public MIT core and does not change local default safety behavior.
 - No multi-tenant feature is considered production-ready without isolation and recovery tests.
 
+## v0.7.0 — Independent Layer Closed Loops & External Control Plane
+
+**Prerequisite:** Complete `v0.6.x` P1 hardening (`#118` weight-history overflow protection) on `main`.
+
+### Goal
+Enable every non-empty combination of `(L0, L1, L2)` to form a self-contained, auditable closed loop in production—allowing `L1` and `L2` to operate either on top of `L0WorldLayer` or as an external strategy/meta-control plane for third-party runtimes.
+
+### Core Design Principles
+- **Static Intent vs. Runtime Gate Separation:** `LayerSwitches { l0, l1, l2 }` (and semantic `LoopPreset` variants) express static user configuration and are never mutated by runtime arbitration. Dynamic suppression (such as `L2` setting `blocks_l1_write` on steady state) is tracked strictly via `L1RuntimeGate` (`Disabled`, `Active`, `ShadowOnly`, `BlockedByL2`).
+- **External Feedback Contract (`L0`-Optional):** Decouple `L1` and `L2` from direct `L0WorldLayer` coupling through a `no_std`-compatible telemetry contract (`StepTelemetry` / `ControlDirective` under `ClosedLoopKernel`), so `(0,1,0)`, `(0,0,1)`, and `(0,1,1)` modes run complete observe → patch/modulate → verify/rollback cycles against external executors.
+- **Backward Compatibility:** Preserve existing `KernelConfig` defaults (`l0 = true, l1 = false, l2 = true`, i.e. `SteadyPrior`) and `self_modify_enabled` mappings during the `0.7.0` transition.
+
+### Planned Phases
+- [ ] **Phase 1 — Config & Telemetry Contract (`config.rs`, `api.rs`):** Add `LayerSwitches`, `LoopPreset` (7 valid modes), `LoopMode`, `L1RuntimeGate`, `StepTelemetry`, and `ControlDirective` with `validate()` rejecting `(false, false, false)`.
+- [ ] **Phase 2 — Orchestrator Routing (`orchestrator.rs`):** Implement `ClosedLoopKernel::step_internal` and `step_external` pipelines, ensuring idempotent `step_id` handling, `l1_shadow_mode` dry-runs, and `auto_checkpoint_on_patch` rollbacks across both modes.
+- [ ] **Phase 3 — 7-Mode Verification & Surface Exposure (`tests/`, CLI, PyO3):** Add `tests/closed_loop_matrix.rs` covering all 7 closed loops and boundary cases (anti-oscillation without `L2`, `L2` write-block precedence, trajectory/weight-history bounds, `no_std`/`wasm` parity), and expose `LoopPreset` in `omega-kernel` CLI and `bindings/python`.
+
+### Exit Criteria
+- All 7 `(L0, L1, L2)` combinations pass end-to-end closed-loop and rollback tests with full `audit.rs` traceability.
+- `KEEP_L0` zero-interference steady-state invariant holds under `(1,0,0)`, `(1,0,1)`, and `L2`-gated `(1,1,1)` runs.
+- Existing `30+` CI checks (`std`, `no_std`, `wasm`, `gui`, Python bindings) pass without regression, and `CHANGELOG.md` / `README.md` examples are updated for `v0.7.0`.
+
 ## Cross-cutting backlog
 
 | Area | Next useful increment | Success signal |
