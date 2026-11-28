@@ -84,7 +84,23 @@ python -m pip install omega-cognitive-kernel
 
 The Python bindings support CPython 3.10–3.15; each version is included in the CI and release wheel matrices. The package minimum remains Python 3.10.
 
-The local binding module exposes `Kernel`, `ClosedLoopSession`, `AuditLog`, and `CheckpointStore` through PyO3. See [`bindings/python/README.md`](bindings/python/README.md) for development and testing instructions.
+The local binding module exposes `Kernel`, `ClosedLoopSession`, `AuditLog`, and `CheckpointStore` through PyO3. See [`bindings/python/README.md`](bindings/python/README.md) for development and testing instructions
+
+### Choosing a closed-loop preset
+
+All 7 `(L0, L1, L2)` closed-loop presets can be selected via CLI (`--preset`) or Python (`ClosedLoopSession`):
+
+| Preset (`CLI` / `Python`) | `(L0, L1, L2)` | Best For |
+| :--- | :---: | :--- |
+| `deterministic` | `(1, 0, 0)` | Baseline control group / deterministic edge runtime |
+| `hot-patcher` / `hot_patcher` | `(0, 1, 0)` | External service hot-patcher without meta-layer overhead |
+| `meta-guard` / `meta_guard` | `(0, 0, 1)` | Macro regime supervisor / safety monitor for external systems |
+| `fast-adapt` / `fast_adapt` | `(1, 1, 0)` | Lightweight local fast-adaptation experiments |
+| `steady-prior` / `steady_prior` | `(1, 0, 1)` | Production default for stable adaptive agents |
+| `control-plane` / `control_plane` | `(0, 1, 1)` | External LLM agent / microservice policy control plane |
+| `full-kernel` / `full_kernel` | `(1, 1, 1)` | Autonomous end-to-end adaptive kernel |
+
+See the [7-mode benchmark protocol and behavioral matrix](reports/loop-presets-benchmark-2026-11-28.md) for verified invariants and reproducible `benchmark-loops` commands, and explore runnable examples: [`examples/python/llm_agent_guard.py`](examples/python/llm_agent_guard.py), [`examples/python/service_policy_adapter.py`](examples/python/service_policy_adapter.py), and [`examples/external_control_plane.rs`](examples/external_control_plane.rs)..
 
 ## Quick start
 
