@@ -130,7 +130,7 @@ fn all_seven_presets_and_validation_rules() {
         self_modify_enabled: true,
         ..Default::default()
     };
-        legacy_cfg.l2.enabled = false;
+    legacy_cfg.l2.enabled = false;
     assert_eq!(
         legacy_cfg.effective_switches(),
         LayerSwitches {
