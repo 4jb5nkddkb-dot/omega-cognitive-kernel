@@ -301,7 +301,7 @@ fn open_kernel(cli: &Cli) -> anyhow::Result<Kernel> {
         kernel.state_path = state_path;
         return Ok(kernel);
     }
-    let mut kernel = Kernel::open(state_path(cli).as_deref()?;
+    let mut kernel = Kernel::open(state_path(cli).as_deref())?;
     if let Some(preset) = cli.preset {
         let cfg = KernelConfig::default().with_loop_preset(preset.into());
         kernel.apply_config(&cfg);
