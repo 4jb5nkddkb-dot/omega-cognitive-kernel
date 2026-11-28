@@ -2,7 +2,10 @@
 use omega_cognitive_kernel::prelude::*;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use omega_cognitive_kernel::api::{replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel, StepTelemetry};
+use omega_cognitive_kernel::api::{
+    replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel, 
+    StepTelemetry,
+};
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig, LoopPreset};
 #[cfg(feature = "toml")]
@@ -55,7 +58,6 @@ impl From<CliExternalOutcome> for ExternalOutcome {
         }
     }
 }
-
 
 #[derive(Parser)]
 #[command(
