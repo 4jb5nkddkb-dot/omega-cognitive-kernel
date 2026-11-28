@@ -123,6 +123,9 @@ impl L2MetaLayer {
             || self.applied_policy.committed
     }
     pub fn new() -> Self {
+        let mut gate_cfg = SpectralGateConfig::with_window(16);
+        gate_cfg.history_discount_enabled = true;
+        gate_cfg.history_discount_factor = 0.25;
         Self {
             monitor: MetaMonitor,
             detector: EmergenceDetector::default(),
@@ -156,7 +159,7 @@ impl L2MetaLayer {
             consecutive_l1_rollbacks: 0,
             current_cycle_recoveries: 0,
             spectral_reflector: crate::l1::spectral::L1SpectralReflector::default(),
-            spectral_gate: L2CognitiveGate::new(SpectralGateConfig::with_window(16)),
+            spectral_gate: L2CognitiveGate::new(gate_cfg),
             spectral_history: Vec::new(),
             spectral_control_enabled: false,
         }
@@ -274,7 +277,7 @@ impl L2MetaLayer {
             && spectral_permits;
         if can_propose {
             let probabilities = self.controller.experts.probabilities();
-            let selected = if self.controller.meta_cache_hit {
+            let mut selected = if self.controller.meta_cache_hit {
                 (1..4)
                     .max_by(|a, b| {
                         self.controller.experts.weights[*a]
@@ -285,6 +288,11 @@ impl L2MetaLayer {
             } else {
                 self.controller.experts.select(self.controller.ema_error)
             };
+            if spectral_out.regime_detected {
+                selected = 2;
+            } else if spectral_out.realm == CognitiveRealm::FirstMountainKeepL0 && selected == 2 {
+                selected = KEEP_L0;
+            }
             self.controller.last_selected_expert = selected;
             modulation_proposed = selected != KEEP_L0;
             if selected != KEEP_L0 {
@@ -300,7 +308,10 @@ impl L2MetaLayer {
                 if self.controller.certificate.lyapunov_veto {
                     self.controller.veto_count = self.controller.veto_count.saturating_add(1);
                 }
-                let beta = self.controller.beta_for(self.spectral_control_enabled);
+                let mut beta = self.controller.beta_for(self.spectral_control_enabled);
+                if spectral_out.regime_detected {
+                    beta = beta.max(1.0);
+                }
                 // A high anomaly score is evidence for waking up, not evidence
                 // that an intervention will help. Commit confidence comes from
                 // the residual model; the Lyapunov certificate is the final
@@ -312,7 +323,8 @@ impl L2MetaLayer {
                     && self.commit_cooldown_remaining == 0
                     && !self.defensive_mode
                     && self.controller.model_confidence >= self.commit_threshold.clamp(0.0, 1.0);
-                if allowed {
+                if allowed || (self.enabled && !self.defensive_mode && spectral_out.regime_detected)
+                {
                     self.pending_policy = crate::types::L2Policy {
                         prior: if selected == 2 && self.spectral_control_enabled {
                             self.spectral_gate.explore_prior(&spectral_out)

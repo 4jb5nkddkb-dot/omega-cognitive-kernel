@@ -283,9 +283,7 @@ impl L2CognitiveGate {
             normalized_energy,
             low_freq_ratio,
             eta_eff,
-            regime_detected: regime_detected
-                && self.cfg.history_discount_enabled
-                && self.cfg.control_enabled,
+            regime_detected: regime_detected && self.cfg.history_discount_enabled,
         }
     }
 

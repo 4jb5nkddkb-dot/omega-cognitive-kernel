@@ -153,7 +153,7 @@ where
         )?;
         self.biases = l2_result.biases.clone();
         self.constraints = l2_result.constraints.clone();
-        if self.l2.spectral_control_enabled
+        if self.l2.enabled
             && l2_result
                 .spectral_output
                 .is_some_and(|output| output.regime_detected)
