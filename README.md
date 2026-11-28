@@ -84,7 +84,7 @@ python -m pip install omega-cognitive-kernel
 
 The Python bindings support CPython 3.10–3.15; each version is included in the CI and release wheel matrices. The package minimum remains Python 3.10.
 
-The local binding module exposes `Kernel`, `AuditLog`, and `CheckpointStore` through PyO3. See [`bindings/python/README.md`](bindings/python/README.md) for development and testing instructions.
+The local binding module exposes `Kernel`, `ClosedLoopSession`, `AuditLog`, and `CheckpointStore` through PyO3. See [`bindings/python/README.md`](bindings/python/README.md) for development and testing instructions.
 
 ## Quick start
 
@@ -116,6 +116,8 @@ cargo run --release --bin omega-kernel -- benchmark-l2-gain --json
 # Fast mechanism-only matrix preflight (not effectiveness evidence)
 cargo run --release --bin omega-kernel -- benchmark-l2-gain --smoke --json
 
+# Run a single external-telemetry closed-loop step with a preset.
+cargo run --release --bin omega-kernel -- --preset control-plane step-external --step-id 1 --error 0.55 --risk 0.20 --json
 # Start the optional operator dashboard.
 cargo run --release --features gui --bin omega-dashboard
 ```
@@ -238,9 +240,9 @@ src/
 ├── l1/                # abstraction, reflection, sandbox, versioned store
 ├── l2/                # resident controller, fixed-point, L2Policy, spectral diagnostics
 ├── memory/            # cases, strategies, CAS, MemoryFacade, weights
-├── body/ goals/       # independently exported body-channel and goal utilities
-├── planning/ reactor/ # proposal/scheduling helpers outside the default Kernel loop
-├── llm/ introspect/   # proposal validation and entropy observation helpers
+├── body/goals/        # independently exported body-channel and goal utilities
+├── planning/reactor/  # proposal/scheduling helpers outside the default Kernel loop
+├── llm/introspect/    # proposal validation and entropy observation helpers
 ├── critic.rs          # bounded reward/trial utilities
 ├── persist.rs         # KernelSnapshot, migration, atomic save
 ├── audit.rs           # append-only events and polling
