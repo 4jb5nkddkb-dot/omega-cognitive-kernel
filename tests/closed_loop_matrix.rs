@@ -2,8 +2,8 @@ use omega_cognitive_kernel::api::{
     run_closed_loop_matrix_benchmark, ClosedLoopKernel, ClosedLoopSession, DefaultKernel,
     ExternalOutcome, LoopBenchmarkScenario, StepTelemetry,
 };
-use omega_cognitive_kernel::audit::AuditLog
-use omega_cognitive_kernel::checkpoint::CheckpointStore;;
+use omega_cognitive_kernel::audit::AuditLog;
+use omega_cognitive_kernel::checkpoint::CheckpointStore;
 use omega_cognitive_kernel::config::{
     KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode, LoopPreset,
 };
