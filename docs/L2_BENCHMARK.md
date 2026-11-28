@@ -136,6 +136,17 @@ and both stable safety checks passed. These findings are bounded to this UCB
 fixture and seed matrix. Exact commands, other scenarios, and the artifact
 checksum are in `docs/EXPERIMENTS.md`.
 
+The unchanged matrix was rerun on `v0.7.1` (`79a8861`) on 2026-11-28, then
+reproduced byte-for-byte on current `origin/main` (`990189f`). Discovery
+`regime_shift` remained `-0.004630`; validation was `-0.009722`, t95
+`[-0.018134, -0.001311]`. The primary and replication criteria failed again;
+both stable safety checks passed. The current-tree report, complete four-arm
+summary, verification, and decision are in
+[`reports/l2-gain-matrix-2026-11-28.md`](../reports/l2-gain-matrix-2026-11-28.md).
+No controller defaults were changed by this measurement. Risk-sensitive
+deployments can explicitly disable L2 and use the L0 baseline; the fixture does
+not justify a universal claim of harm or an implicit global default change.
+
 ## Spectral research experiment (default off)
 
 The ordinary benchmark and new kernels keep the resident L2 behavior described above,

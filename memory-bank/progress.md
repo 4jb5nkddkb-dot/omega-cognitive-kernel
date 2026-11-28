@@ -20,6 +20,12 @@ The roadmap marks the 0.5.x schema/replay/events/strategy weights/dashboard/CLI 
 
 ## Verification state
 
+### Current-tree L2 matrix decision, 2026-11-28
+
+Reran the fixed release matrix unchanged on `v0.7.1` (`79a8861`) and again on synchronized `origin/main` (`990189f`): each run completed 960 kernels and 138,240 decisions, with byte-identical JSON across implementations and replay. Independent checks recomputed all 960 per-seed factorial contrasts and 32 Student-t intervals, and verified gate isolation. Discovery and validation `regime_shift` L2-only reward deltas were `-0.004630` and `-0.009722`, with both t95 intervals below zero. Actual interventions were 18 and 16, and both stable safety gates passed. The result remains `reproducible_gain=false`; this is not evidence of universal L2 harm or an automatic global-default change. The documented decision stops this tuning route, retains measurement/rollback capabilities, avoids efficacy claims, and requires a new experiment card and external outcomes before further controller work. See `docs/EXPERIMENTS.md` and `reports/l2-gain-matrix-2026-11-28.md`.
+
+At `79a8861`, passed `cargo test --locked --all-targets` (217 library tests plus all applicable binary, CLI, closed-loop, and example targets) and `cargo test --locked --doc` (1 test). After rebasing onto `990189f`, passed `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D warnings`, and `cargo test --locked` (217 library, 3 audit-panel, 5 CLI, 11 closed-loop, and 1 doc test). Full JSON and its byte-identical replay are `/tmp/omega-benchmark-990189f/l2-gain-matrix.json` and `l2-gain-matrix-replay.json`, SHA-256 `ec9ba8732a723faa2dc202ed0548ccaf3ba5a454de94bb6b011fc39b177868e4`; `/tmp` is not durable CI storage.
+
 ### L2 gain discovery/validation matrix, 2026-11-27
 
 On `test/l2-gain-matrix`, added `benchmark-l2-gain`, fixed discovery/validation factorial reports, preregistered execution/safety/gain assessment, negative-path verdict tests, deterministic CLI replay, and a CI smoke artifact. The full release matrix completed 960 kernel runs and 138,240 decisions without parameter changes. It did not demonstrate reproducible L2 benefit: discovery and validation `regime_shift` reward differences were `-0.004630` and `-0.008333`, with both Student-t 95% intervals entirely below zero; stable safety gates passed and actual L2 interventions occurred. See `docs/EXPERIMENTS.md` for the complete result table and evidence boundary.
