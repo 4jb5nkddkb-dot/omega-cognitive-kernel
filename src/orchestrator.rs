@@ -624,7 +624,7 @@ mod tests {
         assert!(kernel.l1.self_modify_enabled);
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CooldownTracker {
     base_cooldown: u64,
     current_cooldown: u64,
