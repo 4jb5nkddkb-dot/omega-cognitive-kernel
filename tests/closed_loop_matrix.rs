@@ -392,3 +392,97 @@ fn benchmark_loops_covers_all_seven_presets_across_scenarios() {
         }
     }
 }
+
+#[test]
+fn cooldown_tracker_backoff_cap_and_saturation_invariants() {
+    for base in [0u64, 1, 3, 10, u64::MAX / 2] {
+        let mut tracker = CooldownTracker::new(base);
+        let expected_cap = base.saturating_mul(16).max(48);
+        for _ in 0..64 {
+            tracker.record_rollback();
+            assert!(tracker.current_cooldown() <= expected_cap);
+        }
+        for _ in 0..256 {
+            tracker.tick();
+        }
+        tracker.record_improved();
+        assert_eq!(tracker.consecutive_rollbacks(), 0);
+        assert_eq!(tracker.current_cooldown(), base);
+    }
+}
+
+#[test]
+fn cooldown_tracker_rejects_non_finite_and_high_risk_inputs() {
+    let tracker = CooldownTracker::new(3);
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert!(!tracker.can_patch(bad, 0.30, 0.10, 0.65));
+        assert!(!tracker.can_patch(0.60, 0.30, bad, 0.65));
+    }
+    assert!(!tracker.can_patch(0.60, 0.30, 0.66, 0.65));
+    assert!(!tracker.can_patch(0.29, 0.30, 0.10, 0.65));
+    assert!(tracker.can_patch(0.30, 0.30, 0.65, 0.65));
+}
+
+#[test]
+fn external_loop_handles_out_of_order_and_duplicate_step_bursts() {
+    let cfg = KernelConfig::default().with_loop_preset(LoopPreset::ControlPlane);
+    let (mut session, dir) = new_isolated_session("phase4-ooo", &cfg);
+    let initial_switches = session.switches();
+
+    let sequence = [1u64, 1, 0, 5, 3, 5, 2, 10, 9, 10, 11, 4, 20, 19, 20];
+    let mut max_seen = 0u64;
+    for step_id in sequence {
+        let is_stale = max_seen > 0 && step_id <= max_seen;
+        let d = session
+            .step_external(telemetry(step_id, 0.70, 0.15, None))
+            .expect("out-of-order telemetry step");
+        if is_stale {
+            assert!(d.keep_steady);
+            assert!(d.rule_patch.is_none());
+        } else {
+            max_seen = step_id;
+        }
+        assert_eq!(session.switches(), initial_switches);
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn external_loop_long_horizon_noisy_stress_stays_finite() {
+    for (tag, preset) in [
+        ("stress-hot", LoopPreset::HotPatcher),
+        ("stress-meta", LoopPreset::MetaGuard),
+        ("stress-cp", LoopPreset::ControlPlane),
+    ] {
+        let cfg = KernelConfig::default().with_loop_preset(preset);
+        let (mut session, dir) = new_isolated_session(tag, &cfg);
+        for step in 1u64..=180 {
+            let (err, risk) = match step % 9 {
+                0 => (f64::NAN, 0.20),
+                1 => (f64::INFINITY, 0.20),
+                2 => (0.85, 0.92),
+                3 => (0.05, 0.10),
+                _ => (0.55 + ((step % 5) as f64) * 0.05, 0.25),
+            };
+            let outcome = match step % 4 {
+                0 => Some(ExternalOutcome::Degraded),
+                1 => Some(ExternalOutcome::TimeoutOrSkipped),
+                2 => Some(ExternalOutcome::AcceptedAndImproved),
+                _ => None,
+            };
+            let d = session
+                .step_external(telemetry(step, err, risk, outcome))
+                .expect("stress step");
+            if let Some(patch) = d.rule_patch {
+                assert!(patch.delta_weight.is_finite());
+            }
+            if let Some(prior) = d.l2_prior {
+                assert!(prior.lyapunov_potential.is_finite());
+                assert!(prior.alpha.is_finite());
+                assert!(prior.beta.is_finite());
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

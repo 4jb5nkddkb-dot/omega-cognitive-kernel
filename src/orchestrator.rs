@@ -706,7 +706,9 @@ impl CooldownTracker {
     }
 
     pub fn can_patch(&self, error: f64, error_threshold: f64, risk: f64, max_risk: f64) -> bool {
-        self.steps_since_patch >= self.current_cooldown
+        error.is_finite()
+            && risk.is_finite()
+            && self.steps_since_patch >= self.current_cooldown
             && error >= error_threshold
             && risk <= max_risk
     }
