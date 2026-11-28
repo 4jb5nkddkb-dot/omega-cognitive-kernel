@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 use crate::audit::{AuditEvent, AuditLog, DEFAULT_MAX_AUDIT_BYTES};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
-use crate::config::{KernelConfig, L1RuntimeGate, LayerSwitches};
+use crate::config::{KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode};
 #[cfg(feature = "toml")]
 use crate::config_toml;
 use crate::error::{OmegaError, Result};
@@ -19,7 +19,7 @@ use crate::l1::learner::Learner;
 use crate::l1::L1CognitiveLayer;
 use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
-use crate::orchestrator::{OmegaOrchestrator, StepResult};
+use crate::orchestrator::{CooldownTracker, OmegaOrchestrator, StepResult};
 use crate::persist::{
     resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH,
 };
@@ -2734,4 +2734,197 @@ pub trait ClosedLoopKernel {
         &mut self,
         telemetry: StepTelemetry,
     ) -> std::result::Result<ControlDirective, Self::Error>;
+}
+pub fn resolve_l1_gate(
+    switches: LayerSwitches,
+    blocked_by_l2: bool,
+    shadow_mode: bool,
+) -> L1RuntimeGate {
+    if !switches.l1 {
+        L1RuntimeGate::Disabled
+    } else if blocked_by_l2 {
+        L1RuntimeGate::BlockedByL2
+    } else if shadow_mode {
+        L1RuntimeGate::ShadowOnly
+    } else {
+        L1RuntimeGate::Active
+    }
+}
+
+pub struct ClosedLoopSession<
+    O = MultiModalObserver,
+    D = ConstrainedDecisionMaker,
+    E = SandboxedExecutor,
+> where
+    O: Observer,
+    D: crate::l0::decision::DecisionMaker,
+    E: Executor,
+{
+    pub kernel: Kernel<O, D, E>,
+    switches: LayerSwitches,
+    cooldown: CooldownTracker,
+    shadow_mode: bool,
+    error_threshold: f64,
+    max_risk: f64,
+    default_goal: String,
+    last_external_step_id: Option<u64>,
+    last_checkpoint_id: Option<String>,
+}
+
+impl<O, D, E> ClosedLoopSession<O, D, E>
+where
+    O: Observer,
+    D: crate::l0::decision::DecisionMaker,
+    E: Executor,
+{
+    pub fn from_kernel(kernel: Kernel<O, D, E>, config: &KernelConfig) -> Self {
+        Self {
+            kernel,
+            switches: config.effective_switches(),
+            cooldown: CooldownTracker::new(config.min_steps_between_patches),
+            shadow_mode: config.l1_shadow_mode,
+            error_threshold: config.error_threshold,
+            max_risk: config.max_risk,
+            default_goal: config
+                .default_goal
+                .clone()
+                .unwrap_or_else(|| String::from("closed_loop_step")),
+            last_external_step_id: None,
+            last_checkpoint_id: None,
+        }
+    }
+
+    pub fn cooldown(&self) -> &CooldownTracker {
+        &self.cooldown
+    }
+}
+
+impl<O, D, E> ClosedLoopKernel for ClosedLoopSession<O, D, E>
+where
+    O: Observer,
+    D: crate::l0::decision::DecisionMaker,
+    E: Executor,
+{
+    type Error = String;
+
+    fn switches(&self) -> LayerSwitches {
+        self.switches
+    }
+
+    fn step_internal(&mut self) -> std::result::Result<ControlDirective, Self::Error> {
+        let mode = self.switches.validate().map_err(String::from)?;
+        if mode != LoopMode::InternalWorld {
+            return Err(String::from(
+                "step_internal requires L0 to be enabled in LayerSwitches",
+            ));
+        }
+
+        let res = self
+            .kernel
+            .inner
+            .run_once(&self.default_goal)
+            .map_err(|e| format!("{e}"))?;
+        let l1_gate = resolve_l1_gate(self.switches, res.l1_blocked_by_l2, self.shadow_mode);
+        let l2_prior = if self.switches.l2 {
+            Some(L2PriorPayload {
+                regime_detected: res.l1_blocked_by_l2,
+                history_discount_enabled: self.kernel.inner.l2.enabled,
+                kl_prior_bias: Vec::new(),
+            })
+        } else {
+            None
+        };
+
+        Ok(ControlDirective {
+            step_id: self.kernel.inner.total_steps,
+            l1_gate,
+            keep_steady: l1_gate != L1RuntimeGate::Active,
+            rule_patch: None,
+            l2_prior,
+            rollback_to_checkpoint: None,
+        })
+    }
+
+    fn step_external(
+        &mut self,
+        telemetry: StepTelemetry,
+    ) -> std::result::Result<ControlDirective, Self::Error> {
+        let mode = self.switches.validate().map_err(String::from)?;
+        if mode != LoopMode::ExternalTelemetry {
+            return Err(String::from(
+                "step_external requires L0 to be disabled in LayerSwitches",
+            ));
+        }
+
+        if let Some(prev) = self.last_external_step_id {
+            if telemetry.step_id <= prev {
+                return Ok(ControlDirective {
+                    step_id: telemetry.step_id,
+                    l1_gate: resolve_l1_gate(self.switches, false, self.shadow_mode),
+                    keep_steady: true,
+                    rule_patch: None,
+                    l2_prior: None,
+                    rollback_to_checkpoint: None,
+                });
+            }
+        }
+        self.last_external_step_id = Some(telemetry.step_id);
+        self.cooldown.tick();
+
+        let mut rollback_to_checkpoint = None;
+        match telemetry.last_outcome {
+            Some(ExternalOutcome::AcceptedAndImproved) => {
+                self.cooldown.record_improved();
+            }
+            Some(ExternalOutcome::Degraded) => {
+                self.cooldown.record_rollback();
+                rollback_to_checkpoint = self.last_checkpoint_id.clone();
+            }
+            Some(ExternalOutcome::TimeoutOrSkipped) | None => {}
+        }
+
+        let blocked_by_l2 = self.switches.l2 && telemetry.prediction_error < self.error_threshold;
+        let l1_gate = resolve_l1_gate(self.switches, blocked_by_l2, self.shadow_mode);
+        let l2_prior = if self.switches.l2 {
+            Some(L2PriorPayload {
+                regime_detected: blocked_by_l2,
+                history_discount_enabled: blocked_by_l2,
+                kl_prior_bias: Vec::new(),
+            })
+        } else {
+            None
+        };
+
+        let can_emit_patch = matches!(l1_gate, L1RuntimeGate::Active | L1RuntimeGate::ShadowOnly)
+            && self.cooldown.can_patch(
+                telemetry.prediction_error,
+                self.error_threshold,
+                telemetry.observed_risk,
+                self.max_risk,
+            );
+
+        let rule_patch = if can_emit_patch {
+            if l1_gate == L1RuntimeGate::Active {
+                self.cooldown.mark_patched();
+                self.last_checkpoint_id = Some(format!("ckpt-{}", telemetry.step_id));
+            }
+            Some(RulePatchPayload {
+                patch_id: format!("patch-{}", telemetry.step_id),
+                shadow_only: l1_gate == L1RuntimeGate::ShadowOnly,
+                target_rule: String::from("external_policy_weight"),
+                delta_weight: -telemetry.prediction_error * 0.1,
+            })
+        } else {
+            None
+        };
+
+        Ok(ControlDirective {
+            step_id: telemetry.step_id,
+            l1_gate,
+            keep_steady: rule_patch.is_none(),
+            rule_patch,
+            l2_prior,
+            rollback_to_checkpoint,
+        })
+    }
 }
