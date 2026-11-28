@@ -2812,10 +2812,7 @@ where
     }
 
     fn step_internal(&mut self) -> std::result::Result<ControlDirective, Self::Error> {
-        let mode = self
-            .switches
-            .validate()
-            .map_err(|e| String::from(e))?;
+        let mode = self.switches.validate().map_err(String::from)?;
         if mode != LoopMode::InternalWorld {
             return Err(String::from(
                 "step_internal requires L0 to be enabled in LayerSwitches",
@@ -2827,11 +2824,7 @@ where
             .inner
             .run_once(&self.default_goal)
             .map_err(|e| format!("{e}"))?;
-        let l1_gate = resolve_l1_gate(
-            self.switches,
-            res.l1_blocked_by_l2,
-            self.shadow_mode,
-        );
+        let l1_gate = resolve_l1_gate(self.switches, res.l1_blocked_by_l2, self.shadow_mode);
         let l2_prior = if self.switches.l2 {
             Some(L2PriorPayload {
                 regime_detected: res.l1_blocked_by_l2,
@@ -2856,10 +2849,7 @@ where
         &mut self,
         telemetry: StepTelemetry,
     ) -> std::result::Result<ControlDirective, Self::Error> {
-        let mode = self
-            .switches
-            .validate()
-            .map_err(|e| String::from(e))?;
+        let mode = self.switches.validate().map_err(String::from)?;
         if mode != LoopMode::ExternalTelemetry {
             return Err(String::from(
                 "step_external requires L0 to be disabled in LayerSwitches",
