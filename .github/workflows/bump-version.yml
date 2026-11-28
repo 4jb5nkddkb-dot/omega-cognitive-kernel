@@ -1,0 +1,120 @@
+name: Bump Release Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Target semantic version without 'v' prefix (e.g. 0.8.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        env:
+          NEW_VER: ${{ inputs.version }}
+        run: |
+          if ! [[ "$NEW_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version '$NEW_VER'. Expected X.Y.Z (e.g. 0.8.0)."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Install Rust toolchain (for --locked verification)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Bump manifests, lockfiles, and docs
+        env:
+          NEW_VER: ${{ inputs.version }}
+        run: |
+          python3 - << 'PY'
+          import os, re, sys
+
+          new_ver = os.environ["NEW_VER"]
+
+          def read(p):
+              return open(p, encoding="utf-8").read()
+
+          def write(p, s):
+              open(p, "w", encoding="utf-8").write(s)
+
+          cargo_toml = read("Cargo.toml")
+          m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', cargo_toml)
+          assert m, "Could not find package version in Cargo.toml"
+          old_ver = m.group(1)
+          if old_ver == new_ver:
+              sys.exit(f"Version is already {new_ver}")
+          print(f"Bumping {old_ver} -> {new_ver}")
+
+          for path in ["Cargo.toml", "bindings/python/Cargo.toml"]:
+              text = read(path)
+              updated, n = re.subn(
+                  r'(?m)^version\s*=\s*"' + re.escape(old_ver) + r'"',
+                  f'version = "{new_ver}"',
+                  text,
+                  count=1,
+              )
+              assert n == 1, f"Failed to bump {path}"
+              write(path, updated)
+
+          def bump_lock(path, pkg_names):
+              text = read(path)
+              for pkg in pkg_names:
+                  pat = (
+                      r'(\[\[package\]\]\nname = "'
+                      + re.escape(pkg)
+                      + r'"\nversion = ")'
+                      + re.escape(old_ver)
+                      + r'"'
+                  )
+                  text, n = re.subn(pat, rf'\g<1>{new_ver}"', text, count=1)
+                  assert n == 1, f"Failed to bump {pkg} in {path}"
+              write(path, text)
+
+          bump_lock("Cargo.lock", ["omega-cognitive-kernel"])
+          bump_lock(
+              "bindings/python/Cargo.lock",
+              ["omega-cognitive-kernel", "omega-cognitive-kernel-python"],
+          )
+
+          for path in ["README.md", "bindings/python/README.md", "docs/PRODUCT.md"]:
+              text = read(path)
+              updated = text.replace(f"v{old_ver}", f"v{new_ver}").replace(old_ver, new_ver)
+              write(path, updated)
+          PY
+
+      - name: Verify Cargo.lock and release version consistency
+        env:
+          NEW_VER: ${{ inputs.version }}
+        run: |
+          cargo metadata --locked --no-deps > /dev/null
+          python3 scripts/check-release-version.py "v${NEW_VER}"
+
+      - name: Push branch and open Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VER: ${{ inputs.version }}
+        run: |
+          BRANCH="chore/release-v${NEW_VER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Cargo.toml Cargo.lock bindings/python/Cargo.toml bindings/python/Cargo.lock README.md bindings/python/README.md docs/PRODUCT.md
+          git commit -m "chore(release): bump version to ${NEW_VER}"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): bump version to ${NEW_VER}" \
+            --body "Automated version bump to \`${NEW_VER}\` (manifests, lockfiles, and docs verified with \`--locked\` and \`check-release-version.py\`).\n\n- [ ] Add dated \`## [${NEW_VER}]\` entry in \`CHANGELOG.md\` before merging."
