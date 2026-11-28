@@ -21,7 +21,7 @@ fn new_isolated_session(
     ));
     std::fs::create_dir_all(&dir).expect("create temp test dir");
     let state_path = dir.join("state.json");
-    let mut kernel = DefaultKernel::with_state_path(&state_path);
+    let mut kernel = DefaultKernel::with_state_path(state_path);
     kernel.autosave = false;
     kernel.dump_trajectory = false;
     (ClosedLoopSession::from_kernel(kernel, config), dir)
@@ -126,9 +126,11 @@ fn all_seven_presets_and_validation_rules() {
     };
     assert!(empty.validate().is_err());
 
-    let mut legacy_cfg = KernelConfig::default();
-    legacy_cfg.self_modify_enabled = true;
-    legacy_cfg.l2.enabled = false;
+    let mut legacy_cfg = KernelConfig {
+        self_modify_enabled: true,
+        ..Default::default()
+    };
+        legacy_cfg.l2.enabled = false;
     assert_eq!(
         legacy_cfg.effective_switches(),
         LayerSwitches {
