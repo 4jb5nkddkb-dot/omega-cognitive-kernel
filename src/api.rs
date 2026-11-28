@@ -2992,7 +2992,16 @@ where
             if l1_gate == L1RuntimeGate::Active {
                 self.cooldown.mark_patched();
                 self.last_checkpoint_id = Some(format!("ckpt-{}", telemetry.step_id));
-                if self.kernel.autosave && self.kernel.auto_checkpoint_on_patch { if let Ok(meta) = self.kernel.checkpoint(&format!("external-step-{}", telemetry.step_id)) { let id_str = meta.id.to_string(); created_checkpoint_uuid = Some(id_str.clone()); self.last_checkpoint_uuid = Some(id_str); } }
+                if self.kernel.autosave && self.kernel.auto_checkpoint_on_patch {
+                    if let Ok(meta) = self
+                        .kernel
+                        .checkpoint(&format!("external-step-{}", telemetry.step_id))
+                    {
+                        let id_str = meta.id.to_string();
+                        created_checkpoint_uuid = Some(id_str.clone());
+                        self.last_checkpoint_uuid = Some(id_str);
+                    }
+                }
             }
             Some(RulePatchPayload {
                 patch_id: format!("patch-{}", telemetry.step_id),
@@ -3045,7 +3054,8 @@ where
             rule_patch,
             l2_prior,
             rollback_to_checkpoint,
-            checkpoint_uuid: created_checkpoint_uuid, rollback_checkpoint_uuid,
+            checkpoint_uuid: created_checkpoint_uuid,
+            rollback_checkpoint_uuid,
         })
     }
 }
