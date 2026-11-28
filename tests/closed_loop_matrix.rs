@@ -1,6 +1,7 @@
 use omega_cognitive_kernel::api::{
     ClosedLoopKernel, ClosedLoopSession, DefaultKernel, ExternalOutcome, StepTelemetry,
 };
+use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{
     KernelConfig, L1RuntimeGate, LayerSwitches, LoopMode, LoopPreset,
 };
@@ -318,6 +319,55 @@ fn mode_011_control_plane_l2_blocks_l1_when_steady() {
     assert_eq!(active.l1_gate, L1RuntimeGate::Active);
     assert!(active.rule_patch.is_some());
     assert!(!active.keep_steady);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+#[test]
+fn external_loop_state_and_audit_survive_restart() {
+    let cfg = KernelConfig::default().with_loop_preset(LoopPreset::HotPatcher);
+    let dir = std::env::temp_dir().join(format!(
+        "omega-closed-loop-restart-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let state_path = dir.join("state.json");
+
+    {
+        let mut kernel = DefaultKernel::with_state_path(state_path.clone());
+        kernel.autosave = true;
+        kernel.dump_trajectory = false;
+        let mut session = ClosedLoopSession::from_kernel(kernel, &cfg);
+        let first = session
+            .step_external(telemetry(1, 0.50, 0.20, None))
+            .expect("step 1");
+        assert!(first.rule_patch.is_some());
+    }
+
+    let state_str = state_path.to_str().expect("utf8 path");
+    let reopened_kernel = DefaultKernel::open(Some(state_str)).expect("reopen kernel");
+    let mut session = ClosedLoopSession::from_kernel(reopened_kernel, &cfg);
+
+    let dup = session
+        .step_external(telemetry(1, 0.90, 0.10, None))
+        .expect("duplicate step 1 after restart");
+    assert!(dup.keep_steady);
+    assert!(dup.rule_patch.is_none());
+
+    let degraded = session
+        .step_external(telemetry(2, 0.60, 0.20, Some(ExternalOutcome::Degraded)))
+        .expect("degraded step 2 after restart");
+    assert_eq!(degraded.rollback_to_checkpoint.as_deref(), Some("ckpt-1"));
+    assert_eq!(session.cooldown().current_cooldown(), 6);
+
+    let summary = AuditLog::beside_state(&state_path)
+        .summarize()
+        .expect("summarize audit log");
+    assert_eq!(summary.steps, 2);
+    assert_eq!(summary.rollbacks, 1);
 
     let _ = std::fs::remove_dir_all(dir);
 }

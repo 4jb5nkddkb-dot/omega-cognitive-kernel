@@ -21,7 +21,8 @@ use crate::l2::L2MetaLayer;
 use crate::memory::MemoryFacade;
 use crate::orchestrator::{CooldownTracker, OmegaOrchestrator, StepResult};
 use crate::persist::{
-    resolve_state_path, KernelSnapshot, CURRENT_SCHEMA_VERSION, DEFAULT_STATE_PATH,
+    resolve_state_path, ExternalLoopState, KernelSnapshot, CURRENT_SCHEMA_VERSION,
+    DEFAULT_STATE_PATH,
 };
 use crate::safety;
 use hashbrown::HashMap;
@@ -148,6 +149,7 @@ where
     audit_max_bytes: u64,
     /// Optional in-process hook invoked after each audit event is appended.
     event_hook: Option<EventHook>,
+    pub external_loop_state: Option<ExternalLoopState>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -579,6 +581,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             redact_user_content: false,
             audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
+            external_loop_state: None,
         }
     }
 
@@ -609,6 +612,7 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             redact_user_content: false,
             audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
+            external_loop_state: None,
         }
     }
 
@@ -706,6 +710,7 @@ where
             redact_user_content: false,
             audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
+            external_loop_state: None,
         }
     }
 
@@ -1373,6 +1378,7 @@ where
             l2_pending_l1_rollback: self.inner.l2.pending_l1_rollback,
             l2_last_reward: self.inner.l2.last_reward,
             case_sample_counter: self.inner.l0.memory.case.sample_counter(),
+            external_loop: self.external_loop_state.clone(),
         }
     }
 
@@ -1465,6 +1471,7 @@ where
         if let Some(decision) = snap.last_l2_decision {
             self.inner.l0.decision.restore_l2_decision(decision);
         }
+        self.external_loop_state = snap.external_loop;
     }
 
     pub fn snapshot_json(&self) -> Result<String> {
@@ -2778,10 +2785,24 @@ where
     E: Executor,
 {
     pub fn from_kernel(kernel: Kernel<O, D, E>, config: &KernelConfig) -> Self {
+        let (cooldown, last_external_step_id, last_checkpoint_id) =
+            if let Some(ref ext) = kernel.external_loop_state {
+                (
+                    ext.cooldown.clone(),
+                    ext.last_external_step_id,
+                    ext.last_checkpoint_id.clone(),
+                )
+            } else {
+                (
+                    CooldownTracker::new(config.min_steps_between_patches),
+                    None,
+                    None,
+                )
+            };
         Self {
             kernel,
             switches: config.effective_switches(),
-            cooldown: CooldownTracker::new(config.min_steps_between_patches),
+            cooldown,
             shadow_mode: config.l1_shadow_mode,
             error_threshold: config.error_threshold,
             max_risk: config.max_risk,
@@ -2789,8 +2810,8 @@ where
                 .default_goal
                 .clone()
                 .unwrap_or_else(|| String::from("closed_loop_step")),
-            last_external_step_id: None,
-            last_checkpoint_id: None,
+            last_external_step_id,
+            last_checkpoint_id,
         }
     }
 
@@ -2858,6 +2879,15 @@ where
 
         if let Some(prev) = self.last_external_step_id {
             if telemetry.step_id <= prev {
+                let audit = AuditLog::beside_state(&self.kernel.state_path);
+                let _ = audit.append_with_privacy_and_max_bytes(
+                    AuditEvent::ExternalStepDuplicate {
+                        step_id: telemetry.step_id,
+                        last_step_id: prev,
+                    },
+                    self.kernel.redact_user_content,
+                    self.kernel.audit_max_bytes,
+                );
                 return Ok(ControlDirective {
                     step_id: telemetry.step_id,
                     l1_gate: resolve_l1_gate(self.switches, false, self.shadow_mode),
@@ -2917,6 +2947,39 @@ where
         } else {
             None
         };
+        let audit = AuditLog::beside_state(&self.kernel.state_path);
+        if let Some(ref ckpt_id) = rollback_to_checkpoint {
+            let _ = audit.append_with_privacy_and_max_bytes(
+                AuditEvent::ExternalRollback {
+                    step_id: telemetry.step_id,
+                    checkpoint_id: ckpt_id.clone(),
+                    consecutive_rollbacks: self.cooldown.consecutive_rollbacks(),
+                    next_cooldown: self.cooldown.current_cooldown(),
+                },
+                self.kernel.redact_user_content,
+                self.kernel.audit_max_bytes,
+            );
+        }
+        let _ = audit.append_with_privacy_and_max_bytes(
+            AuditEvent::ExternalStep {
+                step_id: telemetry.step_id,
+                prediction_error: telemetry.prediction_error,
+                observed_risk: telemetry.observed_risk,
+                l1_gate: format!("{l1_gate:?}"),
+                keep_steady: rule_patch.is_none(),
+                patch_id: rule_patch.as_ref().map(|p| p.patch_id.clone()),
+            },
+            self.kernel.redact_user_content,
+            self.kernel.audit_max_bytes,
+        );
+        self.kernel.external_loop_state = Some(ExternalLoopState {
+            last_external_step_id: self.last_external_step_id,
+            cooldown: self.cooldown.clone(),
+            last_checkpoint_id: self.last_checkpoint_id.clone(),
+        });
+        if self.kernel.autosave {
+            self.kernel.save().map_err(|e| format!("{e}"))?;
+        }
 
         Ok(ControlDirective {
             step_id: telemetry.step_id,

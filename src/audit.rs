@@ -80,6 +80,25 @@ pub enum AuditEvent {
         score: f64,
         gain: f64,
     },
+    ExternalStep {
+        step_id: u64,
+        prediction_error: f64,
+        observed_risk: f64,
+        l1_gate: String,
+        keep_steady: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        patch_id: Option<String>,
+    },
+    ExternalRollback {
+        step_id: u64,
+        checkpoint_id: String,
+        consecutive_rollbacks: u32,
+        next_cooldown: u64,
+    },
+    ExternalStepDuplicate {
+        step_id: u64,
+        last_step_id: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +176,9 @@ impl AuditSummary {
                 AuditEvent::FixedPointExited { .. } => s.fixed_point_exits += 1,
                 AuditEvent::L2ModulationProposed { .. } => s.l2_modulation_proposals += 1,
                 AuditEvent::L2ModulationCommitted { .. } => s.l2_modulation_commits += 1,
+                AuditEvent::ExternalStep { .. } => s.steps += 1,
+                AuditEvent::ExternalRollback { .. } => s.rollbacks += 1,
+                AuditEvent::ExternalStepDuplicate { .. } => {}
             }
         }
         let mut counts: Vec<_> = actions.into_iter().collect();
