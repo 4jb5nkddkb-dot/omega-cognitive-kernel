@@ -245,6 +245,9 @@ enum Commands {
         /// Emit ControlDirective as JSON.
         #[arg(long)]
         json: bool,
+            /// Do not persist updated external closed-loop state after stepping.
+            #[arg(long)]
+            no_save: bool,
     },
 }
 
@@ -884,12 +887,16 @@ fn main() -> anyhow::Result<()> {
             outcome,
             shadow,
             json,
+                no_save,
         } => {
             let mut cfg = resolve_effective_config(&cli)?;
             if *shadow {
                 cfg.l1_shadow_mode = true;
             }
-            let kernel = open_kernel(&cli)?;
+            let mut kernel = open_kernel(&cli)?;
+            if *no_save {
+                kernel.autosave = false;
+            }
             let mut session = ClosedLoopSession::from_kernel(kernel, &cfg);
             let telemetry = StepTelemetry {
                 step_id: *step_id,
