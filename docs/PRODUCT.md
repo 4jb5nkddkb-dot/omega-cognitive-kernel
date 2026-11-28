@@ -10,22 +10,23 @@
 - Systems that must **audit** why the policy changed and **undo** bad patches
 - Integrators who already have sensors / files / HTTP status and want a small closed loop
 
-## What ships in this source tree (v0.6.1)
+## What ships in this source tree (v0.7.0)
 
 | Capability | Surface |
 |------------|---------|
 | Kernel API | `Kernel`, `run` / `step` / status / checkpoint / rollback |
 | Config | `omega.toml` via `KernelConfig` and CLI `--config` |
-| Safety switches | `self_modify_enabled` (default **false**) and `set_l2_enabled` (default **true**) |
+| Safety switches | `self_modify_enabled` (default **false**), `set_l2_enabled` (default **true**), `LayerSwitches` / `LoopPreset`, and `CooldownTracker` (exponential rollback backoff when L2 is disabled) |
 | Trajectory | `dump_trajectory` → `trajectory.jsonl` + `replay` |
 | Events | `KernelEvent` / `AuditEvent`; `AuditLog::poll_after`; in-process event hook |
 | Strategies | Operator weight nudge (`set_strategy_weight`) |
 | Adapters | `Observer` / `Executor`; File, Dir, HTTP, Logging, ToolGate |
-| CLI | `omega-kernel` (incl. `strategy-weight`, `audit-poll`), `omega-audit-panel` |
+| CLI | `omega-kernel` (`--preset`, `step-external`, `strategy-weight`, `audit-poll`), `omega-audit-panel` |
 | GUI | `omega-dashboard` (`--features gui`) — status / run / audit live follow / strategies / workspaces / replay |
+| Python bindings | `omega_cognitive_kernel_python` (`Kernel`, `ClosedLoopSession`, `AuditLog`, `CheckpointStore`) |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
 
-**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ during preparation; this source tree is `0.6.1`.
+**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ during preparation; this source tree is `0.7.0`.
 
 ## Current productizable assets (2026-11-14 screening)
 
