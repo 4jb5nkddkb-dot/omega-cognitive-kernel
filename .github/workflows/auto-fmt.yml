@@ -1,0 +1,53 @@
+name: Auto Format (rustfmt)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Target PR branch to format (must not be main)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject main branch
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          if [ "$TARGET_BRANCH" = "main" ] || [ -z "$TARGET_BRANCH" ]; then
+            echo "Refusing to format main or empty branch."
+            exit 1
+          fi
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 1
+
+      - name: Install Rust toolchain with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt --all
+
+      - name: Commit and push formatting changes
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          if git diff --quiet; then
+            echo "Code is already formatted."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style: apply cargo fmt --all"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
