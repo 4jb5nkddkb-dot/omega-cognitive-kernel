@@ -1,6 +1,6 @@
 # Architecture — Omega Cognitive Kernel
 
-**Source baseline:** `0.6.0`
+**Source baseline:** `0.7.0`
 **State schema:** `6`
 **Positioning:** Training-free online strategy-patch runtime with an auditable control loop.
 
@@ -165,3 +165,8 @@ Stable design contracts are the bounded `RuleEffect` surface, independent L1/L2 
   - `CodeSandbox` performs static rule, keyword, and bounds checking only—it does **not** compile or execute arbitrary code.
 - **Built-in authorization and cryptographic primitives**: `TokenBook` implements built-in capability authorization using pure-Rust SHA-256 / HMAC-SHA256 primitives, while `Vault` uses `PBKDF2-HMAC-SHA256` key derivation and **XChaCha20-Poly1305** (with a 24-byte OS CSPRNG random nonce) for sealed storage while retaining read-only compatibility for legacy v1 payloads. These primitives and cryptographic wrappers have **not** undergone an external independent security audit.
   
+## Independent layer closed loops (v0.7.0)
+
+- **Static layer switches vs. dynamic runtime gate**: `LayerSwitches` and 7 `LoopPreset` configurations control static per-layer enablement (`L0`/`L1`/`L2`) independently from the dynamic `L1RuntimeGate`, allowing each closed loop to be toggled or isolated without altering runtime gating heuristics.
+- **External telemetry closed-loop contract**: `ClosedLoopSession` drives external host loops via `StepTelemetry` inputs and `ControlDirective` outputs across both Rust (`omega-kernel step-external`) and Python bindings.
+- **Rollback backoff without L2**: When L2 meta-control is disabled, `CooldownTracker` applies exponential rollback backoff after consecutive anomalies to prevent oscillation and stabilize recovery.

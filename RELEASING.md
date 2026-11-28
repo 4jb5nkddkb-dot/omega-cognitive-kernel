@@ -44,6 +44,7 @@ Confirm before tagging:
 - [ ] **Commands, paths & API**: CLI subcommands (`src/main.rs`), `.omega/` persistence layout (`src/persist.rs`), configuration defaults (`src/config.rs`), and Rust API snippets in `README.md` match current code.
 - [ ] **Runnable/compilable examples**: `README.md` Rust snippets and `examples/` compile cleanly (`cargo test --doc` / `cargo check --examples`).
 - [ ] **CHANGELOG sync**: `CHANGELOG.md` moves `[Unreleased]` items into `## [X.Y.Z]` with the release date before tagging.
+- [ ] **PyPI & Python metadata sync**: `bindings/python/README.md` (PyPI long description source) and `pyproject.toml` / `bindings/python/pyproject.toml` metadata/versions are consistent with `vX.Y.Z`.
 ## Cut a release (GitHub)
 
 Preferred: trigger **Release** workflow (`workflow_dispatch`) on `main` after version bump + docs.
