@@ -10,7 +10,7 @@
 - Systems that must **audit** why the policy changed and **undo** bad patches
 - Integrators who already have sensors / files / HTTP status and want a small closed loop
 
-## What ships in this source tree (v0.7.1)
+## What ships in this source tree (v0.8.0)
 
 | Capability | Surface |
 |------------|---------|
@@ -27,7 +27,7 @@
 | Python bindings | `omega_cognitive_kernel_python` (`Kernel`, `ClosedLoopSession`, `AuditLog`, `CheckpointStore`) |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
 
-**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ during preparation; this source tree is `0.7.1`.
+**Distribution:** [crates.io/crates/omega-cognitive-kernel](https://crates.io/crates/omega-cognitive-kernel). The package version and repository tag may differ during preparation; this source tree is `0.8.0`.
 
 ## Current productizable assets (2026-11-14 screening)
 
