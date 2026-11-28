@@ -2391,12 +2391,19 @@ mod tests {
         let second = serde_json::json!({"step": 2});
         let mut first_line = serde_json::to_vec(&first).unwrap();
         first_line.push(b'\n');
+        let mut second_line = serde_json::to_vec(&second).unwrap();
+        second_line.push(b'\n');
         let limit = first_line.len() as u64;
 
         append_trajectory_record(&path, &first, limit).unwrap();
         let before = std::fs::read(&path).unwrap();
         assert_eq!(before, first_line);
-        let error = append_trajectory_record(&path, &second, limit).unwrap_err();
+        let one_byte_over_limit = limit + second_line.len() as u64 - 1;
+        assert_eq!(
+            before.len() as u64 + second_line.len() as u64,
+            one_byte_over_limit + 1
+        );
+        let error = append_trajectory_record(&path, &second, one_byte_over_limit).unwrap_err();
         assert!(error.to_string().contains("trajectory size limit exceeded"));
         assert_eq!(std::fs::read(&path).unwrap(), before);
         let legacy_error = append_trajectory_record(&path, &second, limit - 1).unwrap_err();
