@@ -170,9 +170,9 @@ Enable every non-empty combination of `(L0, L1, L2)` to form a self-contained, a
 - **Backward Compatibility:** Preserve existing `KernelConfig` defaults (`l0 = true, l1 = false, l2 = true`, i.e. `SteadyPrior`) and `self_modify_enabled` mappings during the `0.7.0` transition.
 
 ### Planned Phases
-- [ ] **Phase 1 — Config & Telemetry Contract (`config.rs`, `api.rs`):** Add `LayerSwitches`, `LoopPreset` (7 valid modes), `LoopMode`, `L1RuntimeGate`, `StepTelemetry`, and `ControlDirective` with `validate()` rejecting `(false, false, false)`.
-- [ ] **Phase 2 — Orchestrator Routing (`orchestrator.rs`):** Implement `ClosedLoopKernel::step_internal` and `step_external` pipelines, ensuring idempotent `step_id` handling, `l1_shadow_mode` dry-runs, and `auto_checkpoint_on_patch` rollbacks across both modes.
-- [ ] **Phase 3 — 7-Mode Verification & Surface Exposure (`tests/`, CLI, PyO3):** Add `tests/closed_loop_matrix.rs` covering all 7 closed loops and boundary cases (anti-oscillation without `L2`, `L2` write-block precedence, trajectory/weight-history bounds, `no_std`/`wasm` parity), and expose `LoopPreset` in `omega-kernel` CLI and `bindings/python`.
+- [x] **Phase 1 — Config & Telemetry Contract (`config.rs`, `api.rs`):** Add `LayerSwitches`, `LoopPreset` (7 valid modes), `LoopMode`, `L1RuntimeGate`, `StepTelemetry`, and `ControlDirective` with `validate()` rejecting `(false, false, false)`. (#121)
+- [x] **Phase 2 — Orchestrator Routing (`orchestrator.rs`):** Implement `ClosedLoopKernel::step_internal` and `step_external` pipelines, ensuring idempotent `step_id` handling, `l1_shadow_mode` dry-runs, and `auto_checkpoint_on_patch` rollbacks across both modes. (#122)
+- [x] **Phase 3 — 7-Mode Verification & Surface Exposure (`tests/`, CLI, PyO3):** Add `tests/closed_loop_matrix.rs` covering all 7 closed loops and boundary cases (anti-oscillation without `L2`, `L2` write-block precedence, trajectory/weight-history bounds, `no_std`/`wasm` parity), and expose `LoopPreset` in `omega-kernel` CLI and `bindings/python`. (#123, #124, #125)
 
 ### Exit Criteria
 - All 7 `(L0, L1, L2)` combinations pass end-to-end closed-loop and rollback tests with full `audit.rs` traceability.
