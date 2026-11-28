@@ -128,6 +128,8 @@ pub struct KernelConfig {
     /// Resident L2 controller. Monitoring is always on; bounded interventions
     /// are enabled by default and can be disabled with `l2.enabled = false`.
     pub l2: L2Config,
+    #[serde(default)]
+    pub layers: LayerSwitches,
 }
 
 /// Pure-numeric resident-control parameters. Bounds are checked when applied
@@ -252,6 +254,7 @@ impl Default for KernelConfig {
             privacy: PrivacyConfig::default(),
             bandit: crate::types::BanditConfig::default(),
             l2: L2Config::default(),
+            layers: LayerSwitches::default(),
         }
     }
 }
@@ -325,5 +328,110 @@ mod tests {
         let p = InterventionPolicy::default();
         assert!(!p.may_suggest_alternative(1));
         assert!(p.may_suggest_alternative(2));
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerSwitches {
+    pub l0: bool,
+    pub l1: bool,
+    pub l2: bool,
+}
+
+impl Default for LayerSwitches {
+    fn default() -> Self {
+        Self {
+            l0: true,
+            l1: false,
+            l2: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopPreset {
+    Deterministic,
+    HotPatcher,
+    MetaGuard,
+    FastAdapt,
+    SteadyPrior,
+    ControlPlane,
+    FullKernel,
+}
+
+impl From<LoopPreset> for LayerSwitches {
+    fn from(preset: LoopPreset) -> Self {
+        match preset {
+            LoopPreset::Deterministic => Self {
+                l0: true,
+                l1: false,
+                l2: false,
+            },
+            LoopPreset::HotPatcher => Self {
+                l0: false,
+                l1: true,
+                l2: false,
+            },
+            LoopPreset::MetaGuard => Self {
+                l0: false,
+                l1: false,
+                l2: true,
+            },
+            LoopPreset::FastAdapt => Self {
+                l0: true,
+                l1: true,
+                l2: false,
+            },
+            LoopPreset::SteadyPrior => Self {
+                l0: true,
+                l1: false,
+                l2: true,
+            },
+            LoopPreset::ControlPlane => Self {
+                l0: false,
+                l1: true,
+                l2: true,
+            },
+            LoopPreset::FullKernel => Self {
+                l0: true,
+                l1: true,
+                l2: true,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopMode {
+    InternalWorld,
+    ExternalTelemetry,
+}
+
+impl LayerSwitches {
+    pub fn validate(&self) -> std::result::Result<LoopMode, &'static str> {
+        match (self.l0, self.l1, self.l2) {
+            (false, false, false) => Err("at least one of L0, L1, or L2 must be enabled"),
+            (true, _, _) => Ok(LoopMode::InternalWorld),
+            (false, _, _) => Ok(LoopMode::ExternalTelemetry),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum L1RuntimeGate {
+    Disabled,
+    Active,
+    ShadowOnly,
+    BlockedByL2,
+}
+
+impl KernelConfig {
+    pub fn with_loop_preset(mut self, preset: LoopPreset) -> Self {
+        let switches: LayerSwitches = preset.into();
+        self.layers = switches;
+        self.self_modify_enabled = switches.l1;
+        self.l2.enabled = switches.l2;
+        self
     }
 }
