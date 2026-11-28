@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Correctness / safety
+- Reject weight-history squashes that would overflow finite values, preserving the original payload on failure.
+
 ### Persistence / safety
 - Bound each audit JSONL file to 64 MiB by default, with Rust and Python per-kernel overrides and a ToolGate override. Oversized appends now fail before writing, preserving all earlier records; existing oversized files remain readable, and audit failures propagate instead of being silently ignored.
 

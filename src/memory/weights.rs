@@ -91,22 +91,27 @@ pub fn squash_delta_history(payload: &mut WeightsPayload, keep_recent: usize) ->
         return Ok(0);
     }
     let split = payload.delta_history.len() - keep_recent;
-    let mut squashed = 0usize;
-    for delta in payload.delta_history.drain(..split) {
+    let mut weights = payload.weights.clone();
+    for delta in &payload.delta_history[..split] {
         for (k, v) in delta {
             if v.is_finite() {
-                *payload.weights.entry(k).or_insert(0.0) += v;
+                let updated = weights.get(k).copied().unwrap_or(0.0) + v;
+                if !updated.is_finite() {
+                    return Err(OmegaError::Persist(
+                        "squashing weight history would produce a non-finite weight".into(),
+                    ));
+                }
+                weights.insert(k.clone(), updated);
             }
         }
-        squashed += 1;
     }
-    payload.checksum = compute_checksum(
-        &payload.magic,
-        payload.version,
-        &payload.weights,
-        &payload.delta_history,
-    )?;
-    Ok(squashed)
+
+    let remaining = payload.delta_history[split..].to_vec();
+    let checksum = compute_checksum(&payload.magic, payload.version, &weights, &remaining)?;
+    payload.weights = weights;
+    payload.delta_history = remaining;
+    payload.checksum = checksum;
+    Ok(split)
 }
 
 #[cfg(test)]
@@ -140,5 +145,27 @@ mod tests {
         let upgraded = migrate_payload(&legacy).expect("migrate");
         assert_eq!(upgraded.version, WEIGHTS_VERSION);
         assert!(verify_weights(&upgraded));
+    }
+
+    #[test]
+    fn squash_delta_history_rejects_overflow_atomically() {
+        for delta_value in [f64::MAX, -f64::MAX] {
+            let mut weights = BTreeMap::new();
+            weights.insert("w".into(), 0.0);
+            let mut deltas = Vec::new();
+            for _ in 0..2 {
+                let mut delta = BTreeMap::new();
+                delta.insert("w".into(), delta_value);
+                deltas.push(delta);
+            }
+
+            let mut payload = export_weights(weights, deltas, BTreeMap::new()).expect("export");
+            let original = payload.clone();
+
+            let result = squash_delta_history(&mut payload, 0);
+            assert!(result.is_err(), "overflow should be rejected");
+            assert_eq!(payload, original, "rejection must preserve the payload");
+            assert!(verify_weights(&payload));
+        }
     }
 }
