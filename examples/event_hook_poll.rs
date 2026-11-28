@@ -108,5 +108,8 @@ fn event_kind(ev: &AuditEvent) -> &'static str {
         AuditEvent::FixedPointExited { .. } => "fixed_point_exited",
         AuditEvent::L2ModulationProposed { .. } => "l2_modulation_proposed",
         AuditEvent::L2ModulationCommitted { .. } => "l2_modulation_committed",
+        AuditEvent::ExternalStep { .. } => "external_step",
+        AuditEvent::ExternalRollback { .. } => "external_rollback",
+        AuditEvent::ExternalStepDuplicate { .. } => "external_step_duplicate",
     }
 }
