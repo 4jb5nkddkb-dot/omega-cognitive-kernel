@@ -14,6 +14,16 @@
 ### Reliability
 - Bound trajectory JSONL growth to 64 MiB by default, with a per-kernel Rust/Python override and serialized local appends. Oversized appends fail closed without truncating history; existing logs remain replayable.
 
+## [0.7.0] - 2026-11-27
+
+### Added
+- `LayerSwitches`, `LoopPreset` (all 7 non-empty `(L0, L1, L2)` closed-loop modes), `LoopMode`, `L1RuntimeGate`, `KernelConfig::with_loop_preset`, and `KernelConfig::effective_switches` for backward-compatible layer routing (`#121`, `#122`).
+- External telemetry feedback contract (`StepTelemetry`, `ExternalOutcome`, `ControlDirective`, `RulePatchPayload`, `L2PriorPayload`, `ClosedLoopKernel`) and `ClosedLoopSession` supporting both internal `L0` and external `L0`-off closed loops (`#121`, `#122`).
+- `no_std`-compatible `CooldownTracker` with exponential rollback backoff and improvement reset to prevent patch/rollback oscillation when `L2` is disabled (`#122`).
+- End-to-end 7-mode closed-loop integration test matrix in `tests/closed_loop_matrix.rs` (`#123`).
+- `omega-kernel` CLI global `--preset` flag and `step-external` subcommand (`#124`).
+- Python (PyO3) `ClosedLoopSession` binding (`from_preset`, `switches_json`, `step_internal_json`, `step_external_json`) with regression tests in `test_python_bindings.py` (`#125`).
+
 ## [0.6.1] — 2026-11-27
 
 ### CI / release
