@@ -3,8 +3,8 @@ use omega_cognitive_kernel::prelude::*;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use omega_cognitive_kernel::api::{
-    replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel,
-    StepTelemetry, LoopBenchmarkScenario, run_closed_loop_matrix_benchmark,
+    replay_trajectory_file, run_closed_loop_matrix_benchmark, ClosedLoopKernel, ClosedLoopSession,
+    ExternalOutcome, Kernel, LoopBenchmarkScenario, StepTelemetry,
 };
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig, LoopPreset};
@@ -963,7 +963,14 @@ fn main() -> anyhow::Result<()> {
                 );
                 println!(
                     "{:<15} {:<10} {:>6} {:>10} {:>8} {:>9} {:>7} {:>11}",
-                    "preset", "mode", "steps", "mean_err", "patches", "rollbacks", "steady", "avg_step_us"
+                    "preset",
+                    "mode",
+                    "steps",
+                    "mean_err",
+                    "patches",
+                    "rollbacks",
+                    "steady",
+                    "avg_step_us"
                 );
                 for row in &report.rows {
                     println!(

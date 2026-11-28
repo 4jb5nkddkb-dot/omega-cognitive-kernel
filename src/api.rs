@@ -3129,7 +3129,10 @@ pub fn run_closed_loop_matrix_benchmark(
     let mut rows = Vec::with_capacity(presets.len());
     for (name, preset) in presets {
         let cfg = KernelConfig::default().with_loop_preset(preset);
-        let mode = cfg.effective_switches().validate().unwrap_or(LoopMode::InternalWorld);
+        let mode = cfg
+            .effective_switches()
+            .validate()
+            .unwrap_or(LoopMode::InternalWorld);
         let state_path = base_dir.join(format!("{name}.json"));
         let mut kernel = DefaultKernel::with_state_path(state_path);
         kernel.autosave = false;

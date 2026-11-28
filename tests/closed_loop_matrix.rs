@@ -1,5 +1,6 @@
 use omega_cognitive_kernel::api::{
-    ClosedLoopKernel, ClosedLoopSession, DefaultKernel, ExternalOutcome, StepTelemetry, LoopBenchmarkScenario, run_closed_loop_matrix_benchmark,
+    run_closed_loop_matrix_benchmark, ClosedLoopKernel, ClosedLoopSession, DefaultKernel,
+    ExternalOutcome, LoopBenchmarkScenario, StepTelemetry,
 };
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{
