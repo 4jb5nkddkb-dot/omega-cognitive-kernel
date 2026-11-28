@@ -3,7 +3,7 @@ use omega_cognitive_kernel::prelude::*;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use omega_cognitive_kernel::api::{
-    replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel, 
+    replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel,
     StepTelemetry,
 };
 use omega_cognitive_kernel::audit::AuditLog;
