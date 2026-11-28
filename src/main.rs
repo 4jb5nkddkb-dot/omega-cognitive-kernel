@@ -4,7 +4,7 @@ use omega_cognitive_kernel::prelude::*;
 use clap::{Parser, Subcommand, ValueEnum};
 use omega_cognitive_kernel::api::{
     replay_trajectory_file, ClosedLoopKernel, ClosedLoopSession, ExternalOutcome, Kernel,
-    StepTelemetry,
+    StepTelemetry, LoopBenchmarkScenario, run_closed_loop_matrix_benchmark,
 };
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{InterventionPolicy, KernelConfig, LoopPreset};
@@ -17,6 +17,23 @@ use omega_cognitive_kernel::task::{
 };
 use std::path::PathBuf;
 use uuid::Uuid;
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum CliLoopBenchmarkScenario {
+    Steady,
+    Shift,
+    Noisy,
+}
+
+impl From<CliLoopBenchmarkScenario> for LoopBenchmarkScenario {
+    fn from(scenario: CliLoopBenchmarkScenario) -> Self {
+        match scenario {
+            CliLoopBenchmarkScenario::Steady => Self::Steady,
+            CliLoopBenchmarkScenario::Shift => Self::Shift,
+            CliLoopBenchmarkScenario::Noisy => Self::Noisy,
+        }
+    }
+}
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum CliLoopPreset {
     Deterministic,
@@ -248,6 +265,18 @@ enum Commands {
         /// Do not persist updated external closed-loop state after stepping.
         #[arg(long)]
         no_save: bool,
+    },
+    /// Benchmark all 7 (L0, L1, L2) closed-loop presets under steady, shift, or noisy workloads.
+    BenchmarkLoops {
+        /// Workload scenario (steady, shift, noisy).
+        #[arg(long, value_enum, default_value_t = CliLoopBenchmarkScenario::Shift)]
+        scenario: CliLoopBenchmarkScenario,
+        /// Steps to execute per preset.
+        #[arg(long, default_value_t = 24)]
+        steps: u32,
+        /// Emit machine-readable JSON report.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -917,6 +946,38 @@ fn main() -> anyhow::Result<()> {
                 println!("rule_patch  : {:?}", directive.rule_patch);
                 println!("l2_prior    : {:?}", directive.l2_prior);
                 println!("rollback_to : {:?}", directive.rollback_to_checkpoint);
+            }
+        }
+        Commands::BenchmarkLoops {
+            scenario,
+            steps,
+            json,
+        } => {
+            let report = run_closed_loop_matrix_benchmark((*scenario).into(), *steps);
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "scenario={:?} steps_per_preset={}",
+                    report.scenario, report.steps_per_preset
+                );
+                println!(
+                    "{:<15} {:<10} {:>6} {:>10} {:>8} {:>9} {:>7} {:>11}",
+                    "preset", "mode", "steps", "mean_err", "patches", "rollbacks", "steady", "avg_step_us"
+                );
+                for row in &report.rows {
+                    println!(
+                        "{:<15} {:<10} {:>6} {:>10.4} {:>8} {:>9} {:>7} {:>11.2}",
+                        row.preset,
+                        row.mode,
+                        row.steps,
+                        row.mean_error,
+                        row.patches_emitted,
+                        row.rollbacks,
+                        row.steady_steps,
+                        row.avg_step_us
+                    );
+                }
             }
         }
     }
