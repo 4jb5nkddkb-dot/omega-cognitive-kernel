@@ -1,5 +1,5 @@
 use omega_cognitive_kernel::api::{
-    ClosedLoopKernel, ClosedLoopSession, DefaultKernel, ExternalOutcome, StepTelemetry,
+    ClosedLoopKernel, ClosedLoopSession, DefaultKernel, ExternalOutcome, StepTelemetry, LoopBenchmarkScenario, run_closed_loop_matrix_benchmark,
 };
 use omega_cognitive_kernel::audit::AuditLog;
 use omega_cognitive_kernel::config::{
@@ -373,4 +373,21 @@ fn external_loop_state_and_audit_survive_restart() {
     assert_eq!(summary.rollbacks, 1);
 
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn benchmark_loops_covers_all_seven_presets_across_scenarios() {
+    for scenario in [
+        LoopBenchmarkScenario::Steady,
+        LoopBenchmarkScenario::Shift,
+        LoopBenchmarkScenario::Noisy,
+    ] {
+        let report = run_closed_loop_matrix_benchmark(scenario, 12);
+        assert_eq!(report.rows.len(), 7);
+        for row in &report.rows {
+            assert_eq!(row.steps, 12);
+            assert!(row.mean_error.is_finite());
+            assert!(row.avg_step_us.is_finite() && row.avg_step_us >= 0.0);
+        }
+    }
 }
