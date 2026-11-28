@@ -5,6 +5,8 @@ use crate::prelude::*;
 use crate::audit::AuditEvent;
 #[cfg(feature = "std")]
 use crate::audit::AuditLog;
+#[cfg(feature = "std")]
+use crate::audit::DEFAULT_MAX_AUDIT_BYTES;
 use crate::error::{OmegaError, Result};
 use crate::types::Action;
 use hashbrown::HashSet;
@@ -270,6 +272,7 @@ pub struct ToolGateExecutor {
     #[cfg_attr(not(feature = "ureq"), allow(dead_code))]
     denied: HashSet<String>,
     audit: Option<AuditLog>,
+    audit_max_bytes: u64,
     echo: bool,
     fail_closed: bool,
     /// If true, ALLOW + name `http_get` performs a real GET (`params.url`).
@@ -283,6 +286,7 @@ impl ToolGateExecutor {
             allowed: allowed.into_iter().collect(),
             denied: HashSet::new(),
             audit: None,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             echo: true,
             fail_closed: true,
             enable_http_get: false,
@@ -296,6 +300,12 @@ impl ToolGateExecutor {
 
     pub fn with_audit(mut self, log: AuditLog) -> Self {
         self.audit = Some(log);
+        self
+    }
+
+    /// Set the maximum audit JSONL file size in bytes for tool events.
+    pub fn audit_max_bytes(mut self, max_bytes: u64) -> Self {
+        self.audit_max_bytes = max_bytes;
         self
     }
 
@@ -340,10 +350,13 @@ impl Executor for ToolGateExecutor {
                     "not_on_allow_list"
                 };
                 if let Some(log) = &self.audit {
-                    let _ = log.append(AuditEvent::ToolDenied {
-                        tool: act.name.clone(),
-                        reason: reason.into(),
-                    });
+                    log.append_with_max_bytes(
+                        AuditEvent::ToolDenied {
+                            tool: act.name.clone(),
+                            reason: reason.into(),
+                        },
+                        self.audit_max_bytes,
+                    )?;
                 }
                 if self.echo {
                     println!("[tool-gate] DENY  {} ({reason})", act.name);
@@ -363,9 +376,12 @@ impl Executor for ToolGateExecutor {
             }
 
             if let Some(log) = &self.audit {
-                log.append(AuditEvent::ToolAllowed {
-                    tool: act.name.clone(),
-                })?;
+                log.append_with_max_bytes(
+                    AuditEvent::ToolAllowed {
+                        tool: act.name.clone(),
+                    },
+                    self.audit_max_bytes,
+                )?;
             }
             if self.echo {
                 println!("[tool-gate] ALLOW {}", act.name);
@@ -612,6 +628,45 @@ mod tests {
         let rows = AuditLog::beside_state(&path).read_all().unwrap();
         assert!(rows.len() >= 2);
         let _ = std::fs::remove_file(AuditLog::beside_state(&path).path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "ureq")]
+    fn tool_gate_propagates_audit_size_limit_errors_for_allowed_and_denied_tools() {
+        use crate::audit::AuditLog;
+        use std::env::temp_dir;
+
+        let dir = temp_dir().join(format!(
+            "omega-gate-limit-{}-{}",
+            std::process::id(),
+            crate::new_uuid()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let audit = AuditLog::beside_state(&state_path);
+        let mut gate = ToolGateExecutor::new(["safe_tool".into()])
+            .deny(["blocked_tool".into()])
+            .with_audit(audit)
+            .audit_max_bytes(0)
+            .echo(false)
+            .fail_closed(false);
+
+        let allowed_error = gate.execute(&[action("safe_tool", true)]).unwrap_err();
+        assert!(
+            allowed_error
+                .to_string()
+                .contains("audit log size limit exceeded"),
+            "{allowed_error}"
+        );
+        let denied_error = gate.execute(&[action("blocked_tool", true)]).unwrap_err();
+        assert!(
+            denied_error
+                .to_string()
+                .contains("audit log size limit exceeded"),
+            "{denied_error}"
+        );
+        assert!(!dir.join("audit.jsonl").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
