@@ -3069,12 +3069,10 @@ fn scenario_telemetry(scenario: LoopBenchmarkScenario, step: u32, total: u32) ->
             if step <= third {
                 (0.08, 0.10, None)
             } else if step <= third.saturating_mul(2) {
-                let out = if step == third + 2 {
-                    Some(ExternalOutcome::Degraded)
-                } else if step > third + 2 {
-                    Some(ExternalOutcome::AcceptedAndImproved)
-                } else {
-                    None
+                let out = match step.cmp(&(third + 2)) {
+                    std::cmp::Ordering::Less => None,
+                    std::cmp::Ordering::Equal => Some(ExternalOutcome::Degraded),
+                    std::cmp::Ordering::Greater => Some(ExternalOutcome::AcceptedAndImproved),
                 };
                 (0.62, 0.22, out)
             } else {
