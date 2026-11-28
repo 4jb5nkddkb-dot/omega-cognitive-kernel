@@ -42,6 +42,7 @@ session = ok.ClosedLoopSession.from_preset("control_plane", "/tmp/omega.json")
 directive = json.loads(session.step_external_json(1, 0.55, 0.20))
 ```
 
+`ClosedLoopSession` supports cross-process persistence of `ExternalLoopState` (`step_id` idempotency, cooldown backoff, and checkpoints) via the `Kernel` state file, automatically writes to `AuditLog`, and exposes real `L2MetaLayer` metrics (`kl_prior_bias`, `lyapunov_potential`, `lyapunov_veto`, `alpha`, `beta`, `selected_expert`) in the `l2_prior` payload returned by `step_external_json` / `step_internal_json`.
 ## Exposed API
 
 - `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
