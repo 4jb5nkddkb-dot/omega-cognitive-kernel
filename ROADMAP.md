@@ -105,7 +105,8 @@ The paired benchmark now distinguishes commits, counterfactual candidate/selecti
 
 ### Work items
 
-- Extend the fixed-seed scenarios beyond the existing stable, nonstationary, degraded, fixed-point, regime-shift, and cyclic-shift fixtures into noisy, adversarial, and high-risk environments.
+- **Current decision (2026-11-28):** the unchanged `v0.7.1` matrix again failed its primary and independent-replication criteria. Stop this tuning route and do not advertise L2 as a demonstrated external-reward improvement. Preserve the measurement, attribution, and rollback machinery; do not change global defaults from this bounded fixture alone. See [`reports/l2-gain-matrix-2026-11-28.md`](reports/l2-gain-matrix-2026-11-28.md).
+- Extend the fixed-seed scenarios beyond the existing stable, nonstationary, degraded, fixed-point, regime-shift, and cyclic-shift fixtures into noisy, adversarial, and high-risk environments. Prioritize external task outcomes over adding more runs of the same UCB fixture.
 - Evaluate each new controller hypothesis with fixed L1/L2 ablations, paired seeds, confidence intervals, and preregistered acceptance criteria; do not resume stopped parameter-tuning routes without a new hypothesis.
 - Track reward, prediction error, risk, action diversity, switching cost, patch frequency, rollback frequency, and defensive-mode duration.
 - Retain bounded pre-action counterfactual analysis and its distinction from actual execution attribution; never substitute model self-evaluation for external reward.
