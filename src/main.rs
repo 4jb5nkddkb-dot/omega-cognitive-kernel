@@ -245,9 +245,9 @@ enum Commands {
         /// Emit ControlDirective as JSON.
         #[arg(long)]
         json: bool,
-            /// Do not persist updated external closed-loop state after stepping.
-            #[arg(long)]
-            no_save: bool,
+        /// Do not persist updated external closed-loop state after stepping.
+        #[arg(long)]
+        no_save: bool,
     },
 }
 
@@ -887,7 +887,7 @@ fn main() -> anyhow::Result<()> {
             outcome,
             shadow,
             json,
-                no_save,
+            no_save,
         } => {
             let mut cfg = resolve_effective_config(&cli)?;
             if *shadow {
