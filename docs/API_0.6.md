@@ -199,6 +199,8 @@ Step
 
 Audit append, trajectory write, and autosave errors are returned to the caller. A failed optional pre-patch checkpoint does not suppress the primary `PatchAccepted` event; if its own audit append fails, that failure is returned. External execution precedes these writes, so a returned error does not roll back an action already performed by an executor. Integrators must define adapter-specific timeout, idempotency, and recovery behavior.
 
+Trajectory appends have a 64 MiB default file-size limit (`DEFAULT_MAX_TRAJECTORY_BYTES`). Use `Kernel::set_trajectory_max_bytes` to change the per-kernel ceiling; the corresponding getter is available in Rust and Python. A row that would exceed the ceiling fails the step, without truncating or rotating existing history. Legacy files above the configured limit remain readable through replay, but new rows are rejected until the limit is raised.
+
 ## Offline trajectory replay
 
 `replay_trajectory_file(path, tail_n)` and `Kernel::replay_trajectory(tail_n)` read `trajectory.jsonl` without re-running the external world. The summary exposes:

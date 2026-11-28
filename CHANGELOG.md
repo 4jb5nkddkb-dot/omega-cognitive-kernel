@@ -8,6 +8,9 @@
 ### Testing
 - Add `benchmark-l2-gain`, a preregistered four-scenario L1/L2 factorial matrix with independent discovery/validation seed sets, explicit execution and safety gates, deterministic replay tests, and CI smoke artifacts. The completed 960-run matrix did not demonstrate a reproducible L2 reward gain; no production control defaults changed.
 
+### Reliability
+- Bound trajectory JSONL growth to 64 MiB by default, with a per-kernel Rust/Python override and serialized local appends. Oversized appends fail closed without truncating history; existing logs remain replayable.
+
 ## [0.6.1] — 2026-11-27
 
 ### CI / release
