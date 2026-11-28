@@ -17,7 +17,7 @@ use crate::l0::predictor::ModelBasedPredictor;
 use crate::l0::L0WorldLayer;
 use crate::l1::learner::Learner;
 use crate::l1::L1CognitiveLayer;
-use crate::l2::L2MetaLayer;
+use crate::l2::{L2MetaLayer, L2Result};
 use crate::memory::MemoryFacade;
 use crate::orchestrator::{CooldownTracker, OmegaOrchestrator, StepResult};
 use crate::persist::{
@@ -2718,6 +2718,18 @@ pub struct L2PriorPayload {
     pub regime_detected: bool,
     pub history_discount_enabled: bool,
     pub kl_prior_bias: Vec<f64>,
+    #[serde(default)]
+    pub in_fixed_point: bool,
+    #[serde(default)]
+    pub lyapunov_potential: f64,
+    #[serde(default)]
+    pub lyapunov_veto: bool,
+    #[serde(default)]
+    pub alpha: f64,
+    #[serde(default)]
+    pub beta: f64,
+    #[serde(default)]
+    pub selected_expert: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2758,6 +2770,23 @@ pub fn resolve_l1_gate(
     }
 }
 
+fn build_l2_prior(
+    l2_result: &L2Result,
+    regime_detected: bool,
+    history_discount_enabled: bool,
+) -> L2PriorPayload {
+    L2PriorPayload {
+        regime_detected,
+        history_discount_enabled,
+        kl_prior_bias: l2_result.l2_policy.expert_probabilities.to_vec(),
+        in_fixed_point: l2_result.in_fixed_point,
+        lyapunov_potential: l2_result.lyapunov_potential,
+        lyapunov_veto: l2_result.lyapunov_veto,
+        alpha: l2_result.alpha,
+        beta: l2_result.beta,
+        selected_expert: l2_result.selected_expert.clone(),
+    }
+}
 pub struct ClosedLoopSession<
     O = MultiModalObserver,
     D = ConstrainedDecisionMaker,
@@ -2847,11 +2876,11 @@ where
             .map_err(|e| format!("{e}"))?;
         let l1_gate = resolve_l1_gate(self.switches, res.l1_blocked_by_l2, self.shadow_mode);
         let l2_prior = if self.switches.l2 {
-            Some(L2PriorPayload {
-                regime_detected: res.l1_blocked_by_l2,
-                history_discount_enabled: self.kernel.inner.l2.enabled,
-                kl_prior_bias: Vec::new(),
-            })
+            Some(build_l2_prior(
+                &res.l2,
+                res.l1_blocked_by_l2,
+                self.kernel.inner.l2.enabled,
+            ))
         } else {
             None
         };
@@ -2913,17 +2942,29 @@ where
             Some(ExternalOutcome::TimeoutOrSkipped) | None => {}
         }
 
-        let blocked_by_l2 = self.switches.l2 && telemetry.prediction_error < self.error_threshold;
-        let l1_gate = resolve_l1_gate(self.switches, blocked_by_l2, self.shadow_mode);
-        let l2_prior = if self.switches.l2 {
-            Some(L2PriorPayload {
-                regime_detected: blocked_by_l2,
-                history_discount_enabled: blocked_by_l2,
-                kl_prior_bias: Vec::new(),
-            })
+        let (blocked_by_l2, l2_prior) = if self.switches.l2 {
+            let l2_res = self
+                .kernel
+                .inner
+                .step_l2_from_telemetry(
+                    telemetry.step_id,
+                    telemetry.prediction_error,
+                    &self.default_goal,
+                )
+                .map_err(|e| format!("{e}"))?;
+            let spectral_regime = l2_res
+                .spectral_output
+                .is_some_and(|output| output.regime_detected);
+            let blocked = l2_res.in_fixed_point
+                || l2_res.lyapunov_veto
+                || spectral_regime
+                || telemetry.prediction_error < self.error_threshold;
+            let prior = build_l2_prior(&l2_res, blocked, blocked);
+            (blocked, Some(prior))
         } else {
-            None
+            (false, None)
         };
+        let l1_gate = resolve_l1_gate(self.switches, blocked_by_l2, self.shadow_mode);
 
         let can_emit_patch = matches!(l1_gate, L1RuntimeGate::Active | L1RuntimeGate::ShadowOnly)
             && self.cooldown.can_patch(

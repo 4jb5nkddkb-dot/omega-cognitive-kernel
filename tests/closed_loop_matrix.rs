@@ -282,6 +282,9 @@ fn mode_001_meta_guard_external_steady_detection() {
     let prior = steady.l2_prior.expect("L2 prior");
     assert!(prior.regime_detected);
     assert!(prior.history_discount_enabled);
+    assert!(!prior.kl_prior_bias.is_empty());
+    assert!(prior.lyapunov_potential.is_finite());
+    assert!(prior.alpha.is_finite());
 
     let shift = session
         .step_external(telemetry(2, 0.65, 0.20, None))
