@@ -8,12 +8,13 @@ mod types;
 
 use audit::AuditLog;
 use checkpoint::CheckpointStore;
-use kernel::Kernel;
+use kernel::{ClosedLoopSession, Kernel};
 
 /// Python module for omega-cognitive-kernel
 #[pymodule]
 fn omega_cognitive_kernel_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Kernel>()?;
+    m.add_class::<ClosedLoopSession>()?;
     m.add_class::<AuditLog>()?;
     m.add_class::<CheckpointStore>()?;
     Ok(())

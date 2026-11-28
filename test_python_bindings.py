@@ -219,3 +219,38 @@ def test_self_modify_flag_survives_restart(state_path):
 
     reopened = ok.Kernel.open(str(state_path))
     assert reopened.status().self_modify_enabled is True
+
+
+def test_closed_loop_session_presets_and_external_loop(state_path):
+    expected = {
+        "deterministic": {"l0": True, "l1": False, "l2": False},
+        "hot_patcher": {"l0": False, "l1": True, "l2": False},
+        "meta_guard": {"l0": False, "l1": False, "l2": True},
+        "fast_adapt": {"l0": True, "l1": True, "l2": False},
+        "steady_prior": {"l0": True, "l1": False, "l2": True},
+        "control_plane": {"l0": False, "l1": True, "l2": True},
+        "full_kernel": {"l0": True, "l1": True, "l2": True},
+    }
+    for preset, switches in expected.items():
+        session = ok.ClosedLoopSession.from_preset(preset, str(state_path))
+        assert json.loads(session.switches_json()) == switches
+
+    with pytest.raises(ValueError, match="unknown loop preset"):
+        ok.ClosedLoopSession.from_preset("nonexistent_mode", str(state_path))
+
+    det = ok.ClosedLoopSession.from_preset("deterministic", str(state_path))
+    d_int = json.loads(det.step_internal_json())
+    assert d_int["l1_gate"] == "disabled"
+    assert d_int["keep_steady"] is True
+
+    cp = ok.ClosedLoopSession.from_preset("control_plane", str(state_path))
+    blocked = json.loads(cp.step_external_json(1, 0.05, 0.10))
+    assert blocked["l1_gate"] == "blocked_by_l2"
+    assert blocked["rule_patch"] is None
+
+    active = json.loads(cp.step_external_json(2, 0.60, 0.20))
+    assert active["l1_gate"] == "active"
+    assert active["rule_patch"] is not None
+
+    rolled = json.loads(cp.step_external_json(3, 0.65, 0.20, None, "degraded"))
+    assert rolled["rollback_to_checkpoint"] == "ckpt-2"
