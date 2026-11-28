@@ -362,13 +362,41 @@ pub enum LoopPreset {
 impl From<LoopPreset> for LayerSwitches {
     fn from(preset: LoopPreset) -> Self {
         match preset {
-            LoopPreset::Deterministic => Self { l0: true, l1: false, l2: false },
-            LoopPreset::HotPatcher => Self { l0: false, l1: true, l2: false },
-            LoopPreset::MetaGuard => Self { l0: false, l1: false, l2: true },
-            LoopPreset::FastAdapt => Self { l0: true, l1: true, l2: false },
-            LoopPreset::SteadyPrior => Self { l0: true, l1: false, l2: true },
-            LoopPreset::ControlPlane => Self { l0: false, l1: true, l2: true },
-            LoopPreset::FullKernel => Self { l0: true, l1: true, l2: true },
+            LoopPreset::Deterministic => Self {
+                l0: true,
+                l1: false,
+                l2: false,
+            },
+            LoopPreset::HotPatcher => Self {
+                l0: false,
+                l1: true,
+                l2: false,
+            },
+            LoopPreset::MetaGuard => Self {
+                l0: false,
+                l1: false,
+                l2: true,
+            },
+            LoopPreset::FastAdapt => Self {
+                l0: true,
+                l1: true,
+                l2: false,
+            },
+            LoopPreset::SteadyPrior => Self {
+                l0: true,
+                l1: false,
+                l2: true,
+            },
+            LoopPreset::ControlPlane => Self {
+                l0: false,
+                l1: true,
+                l2: true,
+            },
+            LoopPreset::FullKernel => Self {
+                l0: true,
+                l1: true,
+                l2: true,
+            },
         }
     }
 }
