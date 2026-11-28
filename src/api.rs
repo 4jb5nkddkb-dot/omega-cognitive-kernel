@@ -2879,8 +2879,8 @@ where
 
         if let Some(prev) = self.last_external_step_id {
             if telemetry.step_id <= prev { 
-           let audit = AuditLog::beside_state(&self.kernel.state_path);
-         let _ = audit.append_with_privacy_and_max_bytes(
+               let audit = AuditLog::beside_state(&self.kernel.state_path);
+             let _ = audit.append_with_privacy_and_max_bytes(
                     AuditEvent::ExternalStepDuplicate {
                         step_id: telemetry.step_id,
                         last_step_id: prev,
