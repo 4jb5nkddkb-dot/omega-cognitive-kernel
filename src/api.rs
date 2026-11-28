@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 use crate::audit::{AuditEvent, AuditLog, DEFAULT_MAX_AUDIT_BYTES};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
-use crate::config::KernelConfig;
+use crate::config::{KernelConfig, L1RuntimeGate, LayerSwitches};
 #[cfg(feature = "toml")]
 use crate::config_toml;
 use crate::error::{OmegaError, Result};
@@ -2679,4 +2679,59 @@ mod tests {
         assert!(sum.tail.iter().all(|row| row.l2_decision.is_none()));
         let _ = std::fs::remove_file(&path);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalOutcome {
+    AcceptedAndImproved,
+    Degraded,
+    TimeoutOrSkipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepTelemetry {
+    pub step_id: u64,
+    pub prediction_error: f64,
+    pub observed_risk: f64,
+    pub signal_window: Vec<f64>,
+    pub last_outcome: Option<ExternalOutcome>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RulePatchPayload {
+    pub patch_id: String,
+    pub shadow_only: bool,
+    pub target_rule: String,
+    pub delta_weight: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct L2PriorPayload {
+    pub regime_detected: bool,
+    pub history_discount_enabled: bool,
+    pub kl_prior_bias: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlDirective {
+    pub step_id: u64,
+    pub l1_gate: L1RuntimeGate,
+    pub keep_steady: bool,
+    pub rule_patch: Option<RulePatchPayload>,
+    pub l2_prior: Option<L2PriorPayload>,
+    pub rollback_to_checkpoint: Option<String>,
+}
+
+pub trait ClosedLoopKernel {
+    type Error;
+
+    fn switches(&self) -> LayerSwitches;
+
+    fn step_internal(&mut self) -> std::result::Result<ControlDirective, Self::Error>;
+
+    fn step_external(
+        &mut self,
+        telemetry: StepTelemetry,
+    ) -> std::result::Result<ControlDirective, Self::Error>;
 }
