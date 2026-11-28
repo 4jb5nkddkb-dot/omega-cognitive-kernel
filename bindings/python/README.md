@@ -2,7 +2,7 @@
 
 Python bindings for the training-free, auditable `RuleEffect` adaptation runtime. The package version is read dynamically from `bindings/python/Cargo.toml`, keeping it aligned with the Rust source.
 
-**Status:** research prototype, source version **0.6.1**. The default observer and executor are simulations; L1 self-modification is disabled by default and bounded L2 modulation is enabled.
+**Status:** research prototype, source version **0.7.0**. The default observer and executor are simulations; L1 self-modification is disabled by default and bounded L2 modulation is enabled.
 
 ## Install
 
@@ -32,6 +32,16 @@ kernel.save()
 
 `Kernel.open(path)` loads an existing state file or creates a new in-memory kernel at that path. Always use a dedicated state directory in applications and tests.
 
+### `ClosedLoopSession` Quick start
+
+```python
+import json
+import omega_cognitive_kernel_python as ok
+
+session = ok.ClosedLoopSession.from_preset("control_plane", "/tmp/omega.json")
+directive = json.loads(session.step_external_json(1, 0.55, 0.20))
+```
+
 ## Exposed API
 
 - `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
@@ -39,6 +49,7 @@ kernel.save()
 - Runtime settings: `autosave`, `auto_checkpoint_on_patch`, and `dump_trajectory` getters/setters; `trajectory_max_bytes()` / `set_trajectory_max_bytes()` control the default 64 MiB trajectory limit.
 - Observability: `replay_trajectory`, `AuditLog.beside_state`, `read_all`, `tail`, `poll_after`, `summarize`.
 - `CheckpointStore`: read persisted checkpoint metadata and snapshots.
+- `ClosedLoopSession`: closed-loop control session supporting all 7 `(L0, L1, L2)` presets (`deterministic`, `hot_patcher`, `meta_guard`, `fast_adapt`, `steady_prior`, `control_plane`, `full_kernel`), with `from_preset`, `switches_json`, `step_internal_json`, and `step_external_json`.
 
 The Python wrapper currently exposes the built-in simulated observer/executor, not custom Python observer or executor callbacks.
 
