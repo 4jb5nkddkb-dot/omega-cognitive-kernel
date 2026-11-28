@@ -68,10 +68,10 @@ where
     }
     pub fn step_l2_from_telemetry(
         &mut self,
-step_id: u64,
-prediction_error: f64,
-goal: &str,
-) -> Result<L2Result> {
+        step_id: u64,
+        prediction_error: f64,
+        goal: &str,
+    ) -> Result<L2Result> {
         self.total_steps = self.total_steps.max(step_id);
         let state = SystemState {
             active_code: self.l1.store.active.clone(),

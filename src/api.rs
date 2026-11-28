@@ -2876,7 +2876,11 @@ where
             .map_err(|e| format!("{e}"))?;
         let l1_gate = resolve_l1_gate(self.switches, res.l1_blocked_by_l2, self.shadow_mode);
         let l2_prior = if self.switches.l2 {
-           Some(build_l2_prior(&res.l2, res.l1_blocked_by_l2, self.kernel.inner.l2.enabled))
+            Some(build_l2_prior(
+                &res.l2,
+                res.l1_blocked_by_l2,
+                self.kernel.inner.l2.enabled,
+            ))
         } else {
             None
         };
@@ -2938,7 +2942,7 @@ where
             Some(ExternalOutcome::TimeoutOrSkipped) | None => {}
         }
 
-       let (blocked_by_l2, l2_prior) = if self.switches.l2 {
+        let (blocked_by_l2, l2_prior) = if self.switches.l2 {
             let l2_res = self
                 .kernel
                 .inner
