@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,36 +165,61 @@ impl GoalTree {
     }
 
     fn rollup_node(&mut self, id: &str) -> f64 {
-        let children = match self.nodes.get(id) {
-            Some(n) if !n.children.is_empty() => n.children.clone(),
-            Some(n) => return n.progress,
-            None => return 0.0,
-        };
-        let mut weighted_sum = 0.0;
-        let mut weight_total = 0.0;
-        let mut all_achieved = true;
-        for child_id in &children {
-            let child_prog = self.rollup_node(child_id);
-            if let Some(child) = self.nodes.get(child_id) {
-                weighted_sum += child_prog * child.weight;
-                weight_total += child.weight;
-                if child.status != GoalStatus::Achieved {
-                    all_achieved = false;
+        // Use an explicit post-order stack so a valid, deeply nested goal tree
+        // cannot exhaust the call stack. The visited set also bounds traversal
+        // if a deserialized or directly-mutated tree contains malformed links.
+        let mut stack = vec![(id.to_string(), false)];
+        let mut scheduled = BTreeSet::new();
+
+        while let Some((node_id, expanded)) = stack.pop() {
+            if expanded {
+                let children = self
+                    .nodes
+                    .get(&node_id)
+                    .map(|node| node.children.clone())
+                    .unwrap_or_default();
+                let mut weighted_sum = 0.0;
+                let mut weight_total = 0.0;
+                let mut all_achieved = true;
+                for child_id in &children {
+                    if let Some(child) = self.nodes.get(child_id) {
+                        weighted_sum += child.progress * child.weight;
+                        weight_total += child.weight;
+                        if child.status != GoalStatus::Achieved {
+                            all_achieved = false;
+                        }
+                    }
+                }
+                let progress = if weight_total > 0.0 {
+                    (weighted_sum / weight_total).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                if let Some(node) = self.nodes.get_mut(&node_id) {
+                    node.progress = progress;
+                    if all_achieved && node.status == GoalStatus::Active {
+                        node.status = GoalStatus::Achieved;
+                    }
+                }
+                continue;
+            }
+
+            if !scheduled.insert(node_id.clone()) {
+                continue;
+            }
+            let children = match self.nodes.get(&node_id) {
+                Some(node) if !node.children.is_empty() => node.children.clone(),
+                _ => continue,
+            };
+            stack.push((node_id, true));
+            for child_id in children.into_iter().rev() {
+                if !scheduled.contains(&child_id) {
+                    stack.push((child_id, false));
                 }
             }
         }
-        let prog = if weight_total > 0.0 {
-            (weighted_sum / weight_total).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.progress = prog;
-            if all_achieved && node.status == GoalStatus::Active {
-                node.status = GoalStatus::Achieved;
-            }
-        }
-        prog
+
+        self.nodes.get(id).map(|node| node.progress).unwrap_or(0.0)
     }
 
     pub fn select_active(&mut self) -> Option<&GoalNode> {
@@ -304,5 +329,61 @@ mod tests {
             tree.update_from_state(&state, 0.05);
             assert_eq!(tree, original);
         }
+    }
+
+    #[test]
+    fn deep_goal_tree_rollup_does_not_use_call_stack() {
+        let mut tree = GoalTree::new();
+        tree.add_root("root", BTreeMap::new(), 1);
+        let depth = 4_096;
+        for index in 0..depth {
+            let parent = if index == 0 {
+                "root".to_string()
+            } else {
+                format!("node-{}", index - 1)
+            };
+            let targets = if index + 1 == depth {
+                BTreeMap::from([("x".to_string(), 1.0)])
+            } else {
+                BTreeMap::new()
+            };
+            assert!(tree.add_child(&parent, format!("node-{index}"), targets, 1.0, 1));
+        }
+
+        let state = BTreeMap::from([("x".to_string(), 1.0)]);
+        let result = std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                tree.update_from_state(&state, 0.05);
+                (tree.summary().root_progress, tree.nodes["root"].status)
+            })
+            .expect("spawn small-stack test thread")
+            .join()
+            .expect("deep tree rollup must not overflow the call stack");
+
+        assert_eq!(result.0, 1.0);
+        assert_eq!(result.1, GoalStatus::Achieved);
+    }
+
+    #[test]
+    fn rollup_terminates_for_malformed_child_links() {
+        let mut tree = GoalTree::new();
+        tree.add_root("root", BTreeMap::new(), 1);
+        assert!(tree.add_child("root", "child", BTreeMap::new(), 1.0, 1));
+        tree.nodes
+            .get_mut("child")
+            .unwrap()
+            .children
+            .push("root".into());
+        tree.nodes
+            .get_mut("root")
+            .unwrap()
+            .children
+            .push("missing".into());
+
+        tree.update_from_state(&BTreeMap::new(), 0.05);
+
+        assert_eq!(tree.nodes["root"].progress, 0.0);
+        assert_eq!(tree.nodes["child"].progress, 0.0);
     }
 }

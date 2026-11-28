@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use crate::audit::{AuditEvent, AuditLog};
+use crate::audit::{AuditEvent, AuditLog, DEFAULT_MAX_AUDIT_BYTES};
 use crate::checkpoint::{CheckpointMeta, CheckpointStore};
 use crate::config::KernelConfig;
 #[cfg(feature = "toml")]
@@ -39,6 +39,96 @@ pub type BanditKernel = Kernel<MultiModalObserver, BanditUcbDecisionMaker, Sandb
 /// In-process event callback (after audit append).
 pub type EventHook = Box<dyn FnMut(&AuditEvent) + Send>;
 
+/// Default maximum size for a trajectory JSONL file (64 MiB).
+///
+/// Existing files larger than this remain readable; only new appends are limited.
+pub const DEFAULT_MAX_TRAJECTORY_BYTES: u64 = 64 * 1024 * 1024;
+
+struct TrajectoryAppendLock {
+    #[cfg(any(unix, windows))]
+    _file: std::fs::File,
+}
+
+impl TrajectoryAppendLock {
+    fn acquire(path: &Path) -> Result<Self> {
+        #[cfg(any(unix, windows))]
+        {
+            use fs2::FileExt;
+
+            let file = crate::private_fs::open_options()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(path)
+                .map_err(|error| {
+                    OmegaError::Persist(format!("trajectory lock open {}: {error}", path.display()))
+                })?;
+            file.lock_exclusive().map_err(|error| {
+                OmegaError::Persist(format!(
+                    "trajectory lock acquire {}: {error}",
+                    path.display()
+                ))
+            })?;
+            Ok(Self { _file: file })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            // These targets do not support the crate's advisory file locks;
+            // single-writer trajectory usage remains supported there.
+            let _ = path;
+            Ok(Self {})
+        }
+    }
+}
+
+fn trajectory_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    PathBuf::from(lock_path)
+}
+
+fn append_trajectory_record(path: &Path, record: &serde_json::Value, max_bytes: u64) -> Result<()> {
+    let mut line = serde_json::to_vec(record)
+        .map_err(|error| OmegaError::Persist(format!("trajectory serialize: {error}")))?;
+    line.push(b'\n');
+
+    if let Some(parent) = path.parent() {
+        crate::private_fs::create_dir_all(parent)
+            .map_err(|error| OmegaError::Persist(format!("trajectory directory: {error}")))?;
+    }
+    let _lock = TrajectoryAppendLock::acquire(&trajectory_lock_path(path))?;
+
+    let current_len = match std::fs::metadata(path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            return Err(OmegaError::Persist(format!(
+                "trajectory metadata {}: {error}",
+                path.display()
+            )))
+        }
+    };
+    let record_len = u64::try_from(line.len())
+        .map_err(|error| OmegaError::Persist(format!("trajectory record size: {error}")))?;
+    if !matches!(current_len.checked_add(record_len), Some(size) if size <= max_bytes) {
+        return Err(OmegaError::Persist(format!(
+            "trajectory size limit exceeded for {}: current {current_len} bytes, record {record_len} bytes, maximum {max_bytes} bytes",
+            path.display()
+        )));
+    }
+
+    let mut file = crate::private_fs::open_options()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| {
+            OmegaError::Persist(format!("trajectory open {}: {error}", path.display()))
+        })?;
+    file.write_all(&line).map_err(|error| {
+        OmegaError::Persist(format!("trajectory write {}: {error}", path.display()))
+    })
+}
+
 /// Product-facing kernel. Generic over world I/O and decision maker so callers can inject adapters.
 pub struct Kernel<O = MultiModalObserver, D = ConstrainedDecisionMaker, E = SandboxedExecutor>
 where
@@ -52,8 +142,10 @@ where
     pub auto_checkpoint_on_patch: bool,
     /// When true, append full step trajectory to trajectory.jsonl beside state.
     pub dump_trajectory: bool,
+    trajectory_max_bytes: u64,
     /// Whether known user-provided text is redacted from persisted output.
     pub redact_user_content: bool,
+    audit_max_bytes: u64,
     /// Optional in-process hook invoked after each audit event is appended.
     event_hook: Option<EventHook>,
 }
@@ -196,6 +288,11 @@ fn step_journal_path(state_path: &Path, step_id: Uuid) -> PathBuf {
     parent
         .join(format!("{file_name}.step-journal"))
         .join(format!("{step_id}.jsonl"))
+}
+
+#[cfg(any(unix, windows))]
+fn step_journal_lock_path(state_path: &Path, step_id: Uuid) -> PathBuf {
+    step_journal_path(state_path, step_id).with_extension("lock")
 }
 
 fn read_step_journal(state_path: &Path, step_id: Uuid) -> Result<Option<StepJournalRecord>> {
@@ -478,7 +575,9 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            trajectory_max_bytes: DEFAULT_MAX_TRAJECTORY_BYTES,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -506,7 +605,9 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            trajectory_max_bytes: DEFAULT_MAX_TRAJECTORY_BYTES,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -538,13 +639,17 @@ impl Kernel<MultiModalObserver, ConstrainedDecisionMaker, SandboxedExecutor> {
         let autosave = self.autosave;
         let auto_ckpt = self.auto_checkpoint_on_patch;
         let dump = self.dump_trajectory;
+        let trajectory_max_bytes = self.trajectory_max_bytes;
         let redact = self.redact_user_content;
+        let audit_max_bytes = self.audit_max_bytes;
         let hook = self.event_hook.take();
         *self = Self::with_state_path(path);
         self.autosave = autosave;
         self.auto_checkpoint_on_patch = auto_ckpt;
         self.dump_trajectory = dump;
+        self.trajectory_max_bytes = trajectory_max_bytes;
         self.redact_user_content = redact;
+        self.audit_max_bytes = audit_max_bytes;
         self.event_hook = hook;
         if self.state_path.exists() {
             std::fs::remove_file(&self.state_path)
@@ -597,7 +702,9 @@ where
             autosave: true,
             auto_checkpoint_on_patch: true,
             dump_trajectory: true,
+            trajectory_max_bytes: DEFAULT_MAX_TRAJECTORY_BYTES,
             redact_user_content: false,
+            audit_max_bytes: DEFAULT_MAX_AUDIT_BYTES,
             event_hook: None,
         }
     }
@@ -633,6 +740,29 @@ where
     /// Remove the in-process event hook.
     pub fn clear_event_hook(&mut self) {
         self.event_hook = None;
+    }
+
+    /// Set the maximum trajectory JSONL file size in bytes for future records.
+    ///
+    /// The default is [`DEFAULT_MAX_TRAJECTORY_BYTES`]. A zero limit rejects all
+    /// records; use `u64::MAX` for an effectively unlimited file. Existing
+    /// history is never truncated or rotated, and remains available for replay.
+    pub fn set_trajectory_max_bytes(&mut self, max_bytes: u64) {
+        self.trajectory_max_bytes = max_bytes;
+    }
+
+    /// Get the maximum trajectory JSONL file size in bytes for future records.
+    pub fn trajectory_max_bytes(&self) -> u64 {
+        self.trajectory_max_bytes
+    }
+
+    /// Set the maximum audit JSONL file size in bytes for future events.
+    ///
+    /// The default is [`DEFAULT_MAX_AUDIT_BYTES`]. A zero limit rejects all
+    /// records; use `u64::MAX` for an effectively unlimited file. Existing
+    /// audit history is never truncated or rotated.
+    pub fn set_audit_max_bytes(&mut self, max_bytes: u64) {
+        self.audit_max_bytes = max_bytes;
     }
 
     /// Enable or disable L2 interventions while keeping metric evaluation
@@ -753,8 +883,11 @@ where
     /// audit trail silently drops the transition. The in-process hook fires only
     /// after the append has actually succeeded.
     fn append_event(&mut self, event: AuditEvent) -> Result<()> {
-        self.audit()
-            .append_with_privacy(event.clone(), self.redact_user_content)?;
+        self.audit().append_with_privacy_and_max_bytes(
+            event.clone(),
+            self.redact_user_content,
+            self.audit_max_bytes,
+        )?;
         self.emit_event(&event);
         Ok(())
     }
@@ -792,10 +925,6 @@ where
         } else {
             goal
         };
-        if let Some(parent) = path.parent() {
-            crate::private_fs::create_dir_all(parent)
-                .map_err(|e| OmegaError::Persist(e.to_string()))?;
-        }
         let rec = serde_json::json!({
             "ts": crate::now_utc_string(),
             "step": self.inner.total_steps,
@@ -830,14 +959,7 @@ where
             "avg_err": self.inner.l0.memory.cas.avg_prediction_error,
             "self_modify_enabled": self.inner.l1.self_modify_enabled,
         });
-        // Fail-closed: a trajectory write failure is a real error, not ignored.
-        let mut f = crate::private_fs::open_options()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|e| OmegaError::Persist(format!("trajectory open {}: {e}", path.display())))?;
-        writeln!(f, "{rec}")
-            .map_err(|e| OmegaError::Persist(format!("trajectory write {}: {e}", path.display())))
+        append_trajectory_record(&path, &rec, self.trajectory_max_bytes)
     }
 
     /// Run a step with a generated ID. Call [`Self::step_with_id`] with a
@@ -853,6 +975,9 @@ where
     /// possibly-dispatched action. A duplicate committed ID returns
     /// [`OmegaError::StepAlreadyCommitted`]; an incomplete or uncertain attempt
     /// returns a distinct error so callers can reconcile external effects.
+    /// On Unix and Windows, concurrent calls using the same ID and state path
+    /// are serialized across processes; a competing caller is blocked before
+    /// executor dispatch.
     pub fn step_with_id(&mut self, step_id: Uuid, goal: &str) -> Result<StepResult> {
         self.step_with_id_inner(step_id, goal, || Ok(()))
     }
@@ -863,6 +988,23 @@ where
         goal: &str,
         mut before_dispatch: impl FnMut() -> Result<()>,
     ) -> Result<StepResult> {
+        // Hold the per-ID lock through the final journal transition. A retry
+        // must not make a read/append decision concurrently with another caller.
+        #[cfg(any(unix, windows))]
+        let _step_lock = {
+            let lock_path = step_journal_lock_path(&self.state_path, step_id);
+            if let Some(parent) = lock_path.parent() {
+                crate::private_fs::create_dir_all(parent).map_err(|error| {
+                    OmegaError::Persist(format!(
+                        "step journal directory {}: {error}",
+                        parent.display()
+                    ))
+                })?;
+            }
+            crate::safety::StorageLock::acquire(lock_path)?
+        };
+        #[cfg(not(any(unix, windows)))]
+        let _step_lock = ();
         let previous = read_step_journal(&self.state_path, step_id).map_err(|error| {
             OmegaError::StepExecutionOutcomeUnknown {
                 step_id,
@@ -1420,6 +1562,21 @@ mod tests {
         }
     }
 
+    struct BlockingFailingExecutor {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+
+    impl crate::l0::executor::Executor for BlockingFailingExecutor {
+        fn execute(&mut self, _actions: &[crate::types::Action]) -> Result<Vec<serde_json::Value>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _ = self.entered.send(());
+            let _ = self.release.recv();
+            Err(OmegaError::Persist("injected executor uncertainty".into()))
+        }
+    }
+
     #[test]
     fn disabled_l1_is_not_a_patch_rejection_and_disabled_checkpoint_keeps_acceptance() {
         let dir = temp_dir().join(format!("omega-audit-patch-{}", crate::new_uuid()));
@@ -1793,6 +1950,39 @@ mod tests {
     }
 
     #[test]
+    fn step_fails_closed_when_audit_size_limit_is_reached() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        let dir = temp_dir().join(format!("omega-audit-limit-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let mut k = Kernel::with_state_path(state_path);
+        k.autosave = false;
+        k.dump_trajectory = false;
+        k.set_audit_max_bytes(0);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        k.set_event_hook(move |_| {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let error = k
+            .step_with_id(crate::new_uuid(), "limit audit growth")
+            .unwrap_err();
+        assert!(matches!(&error, OmegaError::StepCommitIncomplete { .. }));
+        assert!(
+            format!("{error:?}").contains("audit log size limit exceeded"),
+            "{error:?}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!dir.join("audit.jsonl").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn step_propagates_autosave_failure() {
         // A directory at state.json blocks only the final atomic state replace;
         // audit and journal writes are still available.
@@ -1864,6 +2054,88 @@ mod tests {
         assert_eq!(
             final_record.goal_digest.as_deref(),
             Some(expected_digest.as_str())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn concurrent_same_step_id_does_not_dispatch_twice() {
+        let dir = temp_dir().join(format!("omega-concurrent-step-id-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.json");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut first = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            BlockingFailingExecutor {
+                calls: calls.clone(),
+                entered: entered_tx,
+                release: release_rx,
+            },
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        first.autosave = false;
+        first.dump_trajectory = false;
+        let step_id = crate::new_uuid();
+        let goal = "concurrent idempotency retry";
+
+        let first_attempt = std::thread::spawn(move || first.step_with_id(step_id, goal));
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("first caller should reach the executor while holding its ID lock");
+
+        let mut second = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            FailingExecutor(calls.clone()),
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        second.autosave = false;
+        second.dump_trajectory = false;
+        assert!(matches!(
+            second.step_with_id(step_id, goal),
+            Err(OmegaError::ExecutionBlocked(_))
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a concurrent retry must not reach its executor"
+        );
+
+        let mut independent = Kernel::with_adapters_and_path(
+            MultiModalObserver::new(),
+            FailingExecutor(calls.clone()),
+            ConstrainedDecisionMaker,
+            state_path.clone(),
+        );
+        independent.autosave = false;
+        independent.dump_trajectory = false;
+        assert!(matches!(
+            independent.step_with_id(crate::new_uuid(), goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "different step IDs should use independent locks"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(matches!(
+            first_attempt.join().unwrap(),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert!(matches!(
+            second.step_with_id(step_id, goal),
+            Err(OmegaError::StepExecutionOutcomeUnknown { .. })
+        ));
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "a retry after the uncertain outcome must not dispatch again"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2280,6 +2552,101 @@ mod tests {
             .iter()
             .all(|p| *p > 0.0));
         assert!(replay.tail[0].l2_dayan_residual.is_finite());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trajectory_append_accepts_exact_boundary_and_preserves_history_on_rejection() {
+        let dir = temp_dir().join(format!("omega-traj-cap-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("trajectory.jsonl");
+        let first = serde_json::json!({"step": 1});
+        let second = serde_json::json!({"step": 2});
+        let mut first_line = serde_json::to_vec(&first).unwrap();
+        first_line.push(b'\n');
+        let mut second_line = serde_json::to_vec(&second).unwrap();
+        second_line.push(b'\n');
+        let limit = first_line.len() as u64;
+
+        append_trajectory_record(&path, &first, limit).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(before, first_line);
+        let one_byte_over_limit = limit + second_line.len() as u64 - 1;
+        assert_eq!(
+            before.len() as u64 + second_line.len() as u64,
+            one_byte_over_limit + 1
+        );
+        let error = append_trajectory_record(&path, &second, one_byte_over_limit).unwrap_err();
+        assert!(error.to_string().contains("trajectory size limit exceeded"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let legacy_error = append_trajectory_record(&path, &second, limit - 1).unwrap_err();
+        assert!(legacy_error
+            .to_string()
+            .contains("trajectory size limit exceeded"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        let replay = replay_trajectory_file(&path, 10).unwrap();
+        assert_eq!(replay.rows, 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn concurrent_trajectory_appends_do_not_exceed_limit() {
+        let dir = temp_dir().join(format!("omega-traj-concurrent-cap-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("trajectory.jsonl");
+        let record = serde_json::json!({"step": 1});
+        let limit = serde_json::to_vec(&record).unwrap().len() as u64 + 1;
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                let record = record.clone();
+                std::thread::spawn(move || append_trajectory_record(&path, &record, limit).is_ok())
+            })
+            .collect();
+        let successes = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .filter(|succeeded| *succeeded)
+            .count();
+        assert_eq!(successes, 1);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), limit);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trajectory_size_failure_propagates_through_kernel_step() {
+        let dir = temp_dir().join(format!("omega-traj-cap-step-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut kernel = Kernel::with_state_path(dir.join("state.json"));
+        kernel.autosave = false;
+        kernel.set_trajectory_max_bytes(0);
+
+        let error = kernel
+            .step("trajectory cap should fail closed")
+            .unwrap_err();
+        match error {
+            OmegaError::StepCommitIncomplete { stage, .. } => {
+                assert!(stage.contains("trajectory size limit exceeded"), "{stage}");
+            }
+            other => panic!("expected an incomplete commit, got {other:?}"),
+        }
+        assert!(!dir.join("trajectory.jsonl").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn disabled_trajectory_dump_skips_size_limit() {
+        let dir = temp_dir().join(format!("omega-traj-disabled-{}", crate::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut kernel = Kernel::with_state_path(dir.join("state.json"));
+        kernel.autosave = false;
+        kernel.dump_trajectory = false;
+        kernel.set_trajectory_max_bytes(0);
+
+        kernel.step("trajectory disabled").unwrap();
+        assert!(!dir.join("trajectory.jsonl").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

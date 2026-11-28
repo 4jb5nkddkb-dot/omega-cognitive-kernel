@@ -157,6 +157,11 @@ impl Kernel {
         self.inner.set_l2_enabled(enabled);
     }
 
+    /// Set the maximum audit JSONL file size in bytes for future events.
+    pub fn set_audit_max_bytes(&mut self, max_bytes: u64) {
+        self.inner.set_audit_max_bytes(max_bytes);
+    }
+
     /// List all checkpoints
     pub fn list_checkpoints(&self) -> PyResult<Vec<CheckpointMeta>> {
         let checkpoints = self
@@ -266,6 +271,16 @@ impl Kernel {
     /// Set dump_trajectory
     pub fn set_dump_trajectory(&mut self, value: bool) {
         self.inner.dump_trajectory = value;
+    }
+
+    /// Get the maximum trajectory JSONL file size in bytes.
+    pub fn trajectory_max_bytes(&self) -> u64 {
+        self.inner.trajectory_max_bytes()
+    }
+
+    /// Set the maximum trajectory JSONL file size in bytes for future records.
+    pub fn set_trajectory_max_bytes(&mut self, value: u64) {
+        self.inner.set_trajectory_max_bytes(value);
     }
 
     fn __repr__(&self) -> String {

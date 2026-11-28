@@ -5,8 +5,14 @@
 ### Correctness / safety
 - Reject weight-history squashes that would overflow finite values, preserving the original payload on failure.
 
+### Persistence / safety
+- Bound each audit JSONL file to 64 MiB by default, with Rust and Python per-kernel overrides and a ToolGate override. Oversized appends now fail before writing, preserving all earlier records; existing oversized files remain readable, and audit failures propagate instead of being silently ignored.
+
 ### Testing
 - Add `benchmark-l2-gain`, a preregistered four-scenario L1/L2 factorial matrix with independent discovery/validation seed sets, explicit execution and safety gates, deterministic replay tests, and CI smoke artifacts. The completed 960-run matrix did not demonstrate a reproducible L2 reward gain; no production control defaults changed.
+
+### Reliability
+- Bound trajectory JSONL growth to 64 MiB by default, with a per-kernel Rust/Python override and serialized local appends. Oversized appends fail closed without truncating history; existing logs remain replayable.
 
 ## [0.6.1] — 2026-11-27
 

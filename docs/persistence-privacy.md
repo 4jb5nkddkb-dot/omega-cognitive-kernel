@@ -8,11 +8,11 @@ For a state path such as `.omega/state.json`, the kernel stores the following fi
 |---|---|---|
 | `state.json` | Autosaved after a successful step (`autosave = true`) | Kernel counters, numeric policy and learning state, case summaries, and the goal text retained with each case |
 | `audit.jsonl` | Appended during kernel operations | Step events, task-episode events, checkpoint/rollback events, and other audit events; step goals and caller-supplied task/checkpoint labels may be present |
-| `trajectory.jsonl` | Appended for each step (`dump_trajectory = true`) | Step number, goal, action label, prediction-error and L1/L2 metrics |
+| `trajectory.jsonl` | Appended for each step (`dump_trajectory = true`) up to 64 MiB by default | Step number, goal, action label, prediction-error and L1/L2 metrics |
 | `checkpoints/` | Created when requested and automatically before an accepted patch (`auto_checkpoint_on_patch = true`) | Snapshot files and checkpoint metadata, including the supplied label |
 | `<state-file>.step-journal/<step-id>.jsonl` | Appended for each step | Step ID, goal, attempt number, and executor/commit status used to prevent unsafe replay |
 
-An explicit `state_path` changes the state file location; the audit, trajectory, checkpoint, and step-journal paths remain beside that state file. Set `dump_trajectory = false` to stop trajectory appends, `autosave = false` to stop automatic state saves, or `auto_checkpoint_on_patch = false` to stop automatic pre-patch checkpoints. Manual `save()` and `checkpoint()` calls still write their respective files.
+An explicit `state_path` changes the state file location; the audit, trajectory, checkpoint, and step-journal paths remain beside that state file. The default 64 MiB trajectory limit can be changed per kernel with `set_trajectory_max_bytes` in Rust or Python. A row that would exceed the limit is rejected and the failure propagates through the step; existing rows are never truncated or rotated and remain replayable. Set `dump_trajectory = false` to stop trajectory appends, `autosave = false` to stop automatic state saves, or `auto_checkpoint_on_patch = false` to stop automatic pre-patch checkpoints. Manual `save()` and `checkpoint()` calls still write their respective files.
 
 ## Opt-in redaction
 

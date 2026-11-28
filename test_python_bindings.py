@@ -118,6 +118,15 @@ def test_l2_settings(kernel):
     assert kernel.status().l2_enabled is False
 
 
+def test_audit_size_limit_is_configurable_and_fails_closed(kernel, state_path):
+    kernel.set_audit_max_bytes(0)
+
+    with pytest.raises(Exception, match="audit log size limit exceeded"):
+        kernel.step("this step cannot be audited")
+
+    assert not (state_path.parent / "audit.jsonl").exists()
+
+
 def test_trajectory_replay(kernel):
     kernel.set_dump_trajectory(True)
     kernel.run("replay test", 4)
@@ -130,6 +139,21 @@ def test_trajectory_replay(kernel):
     assert [row.step for row in replay.tail] == [2, 3, 4]
     assert all(row.goal == "replay test" for row in replay.tail)
     assert sum(count for _, count in replay.action_counts) == 4
+
+
+def test_trajectory_size_limit_setting(kernel):
+    assert kernel.trajectory_max_bytes() == 64 * 1024 * 1024
+    kernel.set_trajectory_max_bytes(4096)
+    assert kernel.trajectory_max_bytes() == 4096
+
+
+def test_trajectory_size_limit_fails_step_without_appending(kernel):
+    kernel.set_trajectory_max_bytes(0)
+    with pytest.raises(RuntimeError, match="trajectory size limit exceeded"):
+        kernel.step("reject trajectory append")
+
+    trajectory_path = Path(kernel.state_path()).parent / "trajectory.jsonl"
+    assert not trajectory_path.exists()
 
 
 def test_audit_log_tracks_steps_and_rollback(kernel):
