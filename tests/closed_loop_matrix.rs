@@ -396,19 +396,19 @@ fn benchmark_loops_covers_all_seven_presets_across_scenarios() {
 #[test]
 fn cooldown_tracker_backoff_cap_and_saturation_invariants() {
     for base in [0u64, 1, 3, 10, u64::MAX / 2] {
-let mut tracker = CooldownTracker::new(base);
-let expected_cap = base.saturating_mul(16).max(48);
-for _ in 0..64 {
-tracker.record_rollback();
-assert!(tracker.current_cooldown() <= expected_cap);
-}
-for _ in 0..256 {
-tracker.tick();
-}
-tracker.record_improved();
-assert_eq!(tracker.consecutive_rollbacks(), 0);
-assert_eq!(tracker.current_cooldown(), base);
-}
+        let mut tracker = CooldownTracker::new(base);
+        let expected_cap = base.saturating_mul(16).max(48);
+        for _ in 0..64 {
+            tracker.record_rollback();
+            assert!(tracker.current_cooldown() <= expected_cap);
+        }
+        for _ in 0..256 {
+            tracker.tick();
+        }
+        tracker.record_improved();
+        assert_eq!(tracker.consecutive_rollbacks(), 0);
+        assert_eq!(tracker.current_cooldown(), base);
+    }
 }
 
 #[test]
