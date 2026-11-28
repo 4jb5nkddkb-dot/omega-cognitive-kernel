@@ -65,6 +65,15 @@ fn default_l2_detector_cooldown() -> usize {
     5
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalLoopState {
+    #[serde(default)]
+    pub last_external_step_id: Option<u64>,
+    pub cooldown: crate::orchestrator::CooldownTracker,
+    #[serde(default)]
+    pub last_checkpoint_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelSnapshot {
     /// On-disk schema version. Missing / 0 treated as pre-0.5 and migrated up to
@@ -166,6 +175,8 @@ pub struct KernelSnapshot {
     /// Per-instance prioritized-replay cursor (v6+), independent of other kernels.
     #[serde(default)]
     pub case_sample_counter: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_loop: Option<ExternalLoopState>,
 }
 
 impl Default for KernelSnapshot {
@@ -220,6 +231,7 @@ impl Default for KernelSnapshot {
             l2_pending_l1_rollback: false,
             l2_last_reward: 0.5,
             case_sample_counter: 0,
+            external_loop: None,
         }
     }
 }
