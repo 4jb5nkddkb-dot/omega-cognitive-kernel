@@ -43,6 +43,9 @@ directive = json.loads(session.step_external_json(1, 0.55, 0.20))
 ```
 
 `ClosedLoopSession` supports cross-process persistence of `ExternalLoopState` (`step_id` idempotency, cooldown backoff, and checkpoints) via the `Kernel` state file, automatically writes to `AuditLog`, and exposes real `L2MetaLayer` metrics (`kl_prior_bias`, `lyapunov_potential`, `lyapunov_veto`, `alpha`, `beta`, `selected_expert`) in the `l2_prior` payload returned by `step_external_json` / `step_internal_json`.
+
+**Preset selection tip (7 modes):** For external LLM agents and microservices, prefer `control_plane` (`(0, 1, 1)`); use `meta_guard` (`(0, 0, 1)`) for read-only macro supervision, and `hot_patcher` (`(0, 1, 0)`) for lightweight hot-patching without meta-layer overhead. Internal-loop presets include `deterministic` (`(1, 0, 0)`), `fast_adapt` (`(1, 1, 0)`), `steady_prior` (`(1, 0, 1)`, production default), and `full_kernel` (`(1, 1, 1)`). See `examples/python/llm_agent_guard.py` and `examples/python/service_policy_adapter.py` in the repository for runnable examples.
+
 ## Exposed API
 
 - `Kernel`: `new`, `with_state_path`, `open`, `from_config_path`, `step`, `run`, `status`, `save`, `snapshot_json`, `apply_snapshot_json`.
