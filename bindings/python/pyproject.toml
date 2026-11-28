@@ -22,6 +22,11 @@ classifiers = [
 requires-python = ">=3.10"
 keywords = ["cognitive", "agent", "runtime", "patch", "adaptive", "ai"]
 
+[project.urls]
+Homepage = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel"
+Repository = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel"
+Changelog = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/blob/main/CHANGELOG.md"
+Issues = "https://github.com/4jb5nkddkb-dot/omega-cognitive-kernel/issues"
 [tool.maturin]
 features = ["pyo3/extension-module"]
 compatibility = "manylinux2014"
