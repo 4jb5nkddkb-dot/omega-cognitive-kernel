@@ -21,7 +21,8 @@
 | Events | `KernelEvent` / `AuditEvent`; `AuditLog::poll_after`; in-process event hook |
 | Strategies | Operator weight nudge (`set_strategy_weight`) |
 | Adapters | `Observer` / `Executor`; File, Dir, HTTP, Logging, ToolGate |
-| CLI | `omega-kernel` (`--preset`, `step-external`, `strategy-weight`, `audit-poll`), `omega-audit-panel` |
+| CLI | `omega-kernel` (`--preset`, `step-external`, `strategy-weight`, `audit-poll`, `step-external --no-save`, `benchmark-loops`), `omega-audit-panel` |
+| External control plane | Cross-process `ExternalLoopState` persistence (`schema v6`), structured audit events, and real `L2MetaLayer` engine bridging |
 | GUI | `omega-dashboard` (`--features gui`) — status / run / audit live follow / strategies / workspaces / replay |
 | Python bindings | `omega_cognitive_kernel_python` (`Kernel`, `ClosedLoopSession`, `AuditLog`, `CheckpointStore`) |
 | Evidence | Audit log, checkpoints, bandit metrics, weekly report Actions |
